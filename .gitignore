@@ -20,9 +20,9 @@ instance/
 Node.js / Frontend
 -----------------
 Dependencies
-/node_modules
-/dist
-/coverage
+/frontend/node_modules/
+/frontend/dist/
+/frontend/coverage/
 
 Logs
 npm-debug.log*
@@ -31,8 +31,8 @@ yarn-error.log*
 pnpm-debug.log*
 
 Local environment variables
-.env.local
-.env.*.local
+/frontend/.env.local
+/frontend/.env.*.local
 
 IDEs, Editors & OS Files
 -----------------
