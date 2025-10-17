@@ -1,0 +1,73 @@
+tipo,serviço,secretaria
+EVENTO,Agente de trânsito,Secretaria Municipal de Mobilidade e Trânsito
+ATENDIMENTO,Assistência Social,Secretaria Municipal de Assistência Social
+EVENTO,Autorização de Evento,Secretaria Municipal de Segurrança
+SERVIÇO,Autorização para Colocação de Caçamba,Secretaria Municipal de Serviços Urbanos e Zeladoria
+ATENDIMENTO,Cessão de Servidor,Gabinete da Prefeitura
+SERVIÇO,Criação de CEP,Secretaria Municipal de Governo e Transparência
+SERVIÇO,Reclamação coleta de lixo,Secretaria Municipal de Serviços Urbanos e Zeladoria
+EVENTO,Convite,Gabinete da Prefeitura
+SERVIÇO,Desinsetização em espaços públicos,Secretaria Municipal de Saúde e Bem-Estar
+VISTORIA,Defesa Civil,Secretaria Municipal de Segurrança
+EVENTO,Fechamento de rua,Secretaria Municipal de Mobilidade e Trânsito
+VISTORIA,Reclamação de desvio de itinerário,Secretaria Municipal de Mobilidade e Trânsito
+EVENTO,Guarda Municipal,Secretaria Municipal de Segurrança
+ATENDIMENTO,Reclamação horário de ônibus,Secretaria Municipal de Mobilidade e Trânsito
+ATENDIMENTO,Horários de Atendimentos UBS,Secretaria Municipal de Saúde e Bem-Estar
+IMPLANTAÇÃO,Abrigo de ônibus danificado,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Implantação de Academia da Terceira Idade - ATI,Secretaria Municipal de Esportes e Lazer
+IMPLANTAÇÃO,Implantação de Boca de lobo,Secretaria Municipal de Serviços Urbanos e Zeladoria
+IMPLANTAÇÃO,Implantação de Faixa de Pedestres,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Implantação de guias e sarjetas,Secretaria Municipal de Serviços Urbanos e Zeladoria
+IMPLANTAÇÃO,Instalação de braço ou luminária/Instalação de poste,Secretaria Municipal de Serviços Urbanos e Zeladoria
+IMPLANTAÇÃO,Instalação de lixeiras,Secretaria Municipal de Serviços Urbanos e Zeladoria
+IMPLANTAÇÃO,Alteração de Pontos de Ônibus,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Implantação de Lombada,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Pavimentação de Vias,Secretaria Municipal de Serviços Urbanos e Zeladoria
+IMPLANTAÇÃO,Implantação de Recuo de ponto de Ônibus,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Implantação de Redutor de Velocidade,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Implantação de Rotatória,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Implantação ou Alteração de Sinalização,Secretaria Municipal de Mobilidade e Trânsito
+IMPLANTAÇÃO,Sugestão à SMSBE,Secretaria Municipal de Saúde e Bem-Estar
+IMPLANTAÇÃO,Sugestão à SME,Secretaria Municipal de Educação
+IMPLANTAÇÃO,Implantação de Vaga de Estacionamento,Secretaria Municipal de Mobilidade e Trânsito
+VISTORIA,Denúncia invasão de área pública,Secretaria Municipal de Planejamento e Urbanismo
+VISTORIA,Itinerário de ônibus,Secretaria Municipal de Mobilidade e Trânsito
+SERVIÇO,Limpeza/capinação de área pública,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Manutenção de ATI,Secretaria Municipal de Esportes e Lazer
+SERVIÇO,Limpeza/manutenção de boca de lobo,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Manutenção Cemitérios,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Limpeza de valetas e córregos,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Placa de sinalização danificada,Secretaria Municipal de Mobilidade e Trânsito
+SERVIÇO,Desobstrução de galeria de drenagem,Secretaria Municipal de Serviços Urbanos e Zeladoria
+VISTORIA,Denúncia limpeza terreno/calçada,Secretaria Municipal de Segurrança
+SERVIÇO,Nivelamento e cascalhamento de via,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Manutenção de próprios públicos,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Manutenção de guias e sarjetas,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Troca de lâmpada,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Manutenção de lombada,Secretaria Municipal de Mobilidade e Trânsito
+SERVIÇO,Manutenção de próprios públicos,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Limpeza e capinação de praças,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Zeladoria de equipamento esportivo,Secretaria Municipal de Esportes e Lazer
+SERVIÇO,Sinalização viária apagada,Secretaria Municipal de Mobilidade e Trânsito
+SERVIÇO,Reclamação da estrutura da UBS,Secretaria Municipal de Saúde e Bem-Estar
+SERVIÇO,Reclamação da estrutura da escola,Secretaria Municipal de Educação
+SERVIÇO,Poda de árvore em área pública/ Poda de árvore em fio alta tensão,Secretaria Municiapl de Meio Ambiente e Proteção Animal
+SERVIÇO,Tapa Buraco,Secretaria Municipal de Serviços Urbanos e Zeladoria
+VISTORIA,Reclamação de falta de ronda da GCM,Secretaria Municipal de Segurrança
+ATENDIMENTO,Secretaria de Saúde,Secretaria Municipal de Saúde e Bem-Estar
+EVENTO,Serviços Educação,Secretaria Municipal de Educação
+EVENTO,Serviços Evento,Secretaria Municiapl de Meio Ambiente e Proteção Animal
+EVENTO,Serviços Evento,Secretaria Municipal de Cultura
+EVENTO,Serviços Evento,Secretaria Municipal de Desenvolvimento Econômico e Trabalho
+EVENTO,Serviços Evento,Secretaria Municipal de Esportes e Lazer
+EVENTO,Serviços Evento,Secretaria Municipal de Mobilidade e Trânsito
+EVENTO,Serviços Evento,Secretaria Municipal de Segurrança
+EVENTO,Serviços Evento,Secretaria Municipal de Serviços Urbanos e Zeladoria
+SERVIÇO,Serviços Finanças,Secretaria Municipal de Finanças
+ATENDIMENTO,Transferência de Escola,Secretaria Municipal de Educação
+EVENTO,Uso de ginásio/quadra esportiva,Secretaria Municipal de Esportes e Lazer
+EVENTO,Uso de Praça,Secretaria Municipal de Mobilidade e Trânsito
+ATENDIMENTO,Vaga em creche e/ou escola,Secretaria Municipal de Educação
+SERVIÇO,Vazamento de água,SEMAE
+ATENDIMENTO,Vistoria Zoosanitária,Secretaria Municipal de Saúde e Bem-Estar

@@ -1,0 +1,48 @@
+Python / Backend
+-----------------
+Virtual Environment
+venv/
+pycache/
+*.pyc
+*.pyo
+*.pyd
+
+Environment variables
+.env
+
+Django / DB
+db.sqlite3
+*.log
+
+Flask
+instance/
+
+Node.js / Frontend
+-----------------
+Dependencies
+/node_modules
+/dist
+/coverage
+
+Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+Local environment variables
+.env.local
+.env.*.local
+
+IDEs, Editors & OS Files
+-----------------
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+.ntvs
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
