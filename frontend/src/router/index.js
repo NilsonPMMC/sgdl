@@ -67,13 +67,17 @@ const router = createRouter({
     ]
 });
 
-router.beforeEach((to, from, next) => {
+router.beforeEach(async (to, from, next) => {
     const userStore = useUserStore();
-    // Se a rota não for a de login E o usuário não estiver autenticado
+
+    if (userStore.isAuthenticated && !userStore.currentUser?.id) {
+        await userStore.fetchCurrentUser();
+    }
+
     if (to.name !== 'login' && !userStore.isAuthenticated) {
-        next({ name: 'login' }); // Redireciona para o login
+        next({ name: 'login' });
     } else {
-        next(); // Permite a navegação
+        next();
     }
 });
 

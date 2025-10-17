@@ -42,7 +42,7 @@ const tiposTramitacao = ref([
 
 // Propriedade computada para verificar reativamente o perfil do usuário
 const isSecretaria = computed(() => {
-    const perfilNome = userStore.currentUser?.perfil?.nome;
+    const perfilNome = userStore.currentUser?.perfil; 
     if (!perfilNome || typeof perfilNome !== 'string') {
         return false;
     }
@@ -189,7 +189,6 @@ const goBack = () => {
     </div>
 
     <div v-else>
-        <!-- Bloco de Depuração Melhorado -->
         <div class="card bg-yellow-100 border-yellow-400 mb-4">
             <h5 class="font-bold text-yellow-800">Informações de Depuração (Usuário Logado)</h5>
             <div v-if="userStore.currentUser">
@@ -201,7 +200,7 @@ const goBack = () => {
                 </p>
             </div>
             <div v-else>
-                <p class="text-sm text-red-600"><strong>userStore.currentUser está nulo ou indefinido.</strong> A verificação de perfil não pode ser executada ainda.</p>
+                <p class="text-sm text-red-600"><strong>userStore.currentUser está nulo ou indefinido.</strong></p>
             </div>
         </div>
 
@@ -296,7 +295,6 @@ const goBack = () => {
             </div>
         </div>
 
-        <!-- Condição agora usa a propriedade computada `isSecretaria` -->
         <div v-if="isSecretaria && demanda.status !== 'FINALIZADO'">
             <div class="flex flex-col gap-8">
                 <div class="flex gap-3">
@@ -361,8 +359,8 @@ const goBack = () => {
     content: '';
     position: absolute;
     top: 0;
-    left: 28px; /* Ajustado para alinhar com o centro do Avatar 'large' */
-    width: 2px; /* Aumentei a espessura para melhor visualização */
+    left: 20px; /* Ajustado para alinhar com o centro do Avatar 'large' */
+    width: 1.5px; /* Aumentei a espessura para melhor visualização */
     height: 100%;
     background-color: var(--surface-border);
     z-index: 1; /* Fica no fundo */

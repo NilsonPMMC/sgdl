@@ -1,6 +1,7 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import ApiService from '@/service/ApiService.js';
+import { useUserStore } from '@/stores/userStore';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
@@ -13,6 +14,7 @@ import DatePicker from 'primevue/datepicker';
 import Button from 'primevue/button';
 import AutoComplete from 'primevue/autocomplete';
 
+const userStore = useUserStore();
 const loading = ref(true);
 const map = ref(null);
 const markerClusterGroup = ref(null);
@@ -79,7 +81,15 @@ const carregarLocalizacoes = async () => {
             data_fim: formatarDataParaAPI(filtros.value.data_fim)
         };
 
-        // Remove chaves nulas ou indefinidas para não enviar parâmetros vazios
+        const currentUser = userStore.currentUser;
+        if (currentUser && currentUser.perfil) {
+            if (currentUser.perfil === 'VEREADOR') {
+                params.autor = currentUser.id;
+            } else if (currentUser.perfil === 'SECRETARIA') {
+                params.secretaria_destino = currentUser.secretaria;
+            }
+        }
+        
         Object.keys(params).forEach(key => (params[key] == null || params[key] === '') && delete params[key]);
 
         const response = await ApiService.getDemandaLocations(params);

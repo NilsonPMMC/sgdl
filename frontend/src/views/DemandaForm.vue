@@ -4,6 +4,7 @@ import ApiService from '@/service/ApiService.js';
 import { useRouter, useRoute } from 'vue-router';
 import { useToast } from 'primevue/usetoast';
 import axios from 'axios';
+import { useUserStore } from '@/stores/userStore'; 
 
 // Componentes do PrimeVue
 import Editor from 'primevue/editor';
@@ -13,11 +14,11 @@ import Button from 'primevue/button';
 import FileUpload from 'primevue/fileupload';
 import InputMask from 'primevue/inputmask';
 import Tag from 'primevue/tag';
-import Chip from 'primevue/chip';
 
 const toast = useToast();
 const router = useRouter();
 const route = useRoute();
+const userStore = useUserStore();
 
 const anexos = ref([]);
 const todosServicos = ref([]);
@@ -46,7 +47,6 @@ const getTagSeverity = (tipo) => {
 const demanda = ref({
   titulo: '',
   descricao: '',
-  autor_id: 1, // Manteremos hardcoded por enquanto
   cep: '',
   logradouro: '',
   numero: '',

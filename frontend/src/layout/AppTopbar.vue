@@ -69,7 +69,7 @@ const onUserChange = (event) => {
             </div>
 
             <div v-if="userStore.isAuthenticated" class="flex align-items-center gap-3">
-                <span class="hidden sm:inline">Olá, {{ userStore.user.username }}!</span>
+                <span class="hidden sm:inline">Olá, {{ userStore.currentUser?.username }}!</span>
                 <Button label="Sair" icon="pi pi-sign-out" @click="userStore.logout()" text />
             </div>
 

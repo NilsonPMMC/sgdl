@@ -24,12 +24,18 @@ async function carregarDadosDoDashboard() {
     loading.value = true;
     try {
         let params = {};
-        const currentUser = userStore.user;
+        // **CORREÇÃO 1: Acessando a propriedade correta 'currentUser'**
+        const currentUser = userStore.currentUser;
 
-        if (currentUser.perfil === 'VEREADOR') {
-            params.autor = currentUser.id;
-        } else if (currentUser.perfil === 'SECRETARIA') {
-            params.secretaria_destino = currentUser.secretariaId;
+        // Adicionando uma verificação para garantir que currentUser e perfil existam
+        if (currentUser && currentUser.perfil) {
+            if (currentUser.perfil === 'VEREADOR') {
+                params.autor = currentUser.id;
+            } else if (currentUser.perfil === 'SECRETARIA') {
+                // Supondo que o ID da secretaria esteja em currentUser.secretaria
+                // Se o nome da propriedade for diferente, ajuste aqui.
+                params.secretaria_destino = currentUser.secretaria; 
+            }
         }
         
         const response = await ApiService.getDashboardStats(params);
@@ -110,6 +116,7 @@ function formatChartData(data) {
 
 <template>
     <div v-if="loading">
+        <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
         <p>Carregando dados do dashboard...</p>
     </div>
     <Fluid v-if="stats && !loading" class="grid grid-cols-12 gap-8">
@@ -166,13 +173,13 @@ function formatChartData(data) {
             </div>
         </div>
 
-        <div v-if="userStore.user.perfil !== 'VEREADOR'" class="col-span-12 lg:col-span-6 xl:col-span-6">
+        <div v-if="userStore.currentUser?.perfil !== 'VEREADOR'" class="col-span-12 lg:col-span-6 xl:col-span-6">
             <div class="card">
                 <div class="font-semibold text-xl mb-4">Demandas por Secretaria</div>
                 <Chart type="bar" :data="barSecretariaData" :options="barOptions"></Chart>
             </div>
         </div>
-        <div v-if="userStore.user.perfil !== 'VEREADOR'" class="col-span-12 lg:col-span-6 xl:col-span-6">
+        <div v-if="userStore.currentUser?.perfil !== 'VEREADOR'" class="col-span-12 lg:col-span-6 xl:col-span-6">
             <div class="card">
                 <div class="font-semibold text-xl mb-4">Demandas por Vereador</div>
                 <Chart type="bar" :data="barVereadorData" :options="barOptions"></Chart>

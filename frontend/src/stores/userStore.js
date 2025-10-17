@@ -4,37 +4,69 @@ import ApiService from '@/service/ApiService';
 import { computed, ref } from 'vue';
 
 export const useUserStore = defineStore('user', () => {
-    // Agora guardamos o usuário e os tokens
-    const user = useStorage('sgdl_user', {});
+    const currentUserStore = useStorage('sgdl_user', {}); 
     const accessToken = useStorage('sgdl_access_token', null);
     const refreshToken = useStorage('sgdl_refresh_token', null);
     const loading = ref(true);
 
-    // Getter para verificar se está autenticado
     const isAuthenticated = computed(() => !!accessToken.value);
+    const currentUser = computed(() => currentUserStore.value);
 
     function finishLoading() {
         loading.value = false;
     }
 
+    async function fetchCurrentUser() {
+        console.log('1. Entrando em fetchCurrentUser...');
+        if (accessToken.value) {
+            try {
+                console.log('2. Token de acesso existe. Tentando chamar a API /users/me/');
+                const userResponse = await ApiService.getCurrentUser();
+                
+                // **NOVO LOG:** Vamos ver o que a API realmente retornou
+                console.log('3. SUCESSO! A API retornou:', userResponse);
+                console.log('4. Os DADOS dentro da resposta são:', userResponse.data);
+
+                currentUserStore.value = userResponse.data;
+
+                console.log('5. Dados do usuário salvos na store com sucesso.');
+
+            } catch (error) {
+                // **MUDANÇA CRÍTICA:** Comentamos o logout para poder ver o erro!
+                console.error('ERRO INESPERADO! A execução caiu no CATCH. O erro foi:', error);
+                // logout(); // Temporariamente desativado para depuração
+            }
+        } else {
+            console.log('fetchCurrentUser foi chamado, mas não há token de acesso.');
+        }
+    }
+
     async function login(username, password) {
-        // 1. Pede os tokens para a API
+        console.log('Iniciando o processo de login...');
         const response = await ApiService.getTokens(username, password);
         accessToken.value = response.data.access;
         refreshToken.value = response.data.refresh;
-
-        // 2. Com o token, busca os dados do usuário
-        const userResponse = await ApiService.getCurrentUser();
-        user.value = userResponse.data;
+        console.log('Tokens recebidos e salvos.');
+        
+        await fetchCurrentUser();
     }
 
     function logout() {
-        user.value = null;
+        currentUserStore.value = {};
         accessToken.value = null;
         refreshToken.value = null;
-        // Redireciona para a tela de login
-        window.location.href = '/login';
+        // window.location.href = '/login'; // Comentado para não atrapalhar
+        console.log("Função de LOGOUT foi chamada.");
     }
 
-    return { user, accessToken, isAuthenticated, loading, login, logout, finishLoading };
+    return { 
+      currentUser, 
+      accessToken, 
+      isAuthenticated, 
+      loading, 
+      login, 
+      logout, 
+      finishLoading, 
+      fetchCurrentUser
+    };
 });

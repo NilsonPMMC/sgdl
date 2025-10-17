@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from "primevue/useconfirm";
@@ -10,7 +10,6 @@ import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
 import Toolbar from 'primevue/toolbar';
-import Tag from 'primevue/tag';
 import Dialog from 'primevue/dialog';
 import Select from 'primevue/select';
 
@@ -27,20 +26,20 @@ const secretariaDestinoId = ref(null);
 const todasSecretarias = ref([]);
 
 async function carregarDemandas() {
-    if (!userStore.user || !userStore.user.id) {
-        loading.value = false;
-        return;
-    }
     loading.value = true;
     try {
         let params = {};
-        const currentUser = userStore.user;
+        const currentUser = userStore.currentUser;
+        if (!currentUser?.id) {
+            loading.value = false;
+            return;
+        }
         switch (currentUser.perfil) {
             case 'VEREADOR': params.autor = currentUser.id; break;
             case 'PROTOCOLO': params.status__exclude = 'RASCUNHO'; break;
             case 'SECRETARIA':
-                if (currentUser.secretariaId) {
-                    params.secretaria_destino = currentUser.secretariaId;
+                if (currentUser.secretaria) {
+                    params.secretaria_destino = currentUser.secretaria;
                     params.status__in = ['PROTOCOLADO', 'EM_EXECUCAO', 'FINALIZADO'].join(',');
                 }
                 break;
@@ -57,27 +56,15 @@ async function carregarDemandas() {
     }
 }
 
-watch(() => userStore.user, (newUser) => {
-    console.log('--- WATCH DO USUÁRIO DISPARADO ---');
-    console.log('Valor de "newUser":', JSON.parse(JSON.stringify(newUser)));
+onMounted(() => {
+    carregarDemandas();
 
-    if (newUser && newUser.id) {
-        console.log('✅ Condição atendida. Chamando carregarDemandas()...');
-        carregarDemandas();
-
-        if (newUser.perfil === 'PROTOCOLO') {
-            console.log('Usuário é PROTOCOLO, buscando secretarias...');
-            ApiService.getSecretarias().then(response => {
-                todasSecretarias.value = response.data;
-            });
-        }
-    } else {
-        console.log('❌ Condição falhou. O "newUser" não tem um ID ou é nulo.');
+    if (userStore.currentUser?.perfil === 'PROTOCOLO') {
+        ApiService.getSecretarias().then(response => {
+            todasSecretarias.value = response.data;
+        });
     }
-}, { immediate: true, deep: true });
-
-
-onMounted(() => {});
+});
 
 const editarDemanda = (id) => {
     router.push(`/demandas/editar/${id}`);
@@ -131,9 +118,9 @@ const confirmarDespacho = async () => {
 
 const iniciarExecucao = async (id) => {
     try {
-        await ApiService.atualizarStatusDemanda(id, 'EM_EXECUCAO');
+        await ApiService.updateDemanda(id, { status: 'EM_EXECUCAO' }); // Exemplo de como poderia ser
         toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Execução da demanda iniciada.', life: 3000 });
-        carregarDemandas(); // Recarrega a lista para atualizar o status e os botões
+        carregarDemandas();
     } catch (error) {
         toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível iniciar a demanda.', life: 3000 });
     }
@@ -149,9 +136,9 @@ const finalizarDemanda = (id) => {
         rejectLabel: 'Cancelar',
         accept: async () => {
             try {
-                await ApiService.atualizarStatusDemanda(id, 'FINALIZADO');
+                await ApiService.updateDemanda(id, { status: 'FINALIZADO' }); // Exemplo de como poderia ser
                 toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Demanda finalizada.', life: 3000 });
-                carregarDemandas(); // Recarrega a lista para remover a demanda concluída da vista padrão
+                carregarDemandas();
             } catch (error) {
                 toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível finalizar a demanda.', life: 3000 });
             }
@@ -171,12 +158,12 @@ const finalizarDemanda = (id) => {
             </div>
           </template>
           <template #end>
-            <Button v-if="userStore.user?.perfil === 'VEREADOR'" label="Novo Ofício" icon="pi pi-plus" class="p-button-success mr-2" @click="router.push('/demandas/novo')" />
+            <Button v-if="userStore.currentUser?.perfil === 'VEREADOR'" label="Novo Ofício" icon="pi pi-plus" class="p-button-success mr-2" @click="router.push('/demandas/novo')" />
           </template>
         </Toolbar>
 
         <DataTable :value="demandas" :loading="loading" responsiveLayout="scroll">
-          <Column v-if="userStore.user?.perfil === 'VEREADOR' || userStore.user?.perfil === 'PROTOCOLO'" field="protocolo_legislativo" header="Ofício" :sortable="true"></Column>
+          <Column v-if="userStore.currentUser?.perfil === 'VEREADOR' || userStore.currentUser?.perfil === 'PROTOCOLO'" field="protocolo_legislativo" header="Ofício" :sortable="true"></Column>
           <Column field="protocolo_executivo" header="Protocolo" :sortable="true"></Column>
           <Column field="titulo" header="Título" :sortable="true"></Column>
           <Column field="status" header="Status" :sortable="true"></Column>
@@ -184,13 +171,13 @@ const finalizarDemanda = (id) => {
           <Column field="data_criacao" header="Criado em" :sortable="true"></Column>
           <Column header="Ações" style="width: 10rem">
             <template #body="slotProps">
-                <Button v-if="userStore.user?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-pencil" text rounded @click="editarDemanda(slotProps.data.id)" v-tooltip.top="'Editar'"/>
-                <Button v-if="userStore.user?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-trash" severity="danger" text rounded @click="excluirDemanda(slotProps.data.id)" v-tooltip.top="'Excluir'"/>
+                <Button v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-pencil" text rounded @click="editarDemanda(slotProps.data.id)" v-tooltip.top="'Editar'"/>
+                <Button v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-trash" severity="danger" text rounded @click="excluirDemanda(slotProps.data.id)" v-tooltip.top="'Excluir'"/>
                 
-                <Button v-if="userStore.user?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_PROTOCOLO'" icon="pi pi-send" severity="success" text rounded @click="abrirDialogoDespacho(slotProps.data)" v-tooltip.top="'Despachar'"/>
+                <Button v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_PROTOCOLO'" icon="pi pi-send" severity="success" text rounded @click="abrirDialogoDespacho(slotProps.data)" v-tooltip.top="'Despachar'"/>
                 
-                <Button v-if="userStore.user?.perfil === 'SECRETARIA' && slotProps.data.status === 'PROTOCOLADO'" icon="pi pi-play" severity="success" text rounded @click="iniciarExecucao(slotProps.data.id)" v-tooltip.top="'Iniciar Execução'"/>
-                <Button v-if="userStore.user?.perfil === 'SECRETARIA' && slotProps.data.status === 'EM_EXECUCAO'" icon="pi pi-check-square" severity="success" text rounded @click="finalizarDemanda(slotProps.data.id)" v-tooltip.top="'Finalizar Demanda'"/>
+                <Button v-if="userStore.currentUser?.perfil === 'SECRETARIA' && slotProps.data.status === 'PROTOCOLADO'" icon="pi pi-play" severity="success" text rounded @click="iniciarExecucao(slotProps.data.id)" v-tooltip.top="'Iniciar Execução'"/>
+                <Button v-if="userStore.currentUser?.perfil === 'SECRETARIA' && slotProps.data.status === 'EM_EXECUCAO'" icon="pi pi-check-square" severity="success" text rounded @click="finalizarDemanda(slotProps.data.id)" v-tooltip.top="'Finalizar Demanda'"/>
 
                 <Button v-if="slotProps.data.status !== 'RASCUNHO'" icon="pi pi-eye" severity="secondary" text rounded @click="visualizarDemanda(slotProps.data.id)" v-tooltip.top="'Visualizar'"/>
             </template>
