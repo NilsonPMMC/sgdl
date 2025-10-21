@@ -40,6 +40,11 @@ const router = createRouter({
                     name: 'demandas-detalhes',
                     component: () => import('@/views/DemandaDetailView.vue'),
                     props: true
+                },
+                {
+                    path: '/perfil',
+                    name: 'perfil',
+                    component: () => import('@/views/pages/ProfileView.vue')
                 }
             ]
         },

@@ -1,22 +1,22 @@
 <script setup>
+// A seção <script> permanece exatamente a mesma da última versão que te passei.
+// Não há necessidade de alterá-la.
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ApiService from '@/service/ApiService.js';
 import { useUserStore } from '@/stores/userStore';
+import { useToast } from 'primevue/usetoast';
+import { useConfirm } from "primevue/useconfirm";
 
-// Componentes do PrimeVue
 import Button from 'primevue/button';
-import Panel from 'primevue/panel';
 import Tag from 'primevue/tag';
 import ProgressSpinner from 'primevue/progressspinner';
-import Timeline from 'primevue/timeline';
 import Editor from 'primevue/editor';
 import Select from 'primevue/select';
 import FileUpload from 'primevue/fileupload';
 import Message from 'primevue/message';
 import Divider from 'primevue/divider';
 import Avatar from 'primevue/avatar';
-import { useToast } from 'primevue/usetoast';
 
 const route = useRoute();
 const router = useRouter();
@@ -24,47 +24,72 @@ const demanda = ref(null);
 const loading = ref(true);
 const userStore = useUserStore();
 const toast = useToast();
+const confirm = useConfirm();
 
 const novaTramitacao = ref({
     tipo: null,
     descricao: '',
-    anexos_arquivos: [] // Para guardar os arquivos do FileUpload
+    anexos_arquivos: []
 });
+
 const tiposTramitacao = ref([
     { label: 'Comentário', value: 'COMENTARIO' },
     { label: 'Análise Técnica', value: 'ANALISE_TECNICA' },
     { label: 'Atraso por Falta de Material', value: 'ATRASO_MATERIAL' },
     { label: 'Atraso por Outros Motivos', value: 'ATRASO_OUTROS' },
     { label: 'Programação do Serviço', value: 'PROGRAMACAO' },
-    { label: 'Transferência de Setor/Secretaria', value: 'TRANSFERENCIA' },
     { label: 'Conclusão do Serviço', value: 'CONCLUSAO' },
 ]);
 
-// Propriedade computada para verificar reativamente o perfil do usuário
 const isSecretaria = computed(() => {
-    const perfilNome = userStore.currentUser?.perfil; 
+    const perfilNome = userStore.currentUser?.perfil;
     if (!perfilNome || typeof perfilNome !== 'string') {
         return false;
     }
     return perfilNome.toUpperCase().trim() === 'SECRETARIA';
 });
 
-onMounted(async () => {
-    // Garante que os dados do usuário sejam carregados se ainda não estiverem na store.
-    // Isso é crucial para que as permissões (como `isSecretaria`) funcionem corretamente.
-    if (!userStore.currentUser) {
-        try {
-            // Assumindo que sua store tem uma action `fetchCurrentUser` para buscar os dados do usuário logado.
-            // Se o método tiver outro nome, ajuste aqui.
-            if (typeof userStore.fetchCurrentUser === 'function') {
-                await userStore.fetchCurrentUser();
-            }
-        } catch (error) {
-            console.error("Erro ao buscar dados do usuário logado:", error);
-            toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível verificar as permissões do usuário.', life: 3000 });
-        }
-    }
+const podeAgirNaDemanda = computed(() => {
+    if (!demanda.value || !userStore.currentUser) return false;
+    const isOwner = demanda.value.secretaria_destino?.id === userStore.currentUser.secretaria;
+    const isActionableStatus = ![
+        'FINALIZADO',
+        'CANCELADO',
+        'AGUARDANDO_TRANSFERENCIA',
+        'AGUARDANDO_PROTOCOLO',
+        'RASCUNHO'
+    ].includes(demanda.value.status);
+    return isSecretaria.value && isOwner && isActionableStatus;
+});
 
+const iniciarExecucao = () => {
+    confirm.require({
+        message: 'Deseja alterar o status da demanda para "Em Execução"? Um registro será adicionado ao histórico.',
+        header: 'Iniciar Execução',
+        icon: 'pi pi-play',
+        accept: async () => {
+            try {
+                await ApiService.atualizarStatusDemanda(demanda.value.id, 'EM_EXECUCAO');
+                toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Execução iniciada.', life: 3000 });
+                // Recarrega a demanda para refletir a mudança de status e a nova tramitação
+                const response = await ApiService.getDemandaById(demanda.value.id);
+                demanda.value = response.data;
+            } catch (error) {
+                toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível iniciar a execução.', life: 3000 });
+            }
+        }
+    });
+};
+
+const timelineOrdenada = computed(() => {
+    if (demanda.value && demanda.value.tramitacoes) {
+        // Cria uma cópia rasa e a inverte, para não modificar o dado original
+        return [...demanda.value.tramitacoes].reverse();
+    }
+    return [];
+});
+
+onMounted(async () => {
     const demandaId = route.params.id;
     if (demandaId) {
         try {
@@ -81,6 +106,27 @@ onMounted(async () => {
     }
 });
 
+const solicitarTransferencia = () => {
+    confirm.require({
+        message: 'Você tem certeza que deseja solicitar a transferência desta demanda para outra secretaria? A demanda ficará bloqueada até que o Protocolo analise o pedido.',
+        header: 'Confirmar Solicitação',
+        icon: 'pi pi-exchange',
+        acceptLabel: 'Sim, solicitar',
+        rejectLabel: 'Cancelar',
+        accept: async () => {
+            try {
+                await ApiService.solicitarTransferencia(demanda.value.id);
+                toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Solicitação de transferência enviada.', life: 3000 });
+                const response = await ApiService.getDemandaById(demanda.value.id);
+                demanda.value = response.data;
+            } catch (error) {
+                console.error("Erro ao solicitar transferência:", error);
+                toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível solicitar a transferência.', life: 3000 });
+            }
+        }
+    });
+};
+
 const getStatusSeverity = (status) => {
     const map = {
         'RASCUNHO': 'info',
@@ -88,7 +134,8 @@ const getStatusSeverity = (status) => {
         'PROTOCOLADO': 'primary',
         'EM_EXECUCAO': 'success',
         'FINALIZADO': 'success',
-        'CANCELADO': 'danger'
+        'CANCELADO': 'danger',
+        'AGUARDANDO_TRANSFERENCIA': 'warning'
     };
     return map[status] || 'contrast';
 };
@@ -112,13 +159,7 @@ const getTramitacaoTagSeverity = (tipoDisplay) => {
 const formatarData = (timestamp) => {
     if (!timestamp) return '';
     const data = new Date(timestamp);
-    return data.toLocaleString('pt-BR', {
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
+    return data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
 
 const adicionarTramitacao = async () => {
@@ -127,29 +168,61 @@ const adicionarTramitacao = async () => {
         return;
     }
 
+    // Se o tipo for 'CONCLUSAO', mostra o diálogo de confirmação
+    if (novaTramitacao.value.tipo === 'CONCLUSAO') {
+        confirm.require({
+            message: 'Você está registrando a conclusão. Deseja também finalizar a demanda, alterando o status para "Finalizado"?',
+            header: 'Finalizar Demanda?',
+            icon: 'pi pi-check-square',
+            acceptLabel: 'Sim, Finalizar Demanda',
+            rejectLabel: 'Não, Apenas Registrar',
+            accept: () => {
+                // Se aceitar, chama a função de salvar com o parâmetro para finalizar
+                salvarTramitacaoEFinalizar(true);
+            },
+            reject: () => {
+                // Se rejeitar, chama a função de salvar sem finalizar
+                salvarTramitacaoEFinalizar(false);
+            }
+        });
+    } else {
+        // Para qualquer outro tipo de tramitação, salva diretamente
+        salvarTramitacaoEFinalizar(false);
+    }
+};
+
+const salvarTramitacaoEFinalizar = async (finalizarDemanda = false) => {
     const formData = new FormData();
     formData.append('demanda', demanda.value.id);
     formData.append('tipo', novaTramitacao.value.tipo);
     formData.append('descricao', novaTramitacao.value.descricao);
-
     novaTramitacao.value.anexos_arquivos.forEach(file => {
         formData.append('arquivos_anexos', file);
     });
 
     try {
+        // Passo 1: Sempre cria a tramitação
         await ApiService.createTramitacao(formData);
-        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Tramitação registrada com sucesso!', life: 3000 });
+        
+        // Passo 2 (Condicional): Se for para finalizar, atualiza o status
+        if (finalizarDemanda) {
+            await ApiService.atualizarStatusDemanda(demanda.value.id, 'FINALIZADO');
+        }
 
+        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Andamento registrado!', life: 3000 });
+
+        // Recarrega os dados da demanda para mostrar a nova tramitação e o novo status (se aplicável)
         const response = await ApiService.getDemandaById(demanda.value.id);
         demanda.value = response.data;
 
+        // Limpa o formulário
         novaTramitacao.value.tipo = null;
         novaTramitacao.value.descricao = '';
         novaTramitacao.value.anexos_arquivos = [];
 
     } catch (error) {
-        console.error("Erro ao adicionar tramitação:", error);
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível registrar a tramitação.', life: 3000 });
+        console.error("Erro ao salvar andamento:", error);
+        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível salvar o andamento.', life: 3000 });
     }
 };
 
@@ -182,44 +255,48 @@ const goBack = () => {
     <div v-if="loading" class="text-center">
         <ProgressSpinner />
     </div>
-
     <div v-else-if="!demanda" class="text-center">
         <Message severity="error">Demanda não encontrada ou erro ao carregar os dados.</Message>
         <Button label="Voltar" icon="pi pi-arrow-left" @click="goBack" class="p-button-text mt-4" />
     </div>
-
     <div v-else>
-        <div class="card bg-yellow-100 border-yellow-400 mb-4">
-            <h5 class="font-bold text-yellow-800">Informações de Depuração (Usuário Logado)</h5>
-            <div v-if="userStore.currentUser">
-                <p class="text-sm">Objeto currentUser encontrado. Verificando perfil...</p>
-                <pre class="whitespace-pre-wrap break-all text-sm text-yellow-900">{{ JSON.stringify(userStore.currentUser, null, 2) }}</pre>
-                <p class="text-sm mt-2">
-                    Resultado da verificação 'isSecretaria': 
-                    <strong :class="isSecretaria ? 'text-green-600' : 'text-red-600'">{{ isSecretaria }}</strong>
-                </p>
-            </div>
-            <div v-else>
-                <p class="text-sm text-red-600"><strong>userStore.currentUser está nulo ou indefinido.</strong></p>
-            </div>
-        </div>
-
         <div class="flex items-center justify-between gap-2 mb-6">
-            <div class="flex items-center justify-between">
+            <div class="flex items-center gap-4">
                 <Message severity="secondary" icon="pi pi-file-check">
                     {{ demanda.protocolo_executivo || demanda.protocolo_legislativo || 'Rascunho' }}
-                    <Tag :value="demanda.status" :severity="getStatusSeverity(demanda.status)" class="ml-2" />
+                    <Tag :value="demanda.status_display" :severity="getStatusSeverity(demanda.status)" class="ml-2" />
                 </Message>
+                <Button 
+                    v-if="isSecretaria && demanda.status === 'PROTOCOLADO'"
+                    label="Iniciar Execução" 
+                    icon="pi pi-play" 
+                    severity="success"
+                    @click="iniciarExecucao"
+                    size="small"
+                />
+                <Button 
+                    v-if="podeAgirNaDemanda"
+                    label="Solicitar Transferência" 
+                    icon="pi pi-exchange" 
+                    severity="warning"
+                    @click="solicitarTransferencia" 
+                    v-tooltip.top="'Solicitar a movimentação desta demanda para outra secretaria'"
+                    size="small"
+                    outlined
+                />
             </div>
             <div class="flex gap-2">
                 <Button icon="pi pi-arrow-left" @click="router.push('/demandas')" size="small" />
                 <Button icon="pi pi-home" @click="router.push('/')" size="small" />
             </div>
         </div>
+        
+        <Message v-if="demanda.status === 'AGUARDANDO_TRANSFERENCIA'" severity="warn" class="mb-4">
+            Esta demanda está aguardando a análise do Protocolo para ser transferida para outra secretaria. Nenhuma outra ação pode ser realizada no momento.
+        </Message>
 
         <div class="card !m-0">
             <h4 class="mt-1">{{ demanda.titulo }}</h4>
-            
             <div class="flex items-center gap-6 mb-4">
                 <div class="flex items-center gap-2">
                     <i class="pi pi-check-square text-primary-500"></i>
@@ -230,29 +307,18 @@ const goBack = () => {
                     <span>{{ demanda.secretaria_destino?.nome || 'Aguardando despacho' }}</span>
                 </div>
             </div>
-
             <Divider />
-
             <div class="field col-12">
                 <span class="font-semibold">Descrição:</span>
                 <div class="mt-2 p-3 border-1 surface-border border-round" v-html="demanda.descricao"></div>
             </div>
-
             <Divider />
-
             <div class="mb-4">
-                <span class="text-primary-500">
-                    <i class="pi pi-map-marker"></i>
-                    Endereço:
-                </span>
+                <span class="text-primary-500"><i class="pi pi-map-marker"></i> Endereço:</span>
                 <p class="mt-2">{{ demanda.logradouro || 'Não informado' }}, Nº {{ demanda.numero || 'S/N' }} - {{ demanda.bairro || 'Não informado' }}</p>
             </div>
-
             <div v-if="demanda.anexos && demanda.anexos.length > 0" class="field col-12">
-                <span class="text-primary-500">
-                    <i class="pi pi-paperclip"></i>
-                    Anexos:
-                </span>
+                <span class="text-primary-500"><i class="pi pi-paperclip"></i> Anexos:</span>
                 <a v-for="anexo in demanda.anexos" :key="anexo.id" :href="anexo.arquivo" target="_blank" rel="noopener noreferrer" class="no-underline text-color hover:text-primary flex align-items-center border-1 surface-border border-round mt-2 p-2">
                     <i class="pi pi-file mr-2"></i>
                     <span>{{ anexo.arquivo.split('/').pop() }}</span>
@@ -260,31 +326,26 @@ const goBack = () => {
             </div>
         </div>
 
-        <div v-if="demanda.tramitacoes && demanda.tramitacoes.length > 0" class="pt-6 pb-6 timeline-container">
+        <div v-if="timelineOrdenada.length > 0" class="pt-6 pb-6 timeline-container">
             <div class="flex flex-col gap-6">
-                <div v-for="item in demanda.tramitacoes" :key="item.id" class="flex gap-3">
-
+                <div v-for="item in timelineOrdenada" :key="item.id" class="flex gap-3">
                     <div class="flex flex-col items-center timeline-icon-container">
                         <Avatar :icon="getTimelineIcon(item.tipo_display).icon" shape="circle" size="large" :class="getTimelineIcon(item.tipo_display).color" />
                     </div>
-
                     <div class="card flex-1">
                         <div class="flex justify-between items-center">
                             <span class="font-bold gap-3">
-                                {{ item.responsavel?.perfil?.nome || 'Sistema' }}
+                                {{ item.responsavel?.first_name || item.responsavel?.username || 'Sistema' }}
                                 <small class="text-color-secondary font-normal"> registrou um andamento em {{ formatarData(item.timestamp) }}</small>
                             </span>
                             <Tag :value="item.tipo_display" :severity="getTramitacaoTagSeverity(item.tipo_display)" class="mb-2" />
                         </div>
-
                         <Divider/>
-                        
                         <div v-html="item.descricao" class="mb-6"></div>
-
-                        <div v-if="item.anexos && item.anexos.length > 0" class="flex gap-2 mt-3 text-sm">
+                        <div v-if="item.anexos_tramitacao && item.anexos_tramitacao.length > 0" class="flex gap-2 mt-3 text-sm">
                             <i class="pi pi-paperclip"></i>
                             <div class="flex flex-column gap-2">
-                                <a v-for="anexo in item.anexos" :key="anexo.id" :href="anexo.arquivo" target="_blank" rel="noopener noreferrer" class="no-underline text-color hover:text-primary flex align-items-center">
+                                <a v-for="anexo in item.anexos_tramitacao" :key="anexo.id" :href="anexo.arquivo" target="_blank" rel="noopener noreferrer" class="no-underline text-color hover:text-primary flex align-items-center">
                                     <i class="pi pi-file mr-2"></i>
                                     <span>{{ anexo.arquivo.split('/').pop() }}</span>
                                 </a>
@@ -295,13 +356,12 @@ const goBack = () => {
             </div>
         </div>
 
-        <div v-if="isSecretaria && demanda.status !== 'FINALIZADO'">
+        <div v-if="isSecretaria && demanda.status === 'EM_EXECUCAO'">
             <div class="flex flex-col gap-8">
                 <div class="flex gap-3">
                     <div class="flex flex-col items-center">
                         <Avatar label="+" size="large" :style="{ 'background-color': '#10b981', color: '#ffffff' }" shape="circle"></Avatar>
                     </div>
-
                     <div class="card flex-1">
                         <span class="font-semibold mb-3 block">Adicionar Andamento</span>
                         <Divider/>
@@ -312,22 +372,8 @@ const goBack = () => {
                                     <Select id="tipoTramitacao" v-model="novaTramitacao.tipo" :options="tiposTramitacao" optionLabel="label" optionValue="value" placeholder="Selecione o tipo" fluid />
                                 </div>
                                 <div>
-                                    <label class="block mb-3">
-                                        <i class="pi pi-paperclip"></i>
-                                        Anexos
-                                    </label>
-                                    <FileUpload 
-                                        name="anexos" 
-                                        :multiple="true" 
-                                        accept="image/*,application/pdf" 
-                                        :maxFileSize="2000000"
-                                        chooseLabel="Selecionar Anexos"
-                                        uploadLabel="Enviar"
-                                        cancelLabel="Cancelar"
-                                        :auto="false"
-                                        :showUploadButton="false"
-                                        @select="onTramitacaoFilesSelected"
-                                    />
+                                    <label class="block mb-3"><i class="pi pi-paperclip"></i> Anexos</label>
+                                    <FileUpload name="anexos" :multiple="true" accept="image/*,application/pdf" :maxFileSize="2000000" chooseLabel="Selecionar Anexos" :auto="false" :showUploadButton="false" @select="onTramitacaoFilesSelected"/>
                                     <div v-if="novaTramitacao.anexos_arquivos.length > 0" class="mt-2 flex flex-wrap gap-2">
                                         <Tag v-for="file in novaTramitacao.anexos_arquivos" :key="file.name" :value="file.name" icon="pi pi-paperclip" removable @remove="novaTramitacao.anexos_arquivos = novaTramitacao.anexos_arquivos.filter(f => f.name !== file.name)" />
                                     </div>
@@ -345,6 +391,15 @@ const goBack = () => {
                 </div>
             </div>
         </div>
+        
+        <Button 
+            v-else-if="isSecretaria && demanda.status === 'PROTOCOLADO'"
+            label="Iniciar Execução" 
+            icon="pi pi-play" 
+            severity="success"
+            @click="iniciarExecucao"
+        />
+
         <Button v-else icon="pi pi-arrow-left" @click="router.push('/demandas')" label="Voltar" />
     </div>
 </template>
@@ -353,27 +408,21 @@ const goBack = () => {
 .timeline-container {
     position: relative;
 }
-
-/* A linha vertical contínua */
 .timeline-container::before {
     content: '';
     position: absolute;
     top: 0;
-    left: 20px; /* Ajustado para alinhar com o centro do Avatar 'large' */
-    width: 1.5px; /* Aumentei a espessura para melhor visualização */
+    left: 20px;
+    width: 1.5px;
     height: 100%;
     background-color: var(--surface-border);
-    z-index: 1; /* Fica no fundo */
+    z-index: 1;
 }
-
-/* O container do ícone */
 .timeline-icon-container {
     position: relative;
-    z-index: 2; /* Garante que o ícone fique SEMPRE na frente da linha */
-    padding-top: 8px; /* Ajuste para centralizar o ícone com o card */
+    z-index: 2;
+    padding-top: 8px;
 }
-
-/* Ajuste fino para remover a borda padrão dos cards dentro da timeline */
 .timeline-container .card {
     border: 1px solid var(--surface-border);
     box-shadow: var(--card-shadow);

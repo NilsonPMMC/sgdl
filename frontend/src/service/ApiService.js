@@ -30,13 +30,13 @@ export default {
     return apiClient.get('demandas/locations/', { params });
   },
   getDemandas(params = {}) {
-      return apiClient.get('demandas/', { params });
+    return apiClient.get('demandas/', { params });
   },
   getDemandaById(id) {
-      return apiClient.get(`demandas/${id}/`);
+    return apiClient.get(`demandas/${id}/`);
   },
   updateDemanda(id, data) {
-      return apiClient.put(`demandas/${id}/`, data);
+    return apiClient.patch(`demandas/${id}/`, data);
   },
   getServicos() {
     return apiClient.get('servicos/');
@@ -69,4 +69,37 @@ export default {
   createTramitacao(data) {
     return apiClient.post('tramitacoes/', data);
   },
+  solicitarTransferencia(demandaId) {
+    return apiClient.post(`demandas/${demandaId}/solicitar_transferencia/`);
+  },
+  aprovarTransferencia(demandaId, novaSecretariaId) {
+    return apiClient.post(`demandas/${demandaId}/aprovar_transferencia/`, { nova_secretaria_id: novaSecretariaId });
+  },
+  atualizarStatusDemanda(demandaId, novoStatus) {
+    return apiClient.post(`demandas/${demandaId}/atualizar_status/`, { status: novoStatus });
+  },
+  getUsuarios(params = {}) {
+    return apiClient.get('usuarios/', { params });
+  },
+  getUserProfile() {
+    return apiClient.get('users/me/');
+  },
+  /**
+   * Atualiza os dados do perfil do usuário logado.
+   * @param {FormData} formData - Dados do formulário, incluindo o avatar.
+   */
+  updateUserProfile(formData) {
+    return apiClient.patch('users/me/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data'
+      }
+    });
+  },
+  /**
+   * Altera a senha do usuário logado.
+   * @param {object} passwordData - { old_password, new_password }.
+   */
+  changePassword(passwordData) {
+    return apiClient.post('users/me/change-password/', passwordData);
+  }
 };

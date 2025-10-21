@@ -119,7 +119,7 @@ function formatChartData(data) {
         <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
         <p>Carregando dados do dashboard...</p>
     </div>
-    <Fluid v-if="stats && !loading" class="grid grid-cols-12 gap-8">
+    <div v-if="stats && !loading" class="grid grid-cols-12 gap-8">
         <div class="col-span-12 lg:col-span-6 xl:col-span-3">
             <div class="card mb-0">
                 <div class="flex justify-between mb-4">
@@ -197,7 +197,7 @@ function formatChartData(data) {
                 <Chart type="line" :data="lineData" :options="lineOptions"></Chart>
             </div>
         </div>
-    </Fluid>
+    </div>
     <div v-else class="text-center">
         <p class="text-red-500">Não foi possível carregar os dados do dashboard.</p>
     </div>

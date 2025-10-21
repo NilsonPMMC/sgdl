@@ -1,12 +1,12 @@
 # /var/www/sgdl/backend/core/models.py
 
+import logging
 from django.db import models
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
 
-# Modelo para as Secretarias
 class Secretaria(models.Model):
     nome = models.CharField(max_length=255, unique=True)
 
@@ -22,8 +22,12 @@ class Usuario(AbstractUser):
     )
     perfil = models.CharField(max_length=20, choices=PERFIL_CHOICES, blank=True, null=True)
     secretaria = models.ForeignKey(Secretaria, on_delete=models.SET_NULL, null=True, blank=True, related_name='usuarios')
+    avatar = models.ImageField(upload_to='avatars/', null=True, blank=True)
+    cargo = models.CharField(max_length=100, blank=True, null=True)
+    telefone = models.CharField(max_length=20, blank=True, null=True)
+    ramal = models.CharField(max_length=10, blank=True, null=True)
+    assinatura = models.TextField(blank=True, null=True, help_text="Texto que aparecerá como assinatura. Ex: Nome Completo, Cargo, Secretaria.")
 
-# Modelo para a Carta de Serviços
 class Servico(models.Model):
     TIPO_CHOICES = [
         ('EVENTO', 'Evento'),
@@ -39,8 +43,9 @@ class Servico(models.Model):
 
     def __str__(self):
         return self.nome
+    
+logger = logging.getLogger(__name__)
 
-# O modelo principal: a Demanda (Ofício)
 class Demanda(models.Model):
     STATUS_CHOICES = (
         ('RASCUNHO', 'Rascunho'),
@@ -49,6 +54,7 @@ class Demanda(models.Model):
         ('EM_EXECUCAO', 'Em Execução'),
         ('FINALIZADO', 'Finalizado'),
         ('CANCELADO', 'Cancelado'),
+        ('AGUARDANDO_TRANSFERENCIA', 'Aguardando Transferência'),
     )
 
     protocolo_legislativo = models.CharField(max_length=20, unique=True, blank=True, null=True)
@@ -70,17 +76,22 @@ class Demanda(models.Model):
     secretaria_destino = models.ForeignKey(Secretaria, on_delete=models.PROTECT, related_name='demandas_recebidas', blank=True, null=True)
 
     def save(self, *args, **kwargs):
-        if self.logradouro and self.bairro: # Só tenta geocodificar se tiver um endereço
+        if self.logradouro and self.bairro and not self.latitude:
             try:
                 geolocator = Nominatim(user_agent="sgdl_app")
-                endereco_completo = f'{self.logradouro}, {self.numero}, {self.bairro}, Mogi das Cruzes, SP'
+                endereco_completo = f'{self.logradouro}, {self.numero}, {self.bairro}, Mogi das Cruzes, SP, {self.cep}'
                 location = geolocator.geocode(endereco_completo, timeout=10)
                 
                 if location:
                     self.latitude = location.latitude
                     self.longitude = location.longitude
+                else:
+                    logger.warning(f"Geocodificação falhou: Endereço não encontrado para a demanda '{self.titulo}'. Endereço: {endereco_completo}")
+
             except (GeocoderTimedOut, GeocoderUnavailable):
-                pass 
+                logger.error(f"Geocodificação falhou para a demanda '{self.titulo}': O serviço Nominatim não respondeu. Erro: {e}")
+            except Exception as e:
+                logger.error(f"Um erro inesperado ocorreu durante a geocodificação da demanda '{self.titulo}': {e}")
                 
         super().save(*args, **kwargs)
     
@@ -88,7 +99,6 @@ class Demanda(models.Model):
         protocolo = self.protocolo_executivo or self.protocolo_legislativo or "Rascunho"
         return f'[{protocolo}] {self.titulo}'
 
-# Modelo para os anexos de uma demanda
 class Anexo(models.Model):
     demanda = models.ForeignKey(Demanda, on_delete=models.CASCADE, related_name='anexos')
     arquivo = models.FileField(upload_to='anexos/%Y/%m/%d/')
@@ -106,11 +116,13 @@ class Tramitacao(models.Model):
         ('COMENTARIO', 'Comentário'),
         ('ANALISE_TECNICA', 'Análise Técnica'),
         ('ATRASO', 'Registro de Atraso'),
+        ('PROGRAMACAO', 'Programação do Serviço'),
         ('CONCLUSAO', 'Conclusão do Serviço'),
+        ('TRANSFERENCIA', 'Transferência de Setor/Secretaria'), 
     ]
 
     demanda = models.ForeignKey(Demanda, on_delete=models.CASCADE, related_name='tramitacoes')
-    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    responsavel = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
     descricao = models.TextField(help_text="Descrição detalhada do passo, justificativa do atraso, etc.")
     timestamp = models.DateTimeField(auto_now_add=True)

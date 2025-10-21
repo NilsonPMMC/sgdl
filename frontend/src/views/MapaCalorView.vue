@@ -13,6 +13,8 @@ import Select from 'primevue/select';
 import DatePicker from 'primevue/datepicker';
 import Button from 'primevue/button';
 import AutoComplete from 'primevue/autocomplete';
+import Panel from 'primevue/panel';
+import Divider from 'primevue/divider';
 
 const userStore = useUserStore();
 const loading = ref(true);
@@ -35,11 +37,15 @@ const tiposServico = ref([
     { label: 'Evento', value: 'EVENTO' },
     { label: 'Atendimento', value: 'ATENDIMENTO' },
 ]);
+
 const statusOptions = ref([
     { label: 'Todos os Status', value: null },
+    { label: 'Aguardando Protocolo', value: 'AGUARDANDO_PROTOCOLO' },
     { label: 'Protocolado', value: 'PROTOCOLADO' },
     { label: 'Em Execução', value: 'EM_EXECUCAO' },
-    { label: 'Finalizado', value: 'FINALIZADO' }
+    { label: 'Aguardando Transferência', value: 'AGUARDANDO_TRANSFERENCIA' },
+    { label: 'Finalizado', value: 'FINALIZADO' },
+    { label: 'Cancelado', value: 'CANCELADO' }
 ]);
 
 
@@ -189,53 +195,54 @@ const searchServico = (event) => {
 <template>
     <div class="card">
         <h5>Mapa de Calor das Demandas</h5>
-        
-        <div class="grid formgrid p-fluid align-items-end mb-4 gap-2">
-            <div class="field col">
-                <label for="tipo">Tipo de Serviço</label>
-                <Select 
-                    id="tipo" 
-                    v-model="filtros.tipo_servico" 
-                    :options="tiposServico" 
-                    optionLabel="label" 
-                    optionValue="value" 
-                    @change="filtros.servico = null" 
-                />
+        <Panel class="mb-3" header="Filtrar" toggleable>
+            <div class="flex flex-wrap gap-4 mb-3">
+                <div class="flex flex-col grow basis-0 gap-2">
+                    <label for="tipo">Tipo de Serviço</label>
+                    <Select 
+                        id="tipo" 
+                        v-model="filtros.tipo_servico" 
+                        :options="tiposServico" 
+                        optionLabel="label" 
+                        optionValue="value" 
+                        @change="filtros.servico = null" 
+                    />
+                </div>
+
+                <div class="flex flex-col grow basis-0 gap-2">
+                    <label for="servico">Serviço Específico</label>
+                    <AutoComplete 
+                        id="servico"
+                        v-model="filtros.servico" 
+                        :suggestions="filteredServicos" 
+                        @complete="searchServico" 
+                        optionLabel="nome"
+                        forceSelection
+                        placeholder="Digite para filtrar"
+                        dropdown
+                    />
+                </div>
             </div>
 
-            <div class="field col">
-                <label for="servico">Serviço Específico</label>
-                <AutoComplete 
-                    id="servico"
-                    v-model="filtros.servico" 
-                    :suggestions="filteredServicos" 
-                    @complete="searchServico" 
-                    optionLabel="nome"
-                    forceSelection
-                    placeholder="Digite para filtrar"
-                    dropdown
-                />
-            </div>
+            <div class="flex flex-wrap gap-4 mb-3">
+                <div class="flex flex-col grow basis-0 gap-2">
+                    <label for="status">Status</label>
+                    <Select id="status" v-model="filtros.status" :options="statusOptions" optionLabel="label" optionValue="value" />
+                </div>
 
-            <div class="field col">
-                <label for="status">Status</label>
-                <Select id="status" v-model="filtros.status" :options="statusOptions" optionLabel="label" optionValue="value" />
-            </div>
+                <div class="flex flex-col grow basis-0 gap-2">
+                    <label for="data_inicio">De</label>
+                    <DatePicker id="data_inicio" v-model="filtros.data_inicio" dateFormat="yy-mm-dd" />
+                </div>
 
-            <div class="field col">
-                <label for="data_inicio">De</label>
-                <DatePicker id="data_inicio" v-model="filtros.data_inicio" dateFormat="yy-mm-dd" />
+                <div class="flex flex-col grow basis-0 gap-2">
+                    <label for="data_fim">Até</label>
+                    <DatePicker id="data_fim" v-model="filtros.data_fim" dateFormat="yy-mm-dd" />
+                </div>
             </div>
-
-            <div class="field col">
-                <label for="data_fim">Até</label>
-                <DatePicker id="data_fim" v-model="filtros.data_fim" dateFormat="yy-mm-dd" />
-            </div>
-
-            <div class="col">
-                <Button label="Filtrar" icon="pi pi-filter" @click="carregarLocalizacoes" />
-            </div>
-        </div>
+            
+            <Button label="Filtrar" icon="pi pi-filter" @click="carregarLocalizacoes" />
+        </Panel>
         
         <div v-if="loading" class="text-center">
              </div>

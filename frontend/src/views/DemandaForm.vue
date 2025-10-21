@@ -1,12 +1,14 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, nextTick } from 'vue';
 import ApiService from '@/service/ApiService.js';
 import { useRouter, useRoute } from 'vue-router';
 import { useToast } from 'primevue/usetoast';
 import axios from 'axios';
 import { useUserStore } from '@/stores/userStore'; 
 
-// Componentes do PrimeVue
+import 'leaflet/dist/leaflet.css';
+import L from 'leaflet';
+
 import Editor from 'primevue/editor';
 import InputText from 'primevue/inputtext';
 import AutoComplete from 'primevue/autocomplete';
@@ -19,6 +21,10 @@ const toast = useToast();
 const router = useRouter();
 const route = useRoute();
 const userStore = useUserStore();
+
+const map = ref(null);
+const marker = ref(null);
+const defaultCoords = [-23.523, -46.18];
 
 const anexos = ref([]);
 const todosServicos = ref([]);
@@ -43,7 +49,6 @@ const getTagSeverity = (tipo) => {
   }
 };
 
-// Objeto principal do formulário
 const demanda = ref({
   titulo: '',
   descricao: '',
@@ -51,33 +56,68 @@ const demanda = ref({
   logradouro: '',
   numero: '',
   complemento: '',
-  bairro: ''
+  bairro: '',
+  latitude: null,
+  longitude: null
 });
 
-// Busca a lista de serviços quando a página carrega
-onMounted(async () => {
-  try {
-    const responseServicos = await ApiService.getServicos();
-    todosServicos.value = responseServicos.data;
+const initMap = (coords) => {
+    nextTick(() => {
+        if (map.value) { // Se o mapa já existe, apenas ajusta a visão
+            map.value.setView(coords, 16);
+            return;
+        }
+        map.value = L.map('demanda-map').setView(coords, 16);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap'
+        }).addTo(map.value);
+        updateMarker(coords, true);
+    });
+};
 
-    const idDaRota = route.params.id;
-    if (idDaRota) {
-      demandaId.value = idDaRota;
-
-      const responseDemanda = await ApiService.getDemandaById(idDaRota);
-
-      demanda.value = responseDemanda.data;
-      anexos.value = responseDemanda.data.anexos;
-
-      selectedServico.value = todosServicos.value.find(s => s.id === responseDemanda.data.servico.id);
+const updateMarker = (coords, isDraggable = true) => {
+    if (!map.value) {
+        initMap(coords);
+        return;
     }
-  } catch (error) {
-    console.error("Erro ao carregar dados:", error);
-    toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível carregar os dados da página.', life: 3000 });
-  }
+    
+    if (marker.value) {
+        marker.value.setLatLng(coords);
+    } else {
+        marker.value = L.marker(coords, { draggable: isDraggable }).addTo(map.value);
+        marker.value.on('dragend', (event) => {
+            const position = event.target.getLatLng();
+            demanda.value.latitude = position.lat.toFixed(6); // Garante 6 casas decimais
+            demanda.value.longitude = position.lng.toFixed(6);
+        });
+    }
+    map.value.setView(coords, 17);
+};
+
+onMounted(async () => {
+    try {
+        const responseServicos = await ApiService.getServicos();
+        todosServicos.value = responseServicos.data;
+
+        const idDaRota = route.params.id;
+        if (idDaRota) { // Modo de Edição
+            demandaId.value = idDaRota;
+            const responseDemanda = await ApiService.getDemandaById(idDaRota);
+            demanda.value = responseDemanda.data;
+            anexos.value = responseDemanda.data.anexos;
+            selectedServico.value = todosServicos.value.find(s => s.id === responseDemanda.data.servico.id);
+            
+            if (demanda.value.latitude && demanda.value.longitude) {
+                initMap([demanda.value.latitude, demanda.value.longitude]);
+            } else {
+                initMap(defaultCoords); // Se não tiver coords, inicia no padrão
+            }
+        } else { // Modo de Criação
+            initMap(defaultCoords);
+        }
+    } catch (error) { console.error("Erro ao carregar dados:", error); }
 });
 
-// Filtra os serviços para o AutoComplete
 const searchServico = (event) => {
   if (!event.query.trim().length) {
     filteredServicos.value = [...todosServicos.value];
@@ -88,27 +128,49 @@ const searchServico = (event) => {
   }
 };
 
-// Busca o endereço a partir do CEP
 const buscarCep = async () => {
-  const cepLimpo = demanda.value.cep ? demanda.value.cep.replace(/\D/g, '') : ''; // ✅ CORREÇÃO: Limpando a máscara do CEP
+  const cepLimpo = demanda.value.cep ? demanda.value.cep.replace(/\D/g, '') : '';
   if (cepLimpo.length === 8) {
     try {
       const response = await axios.get(`https://viacep.com.br/ws/${cepLimpo}/json/`);
-      if (response.data.erro) {
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'CEP não encontrado.', life: 3000 });
-      } else {
+      if (!response.data.erro) {
         demanda.value.logradouro = response.data.logradouro;
         demanda.value.bairro = response.data.bairro;
         toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Endereço preenchido.', life: 3000 });
+        
+        // **CORREÇÃO:** Após preencher o endereço, chama a geocodificação
+        await geocodeAddress();
+      } else {
+        toast.add({ severity: 'error', summary: 'Erro', detail: 'CEP não encontrado.', life: 3000 });
       }
-    } catch (error) {
-      console.error("Erro ao buscar CEP:", error);
-      toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível buscar o CEP.', life: 3000 });
-    }
+    } catch (error) { console.error("Erro ao buscar CEP:", error); }
   }
 };
 
-// Gera o texto do ofício
+const geocodeAddress = async () => {
+    // **CORREÇÃO:** Prioriza o CEP se ele existir, pois é mais preciso
+    const query = demanda.value.cep || `${demanda.value.logradouro}, ${demanda.value.bairro}, Mogi das Cruzes`;
+    if (!query.trim()) return;
+
+    try {
+        const response = await axios.get('https://nominatim.openstreetmap.org/search', {
+            params: { q: query, format: 'json', limit: 1, countrycodes: 'br' }
+        });
+        if (response.data && response.data.length > 0) {
+            const location = response.data[0];
+            const coords = [parseFloat(location.lat), parseFloat(location.lon)];
+            demanda.value.latitude = coords[0].toFixed(6);
+            demanda.value.longitude = coords[1].toFixed(6);
+            updateMarker(coords);
+            toast.add({ severity: 'info', summary: 'Localização Encontrada', detail: 'Ponto ajustado no mapa. Arraste para refinar.', life: 4000 });
+        } else {
+             toast.add({ severity: 'warn', summary: 'Aviso', detail: 'Endereço não encontrado no mapa. Arraste o pino manualmente.', life: 4000 });
+        }
+    } catch (error) {
+        console.error("Erro na geocodificação:", error);
+    }
+};
+
 const gerarDescricao = () => {
   const nomeServico = selectedServico.value ? selectedServico.value.nome : '[Serviço não selecionado]';
   
@@ -117,20 +179,20 @@ const gerarDescricao = () => {
     local = `${demanda.value.logradouro}, Nº ${demanda.value.numero || 'S/N'}, ${demanda.value.bairro}.`;
   }
   
-  const nomeVereador = "Vereador(a) [Nome do Vereador]";
+  const user = userStore.currentUser;
+  const assinaturaUsuario = user?.assinatura || `${user?.first_name || ''} ${user?.last_name || ''}`.trim();
 
   demanda.value.descricao = 
-    `<p>Exmo(a). Sr(a). Prefeito(a),</p>` +
-    `<p>Pelo presente, o(a) ${nomeVereador}, no uso de suas atribuições legais, vem respeitosamente solicitar a Vossa Excelência que determine à secretaria competente a execução do seguinte serviço:</p>` +
+    `<p>Exma. Sra. Prefeita,</p>` +
+    `<p>Pelo presente, no uso de suas atribuições legais, vem respeitosamente solicitar a Vossa Excelência que determine à secretaria competente a execução do seguinte serviço:</p>` +
     `<p>- Serviço Solicitado: ${nomeServico}<br>- Local da Solicitação: ${local}</p>` +
     `<p>A referida solicitação se faz necessária para atender às demandas da comunidade local e garantir a melhoria da infraestrutura e bem-estar dos cidadãos.</p>` +
     `<p>Contando com a vossa valiosa atenção, renovo os protestos de estima e consideração.</p>` +
     `<p><br></p>` + // Parágrafo em branco para mais espaço
     `<p>Atenciosamente,</p>` +
-    `<p><strong>${nomeVereador}</strong></p>`; // Podemos até usar <strong> para negrito!
+    `${assinaturaUsuario}`;
 };
 
-// Salva a demanda
 const salvarRascunho = async () => {
     const payload = {
         ...demanda.value,
@@ -144,14 +206,11 @@ const salvarRascunho = async () => {
 
     try {
         if (demandaId.value) {
-            // Se já tem ID, atualiza o rascunho
             await ApiService.updateDemanda(demandaId.value, payload);
             toast.add({ severity: 'info', summary: 'Salvo', detail: 'Rascunho atualizado com sucesso.', life: 3000 });
         } else {
-            // Se não tem ID, cria um novo rascunho
             const response = await ApiService.createDemanda(payload);
             demandaId.value = response.data.id;
-            // Atualiza a URL para o modo de edição sem recarregar a página
             router.replace({ name: 'demandas-editar', params: { id: demandaId.value } });
             toast.add({ severity: 'info', summary: 'Salvo', detail: 'Rascunho salvo. Agora você pode anexar arquivos.', life: 3000 });
         }
@@ -192,7 +251,7 @@ const onUpload = async (event) => {
 const removerAnexo = async (anexoId, index) => {
     try {
         await ApiService.deleteAnexo(anexoId);
-        anexos.value.splice(index, 1); // Remove o anexo da lista na tela
+        anexos.value.splice(index, 1);
         toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Anexo removido.', life: 3000 });
     } catch (error) {
         console.error("Erro ao remover anexo:", error);
@@ -243,6 +302,12 @@ const removerAnexo = async (anexoId, index) => {
         </div>
       </div>
 
+      <div class="field">
+          <label class="block mb-3">Localização no Mapa</label>
+          <small class="block mb-2 text-muted-color">Após preencher o endereço, o pino será ajustado. Arraste-o para a posição exata, se necessário.</small>
+          <div id="demanda-map" style="height: 350px; border-radius: 6px;"></div>
+      </div>
+
       <div class="grid grid-cols-12 gap-8">
         <div class="col-span-full lg:col-span-3">
           <label class="block mb-3" for="numero">Número</label>
@@ -259,13 +324,14 @@ const removerAnexo = async (anexoId, index) => {
       </div>
 
       <div>
-        <label for="name" class="block mb-3">Descrição Completa</label>
+        <div class="flex flex-row items-center gap-2 mb-3">
+          <label for="name">Descrição Completa</label>
+          <Button label="Gerar texto" icon="pi pi-bolt" class="p-button-text" @click="gerarDescricao" :fluid="false" />
+        </div>
         <Editor id="descricao" v-model="demanda.descricao" editorStyle="height: 320px" />
       </div>
       
-      <div>
-        <Button label="Gerar texto" icon="pi pi-bolt" class="p-button-text" @click="gerarDescricao" :fluid="false" />
-      </div>
+      
 
       <div class="flex justify-content-end gap-2 mt-4">
           <Button label="Cancelar" severity="secondary" outlined @click="router.push('/demandas')"></Button>

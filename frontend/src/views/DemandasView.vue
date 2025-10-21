@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from "primevue/useconfirm";
@@ -10,8 +10,13 @@ import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
 import Toolbar from 'primevue/toolbar';
+import Tag from 'primevue/tag';
 import Dialog from 'primevue/dialog';
 import Select from 'primevue/select';
+import InputText from 'primevue/inputtext';
+import Panel from 'primevue/panel';
+import IconField from 'primevue/iconfield';
+import InputIcon from 'primevue/inputicon';
 
 const demandas = ref([]);
 const router = useRouter();
@@ -23,29 +28,97 @@ const loading = ref(true);
 const despachoDialog = ref(false);
 const demandaParaDespacho = ref(null);
 const secretariaDestinoId = ref(null);
+
+const aprovacaoDialog = ref(false);
+const demandaParaAprovacao = ref(null);
+const novaSecretariaId = ref(null);
+
 const todasSecretarias = ref([]);
+const todosVereadores = ref([]);
+
+const filtros = ref({
+    q: null, // Para busca geral (ofício, protocolo, título)
+    status: null,
+    secretaria_destino: null,
+    autor: null
+});
+
+const statusAbertos = ['AGUARDANDO_PROTOCOLO', 'PROTOCOLADO', 'EM_EXECUCAO', 'AGUARDANDO_TRANSFERENCIA'];
+
+const totalAbertos = computed(() => {
+    return demandas.value.filter(d => statusAbertos.includes(d.status)).length;
+});
+
+const totalFinalizados = computed(() => {
+    return demandas.value.filter(d => d.status === 'FINALIZADO').length;
+});
+
+const totalAtrasados = computed(() => {
+    const hoje = new Date();
+    const limite = new Date(hoje.setDate(hoje.getDate() - 30)); // Data de 30 dias atrás
+
+    return demandas.value.filter(d => {
+        const dataCriacao = new Date(d.data_criacao);
+        // Está atrasada se a data de criação for anterior ao limite E o status ainda estiver aberto
+        return dataCriacao < limite && statusAbertos.includes(d.status);
+    }).length;
+});
+
+const statusOptions = ref([
+    { label: 'Todos os Status', value: null },
+    { label: 'Aguardando Protocolo', value: 'AGUARDANDO_PROTOCOLO' },
+    { label: 'Protocolado', value: 'PROTOCOLADO' },
+    { label: 'Em Execução', value: 'EM_EXECUCAO' },
+    { label: 'Aguardando Transferência', value: 'AGUARDANDO_TRANSFERENCIA'},
+    { label: 'Finalizado', value: 'FINALIZADO' },
+    { label: 'Cancelado', value: 'CANCELADO' }
+]);
+
+const isGestorOuProtocolo = computed(() => ['GESTOR', 'PROTOCOLO'].includes(userStore.currentUser?.perfil));
+const showVereadorFilter = computed(() => ['GESTOR', 'PROTOCOLO', 'SECRETARIA'].includes(userStore.currentUser?.perfil));
+
+const getStatusSeverity = (status) => {
+    const map = {
+        'RASCUNHO': 'info',
+        'AGUARDANDO_PROTOCOLO': 'warn',
+        'PROTOCOLADO': 'primary',
+        'EM_EXECUCAO': 'success',
+        'FINALIZADO': 'success',
+        'CANCELADO': 'danger',
+        'AGUARDANDO_TRANSFERENCIA': 'warning'
+    };
+    return map[status] || 'contrast';
+};
 
 async function carregarDemandas() {
     loading.value = true;
     try {
-        let params = {};
+        // Começa com os filtros da UI
+        let params = { ...filtros.value };
+
         const currentUser = userStore.currentUser;
-        if (!currentUser?.id) {
-            loading.value = false;
-            return;
-        }
+        if (!currentUser?.id) { loading.value = false; return; }
+
+        // Adiciona os filtros de permissão do perfil
         switch (currentUser.perfil) {
-            case 'VEREADOR': params.autor = currentUser.id; break;
-            case 'PROTOCOLO': params.status__exclude = 'RASCUNHO'; break;
+            case 'VEREADOR': 
+                params.autor = currentUser.id; // Sobrescreve qualquer filtro de autor
+                break;
             case 'SECRETARIA':
                 if (currentUser.secretaria) {
-                    params.secretaria_destino = currentUser.secretaria;
-                    params.status__in = ['PROTOCOLADO', 'EM_EXECUCAO', 'FINALIZADO'].join(',');
+                    params.secretaria_destino = currentUser.secretaria; // Sobrescreve
+                    params.status__in = ['PROTOCOLADO', 'EM_EXECUCAO', 'FINALIZADO', 'AGUARDANDO_TRANSFERENCIA'].join(',');
                 }
                 break;
-            case 'GESTOR': params.status__exclude = 'RASCUNHO'; break;
-            default: demandas.value = []; return;
+            case 'GESTOR':
+            case 'PROTOCOLO':
+                params.status__exclude = 'RASCUNHO';
+                break;
         }
+        
+        // Limpa parâmetros nulos antes de enviar
+        Object.keys(params).forEach(key => (params[key] == null || params[key] === '') && delete params[key]);
+
         const response = await ApiService.getDemandas(params);
         demandas.value = response.data;
     } catch (error) {
@@ -56,36 +129,36 @@ async function carregarDemandas() {
     }
 }
 
+const limparFiltros = () => {
+    filtros.value = { q: null, status: null, secretaria_destino: null, autor: null };
+    carregarDemandas();
+};
+
 onMounted(() => {
     carregarDemandas();
-
-    if (userStore.currentUser?.perfil === 'PROTOCOLO') {
-        ApiService.getSecretarias().then(response => {
-            todasSecretarias.value = response.data;
+    ApiService.getSecretarias().then(response => {
+        todasSecretarias.value = response.data;
+    });
+    if (showVereadorFilter.value) {
+        ApiService.getUsuarios({ perfil: 'VEREADOR' }).then(response => {
+            todosVereadores.value = response.data;
         });
     }
 });
 
-const editarDemanda = (id) => {
-    router.push(`/demandas/editar/${id}`);
-};
-
-const visualizarDemanda = (id) => {
-    router.push(`/demandas/detalhes/${id}`);
-};
+const editarDemanda = (id) => router.push(`/demandas/editar/${id}`);
+const visualizarDemanda = (id) => router.push(`/demandas/detalhes/${id}`);
 
 const excluirDemanda = (id) => {
     confirm.require({
-        message: 'Você tem certeza que quer excluir este rascunho? Esta ação não pode ser desfeita.',
+        message: 'Você tem certeza que quer excluir este rascunho?',
         header: 'Confirmação de Exclusão',
         icon: 'pi pi-exclamation-triangle',
-        acceptLabel: 'Sim, excluir',
-        rejectLabel: 'Cancelar',
         accept: async () => {
             try {
                 await ApiService.deleteDemanda(id);
                 toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Rascunho excluído.', life: 3000 });
-                carregarDemandas(); // Recarrega a lista para remover o item excluído
+                carregarDemandas();
             } catch (error) {
                 toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível excluir o rascunho.', life: 3000 });
             }
@@ -94,56 +167,39 @@ const excluirDemanda = (id) => {
 };
 
 const abrirDialogoDespacho = (demanda) => {
-    console.log('Dados da Demanda para despacho:', demanda);
-    
     demandaParaDespacho.value = demanda;
     secretariaDestinoId.value = demanda.servico?.secretaria_responsavel?.id || null;
     despachoDialog.value = true;
 };
 
 const confirmarDespacho = async () => {
-    if (!secretariaDestinoId.value) {
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Selecione uma secretaria.', life: 3000 });
-        return;
-    }
+    if (!secretariaDestinoId.value) return;
     try {
         await ApiService.despacharDemanda(demandaParaDespacho.value.id, secretariaDestinoId.value);
         toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Demanda despachada.', life: 3000 });
         despachoDialog.value = false;
-        carregarDemandas(); // Recarrega a lista
+        carregarDemandas();
     } catch (error) {
         toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível despachar.', life: 3000 });
     }
 };
 
-const iniciarExecucao = async (id) => {
-    try {
-        await ApiService.updateDemanda(id, { status: 'EM_EXECUCAO' }); // Exemplo de como poderia ser
-        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Execução da demanda iniciada.', life: 3000 });
-        carregarDemandas();
-    } catch (error) {
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível iniciar a demanda.', life: 3000 });
-    }
+const abrirDialogoAprovarTransferencia = (demanda) => {
+    demandaParaAprovacao.value = demanda;
+    novaSecretariaId.value = null;
+    aprovacaoDialog.value = true;
 };
 
-const finalizarDemanda = (id) => {
-    confirm.require({
-        message: 'Você tem certeza que deseja finalizar a execução desta demanda?',
-        header: 'Confirmar Finalização',
-        icon: 'pi pi-check-circle',
-        acceptClass: 'p-button-success',
-        acceptLabel: 'Sim, finalizar',
-        rejectLabel: 'Cancelar',
-        accept: async () => {
-            try {
-                await ApiService.updateDemanda(id, { status: 'FINALIZADO' }); // Exemplo de como poderia ser
-                toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Demanda finalizada.', life: 3000 });
-                carregarDemandas();
-            } catch (error) {
-                toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível finalizar a demanda.', life: 3000 });
-            }
-        }
-    });
+const confirmarAprovacaoTransferencia = async () => {
+    if (!novaSecretariaId.value) return;
+    try {
+        await ApiService.aprovarTransferencia(demandaParaAprovacao.value.id, novaSecretariaId.value);
+        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Transferência aprovada!', life: 3000 });
+        aprovacaoDialog.value = false;
+        carregarDemandas();
+    } catch (error) {
+        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível aprovar a transferência.', life: 3000 });
+    }
 };
 </script>
 
@@ -153,40 +209,102 @@ const finalizarDemanda = (id) => {
       <div class="card">
         <Toolbar class="mb-4">
           <template #start>
-            <div class="my-2">
-              <h5 class="m-0">Gestão de Demandas</h5>
-            </div>
+            <h5 class="m-0">Gestão de Demandas</h5>
           </template>
           <template #end>
             <Button v-if="userStore.currentUser?.perfil === 'VEREADOR'" label="Novo Ofício" icon="pi pi-plus" class="p-button-success mr-2" @click="router.push('/demandas/novo')" />
           </template>
         </Toolbar>
 
+        <div class="grid grid-cols-12 gap-8 mb-4">
+            <Panel class="col-span-12 lg:col-span-6 xl:col-span-4">
+                <div class="flex justify-between mb-4">
+                    <div>
+                        <span class="block text-muted-color font-medium mb-4">Em Aberto</span>
+                        <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">{{ totalAbertos }}</div>
+                    </div>
+                    <div class="flex items-center justify-center bg-blue-100 rounded-border" style="width:2.5rem;height:2.5rem">
+                        <i class="pi pi-sync text-blue-500 text-xl"></i>
+                    </div>
+                </div>
+            </Panel>
+            <Panel class="col-span-12 lg:col-span-6 xl:col-span-4">
+                <div class="flex justify-between mb-4">
+                    <div>
+                        <span class="block text-muted-color font-medium mb-4">Finalizadas</span>
+                        <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">{{ totalFinalizados }}</div>
+                    </div>
+                    <div class="flex items-center justify-center bg-green-100 rounded-border" style="width:2.5rem;height:2.5rem">
+                        <i class="pi pi-check-square text-green-500 text-xl"></i>
+                    </div>
+                </div>
+            </Panel>
+            <Panel class="col-span-12 lg:col-span-6 xl:col-span-4">
+                <div class="flex justify-between mb-4">
+                    <div>
+                        <span class="block text-muted-color font-medium mb-4">Atrasadas</span>
+                        <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">{{ totalAtrasados }}</div>
+                    </div>
+                    <div class="flex items-center justify-center bg-red-100 rounded-border" style="width:2.5rem;height:2.5rem">
+                        <i class="pi pi-clock text-red-500 text-xl"></i>
+                    </div>
+                </div>
+            </Panel>
+        </div>
+
+        <Panel class="mb-4" header="Filtros de Busca" toggleable>
+                <IconField class="mb-3">
+                    <InputIcon class="pi pi-search" />
+                    <InputText id="buscaGeral" v-model="filtros.q" placeholder="Ofício, Protocolo ou Título" fluid />
+                </IconField>
+
+                <div class="flex flex-col md:flex-row gap-4 mb-3">
+                    <div class="flex flex-col gap-2 w-full">
+                        <label for="status">Status</label>
+                        <Select id="status" v-model="filtros.status" :options="statusOptions" optionLabel="label" optionValue="value" placeholder="Selecione" />
+                    </div>
+                    <div v-if="userStore.currentUser?.perfil !== 'SECRETARIA'" class="flex flex-col gap-2 w-full">
+                        <label for="secretaria">Secretaria</label>
+                        <Select id="secretaria" v-model="filtros.secretaria_destino" :options="todasSecretarias" optionLabel="nome" optionValue="id" placeholder="Selecione" />
+                    </div>
+                    <div v-if="showVereadorFilter" class="flex flex-col gap-2 w-full">
+                        <label for="vereador">Vereador</label>
+                        <Select id="vereador" v-model="filtros.autor" :options="todosVereadores" optionLabel="first_name" optionValue="id" placeholder="Selecione" />
+                    </div>
+                </div>
+
+                <Button label="Filtrar" class="mr-3" icon="pi pi-filter" @click="carregarDemandas" />
+                <Button label="Limpar" icon="pi pi-times" @click="limparFiltros" class="p-button-outlined" />
+        </Panel>
+
         <DataTable :value="demandas" :loading="loading" responsiveLayout="scroll">
-          <Column v-if="userStore.currentUser?.perfil === 'VEREADOR' || userStore.currentUser?.perfil === 'PROTOCOLO'" field="protocolo_legislativo" header="Ofício" :sortable="true"></Column>
+          <Column field="protocolo_legislativo" header="Ofício" :sortable="true"></Column>
           <Column field="protocolo_executivo" header="Protocolo" :sortable="true"></Column>
           <Column field="titulo" header="Título" :sortable="true"></Column>
-          <Column field="status" header="Status" :sortable="true"></Column>
-          <Column field="autor.first_name" header="Autor"></Column>
-          <Column field="data_criacao" header="Criado em" :sortable="true"></Column>
-          <Column header="Ações" style="width: 10rem">
-            <template #body="slotProps">
-                <Button v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-pencil" text rounded @click="editarDemanda(slotProps.data.id)" v-tooltip.top="'Editar'"/>
-                <Button v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-trash" severity="danger" text rounded @click="excluirDemanda(slotProps.data.id)" v-tooltip.top="'Excluir'"/>
-                
-                <Button v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_PROTOCOLO'" icon="pi pi-send" severity="success" text rounded @click="abrirDialogoDespacho(slotProps.data)" v-tooltip.top="'Despachar'"/>
-                
-                <Button v-if="userStore.currentUser?.perfil === 'SECRETARIA' && slotProps.data.status === 'PROTOCOLADO'" icon="pi pi-play" severity="success" text rounded @click="iniciarExecucao(slotProps.data.id)" v-tooltip.top="'Iniciar Execução'"/>
-                <Button v-if="userStore.currentUser?.perfil === 'SECRETARIA' && slotProps.data.status === 'EM_EXECUCAO'" icon="pi pi-check-square" severity="success" text rounded @click="finalizarDemanda(slotProps.data.id)" v-tooltip.top="'Finalizar Demanda'"/>
-
-                <Button v-if="slotProps.data.status !== 'RASCUNHO'" icon="pi pi-eye" severity="secondary" text rounded @click="visualizarDemanda(slotProps.data.id)" v-tooltip.top="'Visualizar'"/>
+          <Column field="status" header="Status" :sortable="true">
+            <template #body="{ data }">
+                <Tag :value="data.status_display" :severity="getStatusSeverity(data.status)" />
             </template>
-        </Column>
+          </Column>
+          <Column field="secretaria_destino.nome" header="Secretaria Destino"></Column>
+          <Column field="autor.first_name" header="Autor"></Column>
+          
+          <Column header="Ações" style="min-width: 10rem">
+            <template #body="slotProps">
+              <Button v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-pencil" text rounded @click="editarDemanda(slotProps.data.id)" v-tooltip.top="'Editar'"/>
+              <Button v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'" icon="pi pi-trash" severity="danger" text rounded @click="excluirDemanda(slotProps.data.id)" v-tooltip.top="'Excluir'"/>
+              
+              <Button v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_PROTOCOLO'" icon="pi pi-send" severity="success" text rounded @click="abrirDialogoDespacho(slotProps.data)" v-tooltip.top="'Despachar'"/>
+              <Button v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_TRANSFERENCIA'" icon="pi pi-check-circle" severity="warning" text rounded @click="abrirDialogoAprovarTransferencia(slotProps.data)" v-tooltip.top="'Revisar Transferência'"/>
+
+              <Button v-if="slotProps.data.status !== 'RASCUNHO'" icon="pi pi-eye" severity="secondary" text rounded @click="visualizarDemanda(slotProps.data.id)" v-tooltip.top="'Visualizar'"/>
+            </template>
+          </Column>
         </DataTable>
 
         <Dialog v-model:visible="despachoDialog" header="Despachar Demanda" :modal="true" class="p-fluid" style="width: 450px;">
             <div class="field">
-                <label class="block mb-3" for="secretaria">Enviar para a Secretaria</label>
+                <label for="secretaria" class="block mb-3">Enviar para a Secretaria</label>
                 <Select id="secretaria" v-model="secretariaDestinoId" :options="todasSecretarias" optionLabel="nome" optionValue="id" placeholder="Selecione uma secretaria" fluid />
             </div>
             <template #footer>
@@ -194,6 +312,20 @@ const finalizarDemanda = (id) => {
                 <Button label="Confirmar Despacho" icon="pi pi-check" @click="confirmarDespacho" />
             </template>
         </Dialog>
+        <Dialog v-model:visible="aprovacaoDialog" header="Aprovar Transferência" :modal="true" class="p-fluid" style="width: 450px;">
+            <div v-if="demandaParaAprovacao">
+                <p class="mb-4">A secretaria <strong>{{ demandaParaAprovacao.secretaria_destino?.nome }}</strong> solicitou a transferência. Selecione a nova secretaria.</p>
+                <div class="field">
+                    <label for="novaSecretaria" class="block mb-3">Nova Secretaria de Destino</label>
+                    <Select id="novaSecretaria" v-model="novaSecretariaId" :options="todasSecretarias" optionLabel="nome" optionValue="id" placeholder="Selecione a nova secretaria" fluid />
+                </div>
+            </div>
+            <template #footer>
+                <Button label="Cancelar" icon="pi pi-times" text @click="aprovacaoDialog = false" />
+                <Button label="Confirmar Transferência" icon="pi pi-check" severity="warning" @click="confirmarAprovacaoTransferencia" />
+            </template>
+        </Dialog>
+
       </div>
     </div>
   </div>
