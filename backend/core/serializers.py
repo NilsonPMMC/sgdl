@@ -1,7 +1,7 @@
 # /var/www/sgdl/backend/core/serializers.py
 
 from rest_framework import serializers
-from .models import Demanda, Servico, Secretaria, Usuario, Anexo, Tramitacao, AnexoTramitacao
+from .models import Demanda, Servico, Secretaria, Usuario, Anexo, Tramitacao, AnexoTramitacao, Notificacao
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """
@@ -107,3 +107,19 @@ class DemandaSerializer(serializers.ModelSerializer):
             'protocolo_legislativo', 'protocolo_executivo', 'status', 'status_display',
             'data_criacao', 'secretaria_destino', 'anexos', 'tramitacoes', 'autor'
         ]
+
+class NotificacaoSerializer(serializers.ModelSerializer):
+    """
+    Serializer para o modelo Notificacao.
+    """
+    class Meta:
+        model = Notificacao
+        fields = [
+            'id',
+            'destinatario',
+            'mensagem',
+            'lida',
+            'data_criacao',
+            'link'
+        ]
+        read_only_fields = ['data_criacao']

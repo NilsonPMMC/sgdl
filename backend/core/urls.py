@@ -5,8 +5,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     DemandaViewSet, ServicoViewSet, AnexoViewSet, SecretariaViewSet, 
     TramitacaoViewSet, DashboardStatsAPIView, DemandaLocationsAPIView, 
-    UsuarioViewSet,
-    UserProfileView, ChangePasswordView 
+    UsuarioViewSet, UserProfileView, ChangePasswordView, NotificacaoViewSet
 )
 
 router = DefaultRouter()
@@ -16,6 +15,7 @@ router.register(r'anexos', AnexoViewSet, basename='anexo')
 router.register(r'secretarias', SecretariaViewSet, basename='secretaria')
 router.register(r'tramitacoes', TramitacaoViewSet, basename='tramitacao')
 router.register(r'usuarios', UsuarioViewSet)
+router.register(r'notificacoes', NotificacaoViewSet, basename='notificacao')
 
 urlpatterns = [
     path('users/me/', UserProfileView.as_view(), name='user-profile'),

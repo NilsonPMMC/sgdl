@@ -31,6 +31,8 @@ const todosServicos = ref([]);
 const filteredServicos = ref([]);
 const selectedServico = ref(null);
 const demandaId = ref(null);
+const showMap = ref(false);
+const isGeoPendente = ref(false);
 
 const getTagSeverity = (tipo) => {
   switch (tipo) {
@@ -61,9 +63,30 @@ const demanda = ref({
   longitude: null
 });
 
+const reverseGeocode = async (coords) => {
+    try {
+        const response = await axios.get('https://nominatim.openstreetmap.org/reverse', {
+            params: { lat: coords[0], lon: coords[1], format: 'json', addressdetails: 1 }
+        });
+        if (response.data && response.data.address) {
+            const address = response.data.address;
+            demanda.value.logradouro = address.road || address.pedestrian || (demanda.value.logradouro || '');
+            demanda.value.bairro = address.suburb || address.city_district || (demanda.value.bairro || '');
+            toast.add({ severity: 'info', summary: 'Endereço Atualizado', detail: 'Rua e bairro preenchidos pelo mapa.', life: 3000 });
+
+            await nextTick();
+            if (map.value) {
+                map.value.invalidateSize();
+            }
+        }
+    } catch (error) {
+        console.error("Erro na geocodificação reversa:", error);
+    }
+};
+
 const initMap = (coords) => {
     nextTick(() => {
-        if (map.value) { // Se o mapa já existe, apenas ajusta a visão
+        if (map.value) {
             map.value.setView(coords, 16);
             return;
         }
@@ -71,27 +94,38 @@ const initMap = (coords) => {
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; OpenStreetMap'
         }).addTo(map.value);
-        updateMarker(coords, true);
+
+        const isInitialDraggable = !(demanda.value.latitude && demanda.value.longitude);
+        updateMarker(coords, isInitialDraggable);
+
+        map.value.on('click', (event) => { // Ouvinte de clique
+            const position = event.latlng;
+            demanda.value.latitude = position.lat.toFixed(6);
+            demanda.value.longitude = position.lng.toFixed(6);
+
+            updateMarker([position.lat, position.lng], false);
+
+            reverseGeocode([position.lat, position.lng]);
+        });
     });
 };
 
-const updateMarker = (coords, isDraggable = true) => {
+const updateMarker = (coords, isDraggable = false) => { 
     if (!map.value) {
-        initMap(coords);
         return;
     }
-    
+
     if (marker.value) {
         marker.value.setLatLng(coords);
+        if (isDraggable && !marker.value.dragging.enabled()) {
+             marker.value.dragging.enable();
+        } else if (!isDraggable && marker.value.dragging.enabled()) {
+             marker.value.dragging.disable();
+        }
     } else {
         marker.value = L.marker(coords, { draggable: isDraggable }).addTo(map.value);
-        marker.value.on('dragend', (event) => {
-            const position = event.target.getLatLng();
-            demanda.value.latitude = position.lat.toFixed(6); // Garante 6 casas decimais
-            demanda.value.longitude = position.lng.toFixed(6);
-        });
     }
-    map.value.setView(coords, 17);
+    if(map.value) map.value.setView(coords, 17);
 };
 
 onMounted(async () => {
@@ -100,20 +134,26 @@ onMounted(async () => {
         todosServicos.value = responseServicos.data;
 
         const idDaRota = route.params.id;
-        if (idDaRota) { // Modo de Edição
+        if (idDaRota) {
             demandaId.value = idDaRota;
             const responseDemanda = await ApiService.getDemandaById(idDaRota);
             demanda.value = responseDemanda.data;
             anexos.value = responseDemanda.data.anexos;
             selectedServico.value = todosServicos.value.find(s => s.id === responseDemanda.data.servico.id);
-            
+
             if (demanda.value.latitude && demanda.value.longitude) {
-                initMap([demanda.value.latitude, demanda.value.longitude]);
+                const savedCoords = [demanda.value.latitude, demanda.value.longitude];
+                showMap.value = true;
+                await nextTick();
+                initMap(savedCoords);
+                isGeoPendente.value = false;
             } else {
-                initMap(defaultCoords); // Se não tiver coords, inicia no padrão
+                 isGeoPendente.value = true;
+                 showMap.value = false;
             }
-        } else { // Modo de Criação
-            initMap(defaultCoords);
+        } else {
+            showMap.value = false;
+             isGeoPendente.value = true;
         }
     } catch (error) { console.error("Erro ao carregar dados:", error); }
 });
@@ -138,7 +178,6 @@ const buscarCep = async () => {
         demanda.value.bairro = response.data.bairro;
         toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Endereço preenchido.', life: 3000 });
         
-        // **CORREÇÃO:** Após preencher o endereço, chama a geocodificação
         await geocodeAddress();
       } else {
         toast.add({ severity: 'error', summary: 'Erro', detail: 'CEP não encontrado.', life: 3000 });
@@ -148,7 +187,6 @@ const buscarCep = async () => {
 };
 
 const geocodeAddress = async () => {
-    // **CORREÇÃO:** Prioriza o CEP se ele existir, pois é mais preciso
     const query = demanda.value.cep || `${demanda.value.logradouro}, ${demanda.value.bairro}, Mogi das Cruzes`;
     if (!query.trim()) return;
 
@@ -161,13 +199,41 @@ const geocodeAddress = async () => {
             const coords = [parseFloat(location.lat), parseFloat(location.lon)];
             demanda.value.latitude = coords[0].toFixed(6);
             demanda.value.longitude = coords[1].toFixed(6);
-            updateMarker(coords);
-            toast.add({ severity: 'info', summary: 'Localização Encontrada', detail: 'Ponto ajustado no mapa. Arraste para refinar.', life: 4000 });
+            isGeoPendente.value = false;
+
+            if (!map.value) {
+                showMap.value = true;
+                await nextTick();
+                initMap(coords);
+            } else {
+                map.value.setView(coords, 17);
+                updateMarker(coords, false);
+            }
+
+            toast.add({ severity: 'info', summary: 'Localização Encontrada', detail: 'Pino posicionado. Clique para refinar.', life: 4000 });
         } else {
-             toast.add({ severity: 'warn', summary: 'Aviso', detail: 'Endereço não encontrado no mapa. Arraste o pino manualmente.', life: 4000 });
+            isGeoPendente.value = true;
+            if (!map.value) {
+                showMap.value = true;
+                await nextTick();
+                initMap(defaultCoords);
+            } else {
+                 map.value.setView(defaultCoords, 16);
+                 if(marker.value) {
+                     map.value.removeLayer(marker.value);
+                     marker.value = null;
+                 }
+            }
+            toast.add({ severity: 'warn', summary: 'Aviso', detail: 'Endereço não encontrado. Clique no mapa para definir.', life: 5000 });
         }
     } catch (error) {
         console.error("Erro na geocodificação:", error);
+        isGeoPendente.value = true;
+        if (!map.value) {
+            showMap.value = true;
+            await nextTick();
+            initMap(defaultCoords);
+        }
     }
 };
 
@@ -207,16 +273,23 @@ const salvarRascunho = async () => {
     try {
         if (demandaId.value) {
             await ApiService.updateDemanda(demandaId.value, payload);
-            toast.add({ severity: 'info', summary: 'Salvo', detail: 'Rascunho atualizado com sucesso.', life: 3000 });
+            toast.add({ severity: 'info', summary: 'Salvo', detail: 'Rascunho atualizado.', life: 3000 });
         } else {
             const response = await ApiService.createDemanda(payload);
             demandaId.value = response.data.id;
             router.replace({ name: 'demandas-editar', params: { id: demandaId.value } });
-            toast.add({ severity: 'info', summary: 'Salvo', detail: 'Rascunho salvo. Agora você pode anexar arquivos.', life: 3000 });
+            toast.add({ severity: 'info', summary: 'Salvo', detail: 'Rascunho salvo. Anexe arquivos.', life: 3000 });
+
+            await nextTick();
+            if (map.value) {
+                console.log('Forcing invalidateSize after saving draft');
+                map.value.invalidateSize();
+            }
         }
+
     } catch (error) {
         console.error("Erro ao salvar rascunho:", error);
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível salvar o rascunho.', life: 3000 });
+        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível salvar.', life: 3000 });
     }
 };
 
@@ -225,6 +298,27 @@ const enviarOficialmente = async () => {
         toast.add({ severity: 'warn', summary: 'Aviso', detail: 'Por favor, salve como rascunho antes de enviar.', life: 3000 });
         return;
     }
+
+    if (!demanda.value.latitude || !demanda.value.longitude) {
+        isGeoPendente.value = true;
+        if (!showMap.value) {
+            showMap.value = true;
+            await nextTick();
+            initMap(defaultCoords);
+        }
+        toast.add({
+            severity: 'error',
+            summary: 'Localização Pendente',
+            detail: 'Localização obrigatória. Clique no mapa para definir.',
+            life: 5000
+        });
+        const mapElement = document.getElementById('demanda-map');
+        if (mapElement) {
+            mapElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        return;
+    }
+
     try {
         await ApiService.enviarDemanda(demandaId.value);
         toast.add({ severity: 'success', summary: 'Sucesso!', detail: 'Ofício enviado oficialmente.', life: 3000 });
@@ -261,7 +355,7 @@ const removerAnexo = async (anexoId, index) => {
 </script>
 
 <template>
-  <Fluid>
+  <div>
     <div class="card flex flex-col gap-4 w-full">
       <h5 class="mb-4">Novo Ofício</h5>
       <div>
@@ -302,12 +396,6 @@ const removerAnexo = async (anexoId, index) => {
         </div>
       </div>
 
-      <div class="field">
-          <label class="block mb-3">Localização no Mapa</label>
-          <small class="block mb-2 text-muted-color">Após preencher o endereço, o pino será ajustado. Arraste-o para a posição exata, se necessário.</small>
-          <div id="demanda-map" style="height: 350px; border-radius: 6px;"></div>
-      </div>
-
       <div class="grid grid-cols-12 gap-8">
         <div class="col-span-full lg:col-span-3">
           <label class="block mb-3" for="numero">Número</label>
@@ -323,15 +411,26 @@ const removerAnexo = async (anexoId, index) => {
         </div>
       </div>
 
+      <div class="field" v-if="showMap">
+          <label class="block mb-3">Localização no Mapa</label>
+          <small class="block mb-2 text-muted-color">
+              <span v-if="!isGeoPendente">Pino posicionado para conferência.</span>
+              <span v-else>Não foi possível encontrar o endereço automaticamente.</span>
+              <strong>Clique no mapa</strong> para adicionar ou refinar a posição exata.
+          </small>
+          <div id="demanda-map"
+               style="height: 350px; border-radius: 6px; transition: box-shadow 0.3s; cursor: pointer;"
+               :class="{ 'shadow-md border-2 border-red-500': isGeoPendente }">
+          </div>
+      </div>
+
       <div>
         <div class="flex flex-row items-center gap-2 mb-3">
           <label for="name">Descrição Completa</label>
           <Button label="Gerar texto" icon="pi pi-bolt" class="p-button-text" @click="gerarDescricao" :fluid="false" />
         </div>
         <Editor id="descricao" v-model="demanda.descricao" editorStyle="height: 320px" />
-      </div>
-      
-      
+      </div>            
 
       <div class="flex justify-content-end gap-2 mt-4">
           <Button label="Cancelar" severity="secondary" outlined @click="router.push('/demandas')"></Button>
@@ -367,5 +466,5 @@ const removerAnexo = async (anexoId, index) => {
       </div>
 
     </div>
-  </Fluid>
+  </div>
 </template>

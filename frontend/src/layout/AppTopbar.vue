@@ -1,21 +1,34 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useLayout } from '@/layout/composables/layout';
 import { useUserStore } from '@/stores/userStore';
 import { useRouter } from 'vue-router';
+import ApiService from '@/service/ApiService';
 
 import Button from 'primevue/button';
 import Avatar from 'primevue/avatar';
 import OverlayPanel from 'primevue/overlaypanel';
+import ScrollPanel from 'primevue/scrollpanel';
+import OverlayBadge from 'primevue/overlaybadge';
+import Divider from 'primevue/divider';
 
 const { toggleMenu, toggleDarkMode, isDarkTheme } = useLayout();
 const userStore = useUserStore();
 const router = useRouter();
 
 const op = ref();
+const on = ref();
+
+const notificacoes = ref([]);
+const unreadCount = ref(0);
 
 const toggle = (event) => {
     op.value.toggle(event);
+};
+
+const toggleNotificacoes = (event) => {
+    on.value.toggle(event);
+    fetchNotificacoes();
 };
 
 const userInitial = computed(() => {
@@ -27,6 +40,47 @@ const userInitial = computed(() => {
         return user.username[0].toUpperCase();
     }
     return '?';
+});
+
+const fetchNotificacoes = async () => {
+    try {
+        const response = await ApiService.getNotificacoes();
+        notificacoes.value = response.data;
+        // Calcula o número de não lidas e atualiza o badge
+        unreadCount.value = notificacoes.value.filter((n) => !n.lida).length;
+    } catch (error) {
+        console.error('Erro ao buscar notificações:', error);
+    }
+};
+
+const handleNotificacaoClick = async (notificacao) => {
+    try {
+        if (!notificacao.lida) {
+            await ApiService.marcarNotificacaoComoLida(notificacao.id);
+            fetchNotificacoes();
+        }
+        router.push(notificacao.link);
+        on.value.hide();
+    } catch (error) {
+        console.error('Erro ao marcar notificação como lida:', error);
+    }
+};
+
+const marcarTodasComoLidas = async () => {
+    try {
+        await ApiService.marcarTodasNotificacoesComoLidas();
+        fetchNotificacoes(); // Apenas atualiza a lista, que agora virá com tudo lido
+    } catch (error) {
+        console.error('Erro ao marcar todas as notificações como lidas:', error);
+    }
+};
+
+onMounted(() => {
+    if (userStore.isAuthenticated) {
+        fetchNotificacoes(); // Busca as notificações na primeira vez
+        // Configura o polling para verificar a cada 30 segundos
+        setInterval(fetchNotificacoes, 30000);
+    }
 });
 </script>
 
@@ -47,6 +101,61 @@ const userInitial = computed(() => {
                 <button type="button" class="layout-topbar-action" @click="toggleDarkMode">
                     <i :class="['pi', { 'pi-moon': isDarkTheme, 'pi-sun': !isDarkTheme }]"></i>
                 </button>
+
+                <button type="button" class="layout-topbar-action" @click="toggleNotificacoes">
+    
+                    <OverlayBadge v-if="unreadCount > 0" :value="unreadCount" severity="danger">
+                        <i class="pi pi-bell" />
+                    </OverlayBadge>
+                    
+                    <i v-else class="pi pi-bell" />
+
+                    <span>Notificações</span>
+                </button>
+
+                <OverlayPanel ref="on" appendTo="body" :pt="{ content: { class: 'p-0' } }">
+                    <div class="flex flex-col" style="width: 25rem;">
+                        <div class="flex justify-between items-center py-3 px-4">
+                            <span class="font-bold text-lg">Notificações</span>
+                            <Button v-if="unreadCount > 0" label="Marcar todas como lidas" class="p-button-text p-button-sm" @click="marcarTodasComoLidas"></Button>
+                        </div>
+                        <Divider class="m-0" />
+
+                        <ScrollPanel style="height: 250px;" class="px-4">
+                            <div class="flex flex-col gap-1">
+                                <div v-for="notificacao in notificacoes" :key="notificacao.id" @click="handleNotificacaoClick(notificacao)"
+                                    :class="['flex align-items-center gap-3 p-3 border-round-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700', 
+                                    { 
+                                        'bg-gray-100 dark:bg-gray-800': !notificacao.lida,  
+                                        'opacity-60': notificacao.lida 
+                                    }]">
+                                    
+                                    <Avatar :class="['flex-shrink-0', 
+                                            { 
+                                                'avatar-nao-lida text-white': !notificacao.lida, 
+                                                'avatar-lida text-color-secondary': notificacao.lida 
+                                            }]"
+                                            icon="pi pi-bell" shape="circle" />
+                                    
+                                    <div class="flex flex-col">
+                                        <p :class="['m-0 text-sm', { 'font-bold': !notificacao.lida, 'font-normal': notificacao.lida }]">
+                                            {{ notificacao.mensagem }}
+                                        </p>
+                                    </div>
+
+                                </div>
+                                <div v-if="!notificacoes.length" class="text-center text-color-secondary p-4">
+                                    Nenhuma notificação por aqui.
+                                </div>
+                            </div>
+                        </ScrollPanel>
+                        <Divider class="m-0" />
+
+                        <div class="px-4 py-3">
+                            <Button label="Ver todas as notificações" icon="pi pi-arrow-right" iconPos="right" class="p-button-outlined w-full" @click="router.push('/notificacoes'); on.hide()"></Button>
+                        </div>
+                    </div>
+                </OverlayPanel>
             </div>
 
             <div v-if="userStore.isAuthenticated" class="flex items-center">
@@ -60,7 +169,7 @@ const userInitial = computed(() => {
                     aria-haspopup="true" 
                     aria-controls="overlay_panel"
                 />
-                </div>
+            </div>
 
             <OverlayPanel ref="op" id="overlay_panel">
                 <div class="flex flex-col items-center gap-4 p-4" style="min-width: 250px;">
@@ -95,3 +204,23 @@ const userInitial = computed(() => {
         </div>
     </div>
 </template>
+
+<style>
+.p-overlaybadge span{
+    display: inline-flex !important;
+    font-size: .75rem !important;
+    min-width: 1.25rem !important;
+    height: 1.25rem !important;
+    align-items: center;
+    justify-content: center;
+}
+.avatar-nao-lida {
+    background: var(--p-emerald-500) !important; 
+}
+.avatar-lida {
+    background: var(--p-gray-400) !important;
+}
+.dark .avatar-lida {
+    background: var(--p-gray-600) !important;
+}
+</style>

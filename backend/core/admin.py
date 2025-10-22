@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin 
-from .models import Secretaria, Servico, Demanda, Usuario, Anexo, Tramitacao, AnexoTramitacao
+from .models import Secretaria, Servico, Demanda, Usuario, Anexo, Tramitacao, AnexoTramitacao, Notificacao
 
 class AnexoTramitacaoInline(admin.TabularInline):
     model = AnexoTramitacao
@@ -35,6 +35,14 @@ class UsuarioCustomAdmin(UserAdmin):
     add_fieldsets = UserAdmin.add_fieldsets + (
         (None, {'fields': ('perfil', 'secretaria')}),
     )
+
+@admin.register(Notificacao)
+class NotificacaoAdmin(admin.ModelAdmin):
+    list_display = ('destinatario', 'mensagem', 'lida', 'data_criacao')
+    list_filter = ('lida', 'destinatario__username')
+    search_fields = ('mensagem',)
+    date_hierarchy = 'data_criacao'
+    ordering = ('-data_criacao',)
 
 admin.site.register(Secretaria)
 admin.site.register(Servico)

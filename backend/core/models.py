@@ -75,24 +75,7 @@ class Demanda(models.Model):
     servico = models.ForeignKey(Servico, on_delete=models.PROTECT, related_name='demandas')
     secretaria_destino = models.ForeignKey(Secretaria, on_delete=models.PROTECT, related_name='demandas_recebidas', blank=True, null=True)
 
-    def save(self, *args, **kwargs):
-        if self.logradouro and self.bairro and not self.latitude:
-            try:
-                geolocator = Nominatim(user_agent="sgdl_app")
-                endereco_completo = f'{self.logradouro}, {self.numero}, {self.bairro}, Mogi das Cruzes, SP, {self.cep}'
-                location = geolocator.geocode(endereco_completo, timeout=10)
-                
-                if location:
-                    self.latitude = location.latitude
-                    self.longitude = location.longitude
-                else:
-                    logger.warning(f"Geocodificação falhou: Endereço não encontrado para a demanda '{self.titulo}'. Endereço: {endereco_completo}")
-
-            except (GeocoderTimedOut, GeocoderUnavailable):
-                logger.error(f"Geocodificação falhou para a demanda '{self.titulo}': O serviço Nominatim não respondeu. Erro: {e}")
-            except Exception as e:
-                logger.error(f"Um erro inesperado ocorreu durante a geocodificação da demanda '{self.titulo}': {e}")
-                
+    def save(self, *args, **kwargs):              
         super().save(*args, **kwargs)
     
     def __str__(self):
@@ -140,3 +123,16 @@ class AnexoTramitacao(models.Model):
 
     def __str__(self):
         return self.arquivo.name
+    
+class Notificacao(models.Model):
+    destinatario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notificacoes')
+    mensagem = models.TextField()
+    lida = models.BooleanField(default=False)
+    data_criacao = models.DateTimeField(auto_now_add=True)
+    link = models.CharField(max_length=255, blank=True, null=True) # Para redirecionar o usuário
+
+    def __str__(self):
+        return f'Notificação para {self.destinatario.username}: {self.mensagem[:20]}'
+
+    class Meta:
+        ordering = ['-data_criacao']

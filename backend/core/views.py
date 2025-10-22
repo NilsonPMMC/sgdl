@@ -11,8 +11,10 @@ from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
-from .models import Demanda, Servico, Anexo, Secretaria, Tramitacao, AnexoTramitacao, Usuario
-from .serializers import DemandaSerializer, ServicoSerializer, AnexoSerializer, SecretariaSerializer, TramitacaoSerializer, AnexoTramitacaoSerializer, UsuarioSerializer, UserProfileSerializer, ChangePasswordSerializer
+from .models import Demanda, Servico, Anexo, Secretaria, Tramitacao, AnexoTramitacao, Usuario, Notificacao
+from .serializers import ( DemandaSerializer, ServicoSerializer, AnexoSerializer, SecretariaSerializer, 
+    TramitacaoSerializer, AnexoTramitacaoSerializer, UsuarioSerializer, UserProfileSerializer, ChangePasswordSerializer, NotificacaoSerializer
+)
 from .filters import DemandaFilter
 from rest_framework.permissions import IsAuthenticated
 
@@ -401,3 +403,25 @@ class ChangePasswordView(APIView):
             return Response({'status': 'senha alterada com sucesso'}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class NotificacaoViewSet(viewsets.ModelViewSet):
+    serializer_class = NotificacaoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        """Retorna apenas as notificações do usuário logado."""
+        return Notificacao.objects.filter(destinatario=self.request.user)
+
+    @action(detail=False, methods=['post'])
+    def marcar_todas_como_lidas(self, request):
+        """Marca todas as notificações do usuário como lidas."""
+        self.get_queryset().update(lida=True)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=['post'])
+    def marcar_como_lida(self, request, pk=None):
+        """Marca uma notificação específica como lida."""
+        notificacao = self.get_object()
+        notificacao.lida = True
+        notificacao.save()
+        return Response(status=status.HTTP_204_NO_CONTENT)

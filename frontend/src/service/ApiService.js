@@ -95,6 +95,15 @@ export default {
       }
     });
   },
+  getNotificacoes() {
+    return apiClient.get('/notificacoes/');
+  },
+  marcarNotificacaoComoLida(id) {
+    return apiClient.post(`/notificacoes/${id}/marcar_como_lida/`);
+  },
+  marcarTodasNotificacoesComoLidas() {
+    return apiClient.post('/notificacoes/marcar_todas_como_lidas/');
+  },
   /**
    * Altera a senha do usuário logado.
    * @param {object} passwordData - { old_password, new_password }.
