@@ -39,6 +39,7 @@ class Servico(models.Model):
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, default='SERVIÇO')
 
     nome = models.CharField(max_length=255)
+    prazo = models.IntegerField(help_text="Prazo para execução do serviço em dias.", null=True, blank=True)
     secretaria_responsavel = models.ForeignKey(Secretaria, on_delete=models.PROTECT, related_name='servicos')
 
     def __str__(self):
@@ -59,6 +60,14 @@ class Demanda(models.Model):
 
     protocolo_legislativo = models.CharField(max_length=20, unique=True, blank=True, null=True)
     protocolo_executivo = models.CharField(max_length=20, unique=True, blank=True, null=True)
+    numero_externo = models.CharField(
+        max_length=100, blank=True, null=True, 
+        help_text="Número do processo em outro sistema (ex: 1Doc, SEI)"
+    )
+    link_externo = models.URLField(
+        max_length=500, blank=True, null=True, 
+        help_text="Link para o processo no sistema externo"
+    )
     titulo = models.CharField(max_length=200)
     descricao = models.TextField()
     cep = models.CharField(max_length=10, blank=True, null=True)
@@ -74,6 +83,15 @@ class Demanda(models.Model):
     autor = models.ForeignKey('Usuario', on_delete=models.PROTECT, related_name='demandas_criadas')
     servico = models.ForeignKey(Servico, on_delete=models.PROTECT, related_name='demandas')
     secretaria_destino = models.ForeignKey(Secretaria, on_delete=models.PROTECT, related_name='demandas_recebidas', blank=True, null=True)
+    data_inicio_prazo = models.DateTimeField(
+        null=True, 
+        blank=True, 
+        help_text="Data em que o status mudou para 'Protocolado', iniciando a contagem do prazo."
+    )
+    notificacao_atraso_enviada = models.BooleanField(
+        default=False, 
+        help_text="Marca se a notificação de atraso já foi enviada."
+    )
 
     def save(self, *args, **kwargs):              
         super().save(*args, **kwargs)
@@ -125,7 +143,21 @@ class AnexoTramitacao(models.Model):
         return self.arquivo.name
     
 class Notificacao(models.Model):
+    TIPO_NOTIFICACAO_CHOICES = [
+        ('NOVO_OFICIO', 'Novo Ofício'),       # (Protocolo)
+        ('DESPACHO', 'Despacho'),             # (Vereador, Secretaria)
+        ('ATUALIZACAO', 'Atualização'),       # (Vereador, Protocolo) - Ex: Em Execução
+        ('TRANSFERENCIA', 'Transferência'),   # (Protocolo)
+        ('CONCLUSAO', 'Conclusão'),           # (Vereador, Protocolo)
+        ('ATRASO', 'Atraso'),                 # (Gestor, Protocolo, Secretaria) - O ALERTA
+    ]
+
     destinatario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notificacoes')
+    tipo = models.CharField(
+        max_length=20, 
+        choices=TIPO_NOTIFICACAO_CHOICES, 
+        default='ATUALIZACAO'
+    )
     mensagem = models.TextField()
     lida = models.BooleanField(default=False)
     data_criacao = models.DateTimeField(auto_now_add=True)

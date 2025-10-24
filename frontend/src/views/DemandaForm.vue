@@ -9,6 +9,10 @@ import { useUserStore } from '@/stores/userStore';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 
+import markerIconUrl from '/images/marker-icon.png';
+import markerIconRetinaUrl from '/images/marker-icon-2x.png';
+import markerShadowUrl from '/images/marker-shadow.png';
+
 import Editor from 'primevue/editor';
 import InputText from 'primevue/inputtext';
 import AutoComplete from 'primevue/autocomplete';
@@ -25,6 +29,16 @@ const userStore = useUserStore();
 const map = ref(null);
 const marker = ref(null);
 const defaultCoords = [-23.523, -46.18];
+
+const defaultIcon = L.icon({
+    iconUrl: markerIconUrl,
+    iconRetinaUrl: markerIconRetinaUrl,
+    shadowUrl: markerShadowUrl,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowSize: [41, 41]
+});
 
 const anexos = ref([]);
 const todosServicos = ref([]);
@@ -123,7 +137,7 @@ const updateMarker = (coords, isDraggable = false) => {
              marker.value.dragging.disable();
         }
     } else {
-        marker.value = L.marker(coords, { draggable: isDraggable }).addTo(map.value);
+        marker.value = L.marker(coords, { icon: defaultIcon, draggable: isDraggable }).addTo(map.value);
     }
     if(map.value) map.value.setView(coords, 17);
 };

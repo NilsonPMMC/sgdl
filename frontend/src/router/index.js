@@ -60,6 +60,12 @@ const router = createRouter({
             component: () => import('@/views/pages/Login.vue')
         },
         {
+            path: '/resetar-senha/:uidb64/:token',
+            name: 'resetar-senha',
+            component: () => import('@/views/pages/ResetPasswordConfirm.vue'),
+            props: true
+        },
+        {
             path: '/auth/access',
             name: 'accessDenied',
             component: () => import('@/views/pages/auth/Access.vue')
@@ -72,16 +78,25 @@ const router = createRouter({
     ]
 });
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach((to, from, next) => {
     const userStore = useUserStore();
+    const isAuthenticated = userStore.accessToken;
 
-    if (userStore.isAuthenticated && !userStore.currentUser?.id) {
-        await userStore.fetchCurrentUser();
-    }
+    // --- INÍCIO DA CORREÇÃO ---
+    // 1. Define uma lista de rotas públicas
+    const publicPages = ['login', 'resetar-senha']; 
+    const authRequired = !publicPages.includes(to.name);
+    // --- FIM DA CORREÇÃO ---
 
-    if (to.name !== 'login' && !userStore.isAuthenticated) {
+    // 2. Modifica a condição
+    if (authRequired && !isAuthenticated) {
+        // Se a rota exige login e o usuário não está logado, vai para /login
         next({ name: 'login' });
+    } else if (isAuthenticated && to.name === 'login') {
+        // Se já está logado e tenta ir para /login, vai para /
+        next({ path: '/' }); 
     } else {
+        // Em todos os outros casos (logado, ou indo para uma página pública), permite o acesso
         next();
     }
 });

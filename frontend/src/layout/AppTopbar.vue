@@ -75,6 +75,38 @@ const marcarTodasComoLidas = async () => {
     }
 };
 
+const getNotificacaoIcon = (tipo) => {
+    switch (tipo) {
+        case 'ATRASO':
+            return 'pi pi-exclamation-triangle'; // Ícone de Alerta
+        case 'NOVO_OFICIO':
+            return 'pi pi-file-plus';
+        case 'CONCLUSAO':
+            return 'pi pi-check-circle';
+        case 'TRANSFERENCIA':
+            return 'pi pi-arrow-right-arrow-left';
+        case 'DESPACHO':
+            return 'pi pi-send';
+        default:
+            return 'pi pi-bell'; // Padrão
+    }
+};
+
+const getNotificacaoClass = (notificacao) => {
+    if (!notificacao.lida) {
+        switch (notificacao.tipo) {
+            case 'ATRASO':
+                return 'avatar-atraso text-white'; // Classe vermelha
+            case 'NOVO_OFICIO':
+            case 'DESPACHO':
+                return 'avatar-novo text-white'; // Classe azul
+            default:
+                return 'avatar-nao-lida text-white'; // Classe verde (padrão)
+        }
+    }
+    return 'avatar-lida text-color-secondary'; // Classe cinza (lida)
+};
+
 onMounted(() => {
     if (userStore.isAuthenticated) {
         fetchNotificacoes(); // Busca as notificações na primeira vez
@@ -130,12 +162,9 @@ onMounted(() => {
                                         'opacity-60': notificacao.lida 
                                     }]">
                                     
-                                    <Avatar :class="['flex-shrink-0', 
-                                            { 
-                                                'avatar-nao-lida text-white': !notificacao.lida, 
-                                                'avatar-lida text-color-secondary': notificacao.lida 
-                                            }]"
-                                            icon="pi pi-bell" shape="circle" />
+                                    <Avatar :class="['flex-shrink-0', getNotificacaoClass(notificacao)]"
+                                        :icon="getNotificacaoIcon(notificacao.tipo)" 
+                                        shape="circle" />
                                     
                                     <div class="flex flex-col">
                                         <p :class="['m-0 text-sm', { 'font-bold': !notificacao.lida, 'font-normal': notificacao.lida }]">
@@ -214,13 +243,23 @@ onMounted(() => {
     align-items: center;
     justify-content: center;
 }
+.avatar-atraso {
+    background: var(--p-red-500) !important;
+    color: white !important;
+}
+.avatar-novo {
+    background: var(--p-blue-500) !important;
+    color: white !important;
+}
 .avatar-nao-lida {
-    background: var(--p-emerald-500) !important; 
+    background: var(--p-emerald-500) !important;
+    color: white !important;
 }
 .avatar-lida {
     background: var(--p-gray-400) !important;
 }
 .dark .avatar-lida {
     background: var(--p-gray-600) !important;
+    color: white !important;
 }
 </style>

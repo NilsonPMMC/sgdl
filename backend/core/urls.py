@@ -5,7 +5,8 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     DemandaViewSet, ServicoViewSet, AnexoViewSet, SecretariaViewSet, 
     TramitacaoViewSet, DashboardStatsAPIView, DemandaLocationsAPIView, 
-    UsuarioViewSet, UserProfileView, ChangePasswordView, NotificacaoViewSet
+    UsuarioViewSet, UserProfileView, ChangePasswordView, NotificacaoViewSet,
+    PasswordResetRequestView, PasswordResetConfirmView
 )
 
 router = DefaultRouter()
@@ -20,6 +21,8 @@ router.register(r'notificacoes', NotificacaoViewSet, basename='notificacao')
 urlpatterns = [
     path('users/me/', UserProfileView.as_view(), name='user-profile'),
     path('users/me/change-password/', ChangePasswordView.as_view(), name='user-change-password'),
+    path('password-reset/', PasswordResetRequestView.as_view(), name='password-reset-request'),
+    path('password-reset-confirm/', PasswordResetConfirmView.as_view(), name='password-reset-confirm'),
     path('dashboard/stats/', DashboardStatsAPIView.as_view(), name='dashboard-stats'),
     path('demandas/locations/', DemandaLocationsAPIView.as_view(), name='demanda-locations'),
     path('', include(router.urls)),

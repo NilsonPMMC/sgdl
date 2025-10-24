@@ -232,18 +232,18 @@ const onTramitacaoFilesSelected = (event) => {
 
 const getTimelineIcon = (tipoDisplay) => {
     const map = {
-        'Comentário': { icon: 'pi pi-comment', color: 'bg-gray-500' },
-        'Análise Técnica': { icon: 'pi pi-desktop', color: 'bg-yellow-500' },
-        'Atraso por Falta de Material': { icon: 'pi pi-exclamation-triangle', color: 'bg-red-500' },
-        'Atraso por Outros Motivos': { icon: 'pi pi-exclamation-triangle', color: 'bg-red-500' },
-        'Programação do Serviço': { icon: 'pi pi-calendar', color: 'bg-cyan-500' },
-        'Transferência de Setor/Secretaria': { icon: 'pi pi-share-alt', color: 'bg-orange-500' },
-        'Conclusão do Serviço': { icon: 'pi pi-check-square', color: 'bg-purple-500' },
-        'Envio Oficial': { icon: 'pi pi-send', color: 'bg-blue-500' },
-        'Despacho para Secretaria': { icon: 'pi pi-share-alt', color: 'bg-orange-500' },
-        'Atualização de Status': { icon: 'pi pi-sync', color: 'bg-cyan-500' },
+        'Comentário': { icon: 'pi pi-comment', color: 'avatar-gray' },
+        'Análise Técnica': { icon: 'pi pi-desktop', color: 'avatar-yellow' },
+        'Atraso por Falta de Material': { icon: 'pi pi-exclamation-triangle', color: 'avatar-red' },
+        'Atraso por Outros Motivos': { icon: 'pi pi-exclamation-triangle', color: 'avatar-red' },
+        'Programação do Serviço': { icon: 'pi pi-calendar', color: 'avatar-cyan' },
+        'Transferência de Setor/Secretaria': { icon: 'pi pi-share-alt', color: 'avatar-orange' },
+        'Conclusão do Serviço': { icon: 'pi pi-check-square', color: 'avatar-purple' },
+        'Envio Oficial': { icon: 'pi pi-send', color: 'avatar-blue' },
+        'Despacho para Secretaria': { icon: 'pi pi-share-alt', color: 'avatar-orange' },
+        'Atualização de Status': { icon: 'pi pi-sync', color: 'avatar-cyan' },
     };
-    return map[tipoDisplay] || { icon: 'pi pi-info-circle', color: 'bg-gray-500' };
+    return map[tipoDisplay] || { icon: 'pi pi-info-circle', color: 'avatar-gray' };
 };
 
 const goBack = () => {
@@ -306,6 +306,15 @@ const goBack = () => {
                     <i class="pi pi-sitemap text-primary-500"></i>
                     <span>{{ demanda.secretaria_destino?.nome || 'Aguardando despacho' }}</span>
                 </div>
+            </div>
+            <div v-if="demanda.numero_externo" class="flex items-center gap-2 mb-4">
+                <i class="pi pi-bookmark text-primary-500"></i>
+                <span>Ref. Externa: {{ demanda.numero_externo }}</span>
+                <a v-if="demanda.link_externo" :href="demanda.link_externo" target="_blank" rel="noopener noreferrer" 
+                    v-tooltip.top="'Abrir link externo'"
+                    class="text-primary-500 hover:text-primary-700">
+                    <i class="pi pi-external-link"></i>
+                </a>
             </div>
             <Divider />
             <div class="field col-12">
@@ -426,5 +435,33 @@ const goBack = () => {
 .timeline-container .card {
     border: 1px solid var(--surface-border);
     box-shadow: var(--card-shadow);
+}
+.avatar-blue {
+    background: var(--p-blue-500) !important;
+    color: white !important;
+}
+.avatar-gray {
+    background: var(--p-gray-500) !important;
+    color: white !important;
+}
+.avatar-yellow {
+    background: var(--p-yellow-500) !important;
+    color: white !important;
+}
+.avatar-red {
+    background: var(--p-red-500) !important;
+    color: white !important;
+}
+.avatar-cyan {
+    background: var(--p-cyan-500) !important;
+    color: white !important;
+}
+.avatar-orange {
+    background: var(--p-orange-500) !important;
+    color: white !important;
+}
+.avatar-purple {
+    background: var(--p-purple-500) !important;
+    color: white !important;
 }
 </style>

@@ -32,8 +32,8 @@ export const useUserStore = defineStore('user', () => {
         }
     }
 
-    async function login(username, password) {
-        const response = await ApiService.getTokens(username, password);
+    async function login(username, password, rememberMe = false) {
+        const response = await ApiService.getTokens(username, password, rememberMe);
         accessToken.value = response.data.access;
         refreshToken.value = response.data.refresh;        
         await fetchCurrentUser();

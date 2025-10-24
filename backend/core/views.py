@@ -7,17 +7,31 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.views import APIView
+from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework.permissions import AllowAny
 from django.db.models import Count, Q
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
+from django.core.mail import send_mail
+from django.template.loader import render_to_string
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.core.exceptions import ValidationError
+from django.conf import settings
 from .models import Demanda, Servico, Anexo, Secretaria, Tramitacao, AnexoTramitacao, Usuario, Notificacao
-from .serializers import ( DemandaSerializer, ServicoSerializer, AnexoSerializer, SecretariaSerializer, 
+from .serializers import ( DemandaSerializer, ServicoSerializer, AnexoSerializer, SecretariaSerializer, CustomTokenObtainPairSerializer, PasswordResetConfirmSerializer,
     TramitacaoSerializer, AnexoTramitacaoSerializer, UsuarioSerializer, UserProfileSerializer, ChangePasswordSerializer, NotificacaoSerializer
 )
 from .filters import DemandaFilter
 from rest_framework.permissions import IsAuthenticated
 
+class CustomTokenObtainPairView(TokenObtainPairView):
+    """
+    View customizada para usar o serializer de token customizado.
+    """
+    serializer_class = CustomTokenObtainPairSerializer
 
 class DemandaViewSet(viewsets.ModelViewSet):
     queryset = Demanda.objects.all().order_by('-data_criacao')
@@ -83,6 +97,9 @@ class DemandaViewSet(viewsets.ModelViewSet):
         secretaria_id = request.data.get('secretaria_id')
         if not secretaria_id:
             return Response({'detail': 'O ID da secretaria de destino é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        numero_externo = request.data.get('numero_externo')
+        link_externo = request.data.get('link_externo')
 
         try:
             secretaria = Secretaria.objects.get(pk=secretaria_id)
@@ -97,7 +114,15 @@ class DemandaViewSet(viewsets.ModelViewSet):
         demanda.secretaria_destino = secretaria
         demanda.protocolo_executivo = protocolo_exec
         demanda.status = 'PROTOCOLADO'
+        demanda.numero_externo = numero_externo
+        demanda.link_externo = link_externo
         demanda.save()
+
+        descricao_tramitacao = f'Demanda despachada para a secretaria: {secretaria.nome}. Protocolo do Executivo gerado: {protocolo_exec}.'
+        if numero_externo:
+            descricao_tramitacao += f'\nReferência Externa: {numero_externo}'
+        if link_externo:
+             descricao_tramitacao += f'\nLink Externo: {link_externo}'
 
         Tramitacao.objects.create(
             demanda=demanda,
@@ -425,3 +450,83 @@ class NotificacaoViewSet(viewsets.ModelViewSet):
         notificacao.lida = True
         notificacao.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+    
+class PasswordResetRequestView(APIView):
+    """
+    View pública para solicitar a redefinição de senha.
+    Recebe um e-mail e envia um link de redefinição se o usuário existir.
+    """
+    permission_classes = [AllowAny] # <-- Torna este endpoint público
+
+    def post(self, request, *args, **kwargs):
+        email = request.data.get('email')
+        
+        if not email:
+            return Response({'error': 'E-mail é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Lembre-se que seu model é Usuario
+            user = Usuario.objects.get(email=email) 
+        except Usuario.DoesNotExist:
+            # Por segurança, não informamos que o e-mail não foi encontrado.
+            return Response(status=status.HTTP_200_OK)
+
+        # Gerar token de redefinição
+        token_generator = PasswordResetTokenGenerator()
+        token = token_generator.make_token(user)
+        uidb64 = urlsafe_base64_encode(force_bytes(user.pk))
+
+        FRONTEND_URL = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        reset_link = f'{FRONTEND_URL}/resetar-senha/{uidb64}/{token}/'
+
+        try:
+            send_mail(
+                subject='[SGDL] Redefinição de Senha',
+                message=f'Olá {user.first_name},\n\n'
+                        f'Você solicitou uma redefinição de senha. Clique no link abaixo para criar uma nova senha:\n\n'
+                        f'{reset_link}\n\n'
+                        f'Se você não solicitou isso, por favor ignore este e-mail.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[user.email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            # Em produção, logar este erro
+            print(f"Erro ao enviar e-mail de redefinição: {e}")
+            
+            # --- LINHA CORRIGIDA ---
+            return Response({'error': 'Não foi possível enviar o e-mail.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response(status=status.HTTP_200_OK)
+    
+class PasswordResetConfirmView(APIView):
+    """
+    View pública para confirmar a redefinição de senha.
+    Recebe uidb64, token e a nova senha.
+    """
+    permission_classes = [AllowAny]
+    serializer_class = PasswordResetConfirmSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        uidb64 = serializer.validated_data['uidb64']
+        token = serializer.validated_data['token']
+        new_password = serializer.validated_data['new_password']
+
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = Usuario.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, Usuario.DoesNotExist):
+            return Response({'error': 'Link de redefinição inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        token_generator = PasswordResetTokenGenerator()
+        if not token_generator.check_token(user, token):
+            return Response({'error': 'Link de redefinição inválido ou expirado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Token é válido, redefinir a senha
+        user.set_password(new_password)
+        user.save()
+        return Response({'status': 'Senha redefinida com sucesso.'}, status=status.HTTP_200_OK)

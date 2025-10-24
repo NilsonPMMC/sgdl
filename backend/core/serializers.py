@@ -1,7 +1,11 @@
 # /var/www/sgdl/backend/core/serializers.py
 
+from datetime import datetime, timedelta
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework import serializers
 from .models import Demanda, Servico, Secretaria, Usuario, Anexo, Tramitacao, AnexoTramitacao, Notificacao
+from django.conf import settings
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """
@@ -84,6 +88,47 @@ class TramitacaoSerializer(serializers.ModelSerializer):
             'demanda': {'write_only': True},
         }
 
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    """
+    Customiza o serializer de token para incluir o campo 'remember_me'
+    e alterar o tempo de vida do refresh token.
+    """
+    remember_me = serializers.BooleanField(write_only=True, required=False)
+
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        return token
+
+    def validate(self, attrs):
+        # Chama o 'validate' original
+        data = super().validate(attrs)
+        
+        remember_me = self.initial_data.get('remember_me', False)
+        
+        print(f"--- DEBUG: 'remember_me' recebido = {remember_me} ---")
+        
+        if remember_me:
+            print("--- DEBUG: 'remember_me' é TRUE. Definindo token para 30 dias. ---")
+            refresh = self.get_token(self.user)
+            refresh.set_exp(
+                lifetime=settings.SIMPLE_JWT['REFRESH_TOKEN_LIFETIME_REMEMBER_ME']
+            )
+            data['refresh'] = str(refresh)
+        else:
+            print("--- DEBUG: 'remember_me' é FALSE. Usando token padrão (1 dia). ---")
+            
+        return data
+    
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    """
+    Serializer para validar os dados da tela de confirmação de 
+    redefinição de senha.
+    """
+    uidb64 = serializers.CharField(required=True)
+    token = serializers.CharField(required=True)
+    new_password = serializers.CharField(required=True, write_only=True)
+    
 class DemandaSerializer(serializers.ModelSerializer):
     autor = UsuarioSerializer(read_only=True)
     servico = ServicoSerializer(read_only=True)
@@ -101,11 +146,15 @@ class DemandaSerializer(serializers.ModelSerializer):
             'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'latitude', 'longitude',
             'status', 'status_display', 'data_criacao', 'autor', 'servico', 'secretaria_destino',
             'servico_id',
-            'anexos', 'tramitacoes'
+            'anexos', 'tramitacoes',
+            'numero_externo', 
+            'link_externo'
         ]
         read_only_fields = [
             'protocolo_legislativo', 'protocolo_executivo', 'status', 'status_display',
-            'data_criacao', 'secretaria_destino', 'anexos', 'tramitacoes', 'autor'
+            'data_criacao', 'secretaria_destino', 'anexos', 'tramitacoes', 'autor',
+            'numero_externo', 
+            'link_externo'
         ]
 
 class NotificacaoSerializer(serializers.ModelSerializer):
@@ -120,6 +169,7 @@ class NotificacaoSerializer(serializers.ModelSerializer):
             'mensagem',
             'lida',
             'data_criacao',
-            'link'
+            'link',
+            'tipo'
         ]
         read_only_fields = ['data_criacao']

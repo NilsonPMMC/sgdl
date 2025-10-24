@@ -27,17 +27,16 @@ const loading = ref(true);
 
 const despachoDialog = ref(false);
 const demandaParaDespacho = ref(null);
-const secretariaDestinoId = ref(null);
+const todasSecretarias = ref([]);
 
 const aprovacaoDialog = ref(false);
 const demandaParaAprovacao = ref(null);
 const novaSecretariaId = ref(null);
-
-const todasSecretarias = ref([]);
+const secretariaDestinoId = ref(null);
 const todosVereadores = ref([]);
 
 const filtros = ref({
-    q: null, // Para busca geral (ofício, protocolo, título)
+    q: null,
     status: null,
     secretaria_destino: null,
     autor: null
@@ -166,16 +165,33 @@ const excluirDemanda = (id) => {
     });
 };
 
+const despachoData = ref({
+    secretaria_id: null,
+    numero_externo: '',
+    link_externo: ''
+});
+
 const abrirDialogoDespacho = (demanda) => {
     demandaParaDespacho.value = demanda;
-    secretariaDestinoId.value = demanda.servico?.secretaria_responsavel?.id || null;
+    
+    despachoData.value = {
+        secretaria_id: demanda.servico?.secretaria_responsavel?.id || null,
+        numero_externo: '', 
+        link_externo: ''
+    };
+    
     despachoDialog.value = true;
 };
 
 const confirmarDespacho = async () => {
-    if (!secretariaDestinoId.value) return;
+    if (!despachoData.value.secretaria_id) {
+        toast.add({ severity: 'warn', summary: 'Atenção', detail: 'Por favor, selecione uma secretaria.', life: 3000 });
+        return;
+    }
+    
     try {
-        await ApiService.despacharDemanda(demandaParaDespacho.value.id, secretariaDestinoId.value);
+        await ApiService.despacharDemanda(demandaParaDespacho.value.id, despachoData.value);
+        
         toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Demanda despachada.', life: 3000 });
         despachoDialog.value = false;
         carregarDemandas();
@@ -302,17 +318,40 @@ const confirmarAprovacaoTransferencia = async () => {
           </Column>
         </DataTable>
 
-        <Dialog v-model:visible="despachoDialog" header="Despachar Demanda" :modal="true" class="p-fluid" style="width: 450px;">
-            <div class="field">
-                <label for="secretaria" class="block mb-3">Enviar para a Secretaria</label>
-                <Select id="secretaria" v-model="secretariaDestinoId" :options="todasSecretarias" optionLabel="nome" optionValue="id" placeholder="Selecione uma secretaria" fluid />
+        <Dialog v-model:visible="despachoDialog" header="Despachar Demanda" :modal="true" style="width: 450px;">
+            <div class="flex flex-col gap-4">
+                <div>
+                    <label for="secretaria" class="block mb-3">Enviar para a Secretaria</label>
+                    <Select id="secretaria" 
+                            v-model="despachoData.secretaria_id" 
+                            :options="todasSecretarias" 
+                            optionLabel="nome" 
+                            optionValue="id" 
+                            placeholder="Selecione uma secretaria" 
+                            fluid />
+                </div>
+
+                <div>
+                    <label for="num_externo" class="block mb-3">Referência Externa (Opcional)</label>
+                    <InputText id="num_externo" 
+                            v-model="despachoData.numero_externo" 
+                            placeholder="Ex: 1Doc 1234/2025 ou SEI..." fluid />
+                </div>
+
+                <div>
+                    <label for="link_externo" class="block mb-3">Link Externo (Opcional)</label>
+                    <InputText id="link_externo" 
+                            v-model="despachoData.link_externo" 
+                            placeholder="http://..." fluid />
+                </div>
             </div>
             <template #footer>
                 <Button label="Cancelar" icon="pi pi-times" text @click="despachoDialog = false" />
                 <Button label="Confirmar Despacho" icon="pi pi-check" @click="confirmarDespacho" />
             </template>
         </Dialog>
-        <Dialog v-model:visible="aprovacaoDialog" header="Aprovar Transferência" :modal="true" class="p-fluid" style="width: 450px;">
+
+        <Dialog v-model:visible="aprovacaoDialog" header="Aprovar Transferência" :modal="true" style="width: 450px;">
             <div v-if="demandaParaAprovacao">
                 <p class="mb-4">A secretaria <strong>{{ demandaParaAprovacao.secretaria_destino?.nome }}</strong> solicitou a transferência. Selecione a nova secretaria.</p>
                 <div class="field">

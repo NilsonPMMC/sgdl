@@ -9,11 +9,16 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
 from pathlib import Path
+from dotenv import load_dotenv 
+import os
+import dj_database_url
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+dotenv_path = BASE_DIR / '.env'
+load_dotenv(dotenv_path=dotenv_path)
 
 
 # Quick-start development settings - unsuitable for production
@@ -23,9 +28,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-0jw9+)8g7gh)_6ze1b@_qo2az(=m@gntra$q4uzvh(9$a@c=^y'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['sgdl.mogidascruzes.sp.gov.br', 'localhost']
+
+CSRF_TRUSTED_ORIGINS = ['https://sgdl.mogidascruzes.sp.gov.br']
 
 
 # Application definition
@@ -81,10 +88,10 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        default=os.environ.get('DATABASE_URL'),
+        conn_max_age=600
+    )
 }
 
 
@@ -123,6 +130,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -143,8 +151,23 @@ REST_FRAMEWORK = {
     )
 }
 
+# --- CONFIGURAÇÃO DE E-MAIL SMTP (MAILGRID - TI) ---
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = os.environ.get('EMAIL_HOST')
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_USE_SSL = False
+EMAIL_HOST_USER = os.environ.get('SMTP_USER')
+EMAIL_HOST_PASSWORD = os.environ.get('SMTP_PASSWORD')
+DEFAULT_FROM_EMAIL = 'comunicacao.gabinete@mogidascruzes.sp.gov.br'
+
+# --- URL DO FRONTEND (Para links de redefinição de senha) ---
+# (Ajuste para a URL de produção quando for o caso)
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://localhost:5173')
+
 from datetime import timedelta
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60), # Token de acesso expira em 1 hora
     "REFRESH_TOKEN_LIFETIME": timedelta(days=1),   # Token de atualização expira em 1 dia
+    'REFRESH_TOKEN_LIFETIME_REMEMBER_ME': timedelta(days=30), # Novo: 30 dias
 }

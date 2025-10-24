@@ -5,6 +5,7 @@ import Aura from '@primeuix/themes/aura';
 import Lara from '@primeuix/themes/lara';
 import Nora from '@primeuix/themes/nora';
 import { ref } from 'vue';
+import SelectButton from 'primevue/selectbutton';
 
 const { layoutConfig, isDarkTheme } = useLayout();
 

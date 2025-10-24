@@ -2,23 +2,71 @@ import axios from 'axios';
 import { useUserStore } from '@/stores/userStore';
 
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8006/api/'
+  baseURL: 'https://sgdl.mogidascruzes.sp.gov.br/api/'
 });
 
-apiClient.interceptors.request.use((config) => {
-  const userStore = useUserStore();
-  const token = userStore.accessToken;
-  if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+apiClient.interceptors.request.use(
+  (config) => {
+      const userStore = useUserStore();
+      const token = userStore.accessToken;
+      if (token) {
+          config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+  },
+  (error) => {
+      return Promise.reject(error);
   }
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+);
+
+apiClient.interceptors.response.use(
+  (response) => {
+      return response;
+  },
+  async (error) => {
+      const originalRequest = error.config;
+
+      if (error.response.status === 401 && 
+          originalRequest.url !== 'token/refresh/' &&
+          originalRequest.url !== 'token/'
+          ) {
+          
+          const userStore = useUserStore();
+
+          if (userStore.refreshToken) {
+              try {
+                  console.log('Access token expirado. Tentando refresh...');
+                  
+                  const response = await apiClient.post('token/refresh/', {
+                      refresh: userStore.refreshToken
+                  });
+                  
+                  const newAccessToken = response.data.access;
+                  
+                  userStore.accessToken = newAccessToken;
+                  
+                  originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
+                  return apiClient(originalRequest);
+
+              } catch (refreshError) {
+                  console.error('Refresh token é inválido. Deslogando.', refreshError);
+                  userStore.logout();
+                  window.location.href = '/login';
+                  return Promise.reject(refreshError);
+              }
+          } else {
+              console.error('Sem refresh token disponível. Deslogando.');
+              userStore.logout();
+              window.location.href = '/login';
+          }
+      }
+      return Promise.reject(error);
+  }
+);
 
 export default {
-  getTokens(username, password) {
-    return apiClient.post('token/', { username, password });
+  getTokens(username, password, rememberMe = false) {
+    return apiClient.post('token/', { username, password, remember_me: rememberMe });
   },
   getCurrentUser() {
     return apiClient.get('users/me/');
@@ -63,8 +111,8 @@ export default {
   getSecretarias() {
     return apiClient.get('secretarias/');
   },
-  despacharDemanda(id, secretariaId) {
-    return apiClient.post(`demandas/${id}/despachar/`, { secretaria_id: secretariaId });
+  despacharDemanda(id, despachoData) {
+    return apiClient.post(`demandas/${id}/despachar/`, despachoData);
   },
   createTramitacao(data) {
     return apiClient.post('tramitacoes/', data);
@@ -110,5 +158,11 @@ export default {
    */
   changePassword(passwordData) {
     return apiClient.post('users/me/change-password/', passwordData);
+  },
+  requestPasswordReset(data) {
+    return apiClient.post('password-reset/', data);
+  },
+  confirmPasswordReset(data) {
+    return apiClient.post('password-reset-confirm/', data);
   }
 };
