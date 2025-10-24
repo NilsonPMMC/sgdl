@@ -173,3 +173,29 @@ class NotificacaoSerializer(serializers.ModelSerializer):
             'tipo'
         ]
         read_only_fields = ['data_criacao']
+
+class DemandaListSerializer(serializers.ModelSerializer):
+    """
+    Serializer para a lista de demandas (WORKAROUND - Retorna ID do autor).
+    (Versão FINAL CORRIGIDA v2)
+    """
+    criado_por_id = serializers.ReadOnlyField(source='autor_id')
+
+    secretaria_destino_nome = serializers.SerializerMethodField()
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = Demanda
+        fields = [
+            'id', 'protocolo_legislativo', 'protocolo_executivo',
+            'criado_por_id', # <-- Campo corrigido
+            'secretaria_destino_nome', 'status',
+            'status_display', 'data_criacao'
+        ]
+
+    # get_criado_por_nome NÃO É NECESSÁRIO AQUI
+
+    def get_secretaria_destino_nome(self, obj):
+        if obj.secretaria_destino:
+            return obj.secretaria_destino.nome
+        return "Aguardando Protocolo"

@@ -1,5 +1,5 @@
 import django_filters
-from .models import Demanda
+from .models import Demanda, Usuario
 from django.db.models import Q
 
 class DemandaFilter(django_filters.FilterSet):
@@ -7,15 +7,11 @@ class DemandaFilter(django_filters.FilterSet):
     
     status = django_filters.ChoiceFilter(choices=Demanda.STATUS_CHOICES)
     
-    # --- INÍCIO DA CORREÇÃO ---
-    # Adicionamos 'field_name' para dizer explicitamente qual campo filtrar,
-    # resolvendo a ambiguidade do nome do filtro.
     status__exclude = django_filters.ChoiceFilter(
         field_name='status', 
         choices=Demanda.STATUS_CHOICES, 
         exclude=True
     )
-    # --- FIM DA CORREÇÃO ---
     
     status__in = django_filters.BaseInFilter(field_name='status', lookup_expr='in')
     autor = django_filters.NumberFilter(field_name='autor_id')
@@ -34,3 +30,10 @@ class DemandaFilter(django_filters.FilterSet):
             Q(protocolo_executivo__icontains=value) |
             Q(titulo__icontains=value)
         )
+    
+class UsuarioFilter(django_filters.FilterSet):
+    id__in = django_filters.BaseInFilter(field_name='id', lookup_expr='in')
+
+    class Meta:
+        model = Usuario
+        fields = ['id', 'perfil', 'id__in']

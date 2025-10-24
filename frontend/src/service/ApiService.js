@@ -164,5 +164,24 @@ export default {
   },
   confirmPasswordReset(data) {
     return apiClient.post('password-reset-confirm/', data);
-  }
+  },
+  /**
+     * Busca dados agregados para os relatórios.
+     * @param {object} params - Objeto com os filtros (data_inicio, status__in, etc.)
+     */
+  getReportPorStatus(params) {
+    return apiClient.get('/reports/por-status/', { params }); // CORRIGIDO
+  },
+  getReportPorSecretaria(params) {
+    return apiClient.get('/reports/por-secretaria/', { params }); // CORRIGIDO
+  },
+  getReportPorVereador(params) {
+    return apiClient.get('/reports/por-vereador/', { params }); // CORRIGIDO
+  },
+  getReportHeatmap(params) {
+    return apiClient.get('/reports/heatmap/', { params }); // CORRIGIDO
+  },
+  getReportDemandasList(params) {
+    return apiClient.get('/reports/demandas-filtradas/', { params });
+  },
 };

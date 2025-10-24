@@ -12,7 +12,13 @@ const model = ref([
         items: [
             { label: 'Dashboard', icon: 'pi pi-fw pi-home', to: '/' },
             { label: 'Mapa de Calor', icon: 'pi pi-fw pi-map', to: '/mapa-calor' },
-            { label: 'Demandas', icon: 'pi pi-fw pi-book', to: '/demandas' }
+            { label: 'Demandas', icon: 'pi pi-fw pi-book', to: '/demandas' },
+            { 
+                label: 'Relatórios', 
+                icon: 'pi pi-fw pi-chart-bar', 
+                to: '/relatorios',
+                meta: { perfis: ['GESTOR'] } 
+            }
         ]
     }
 ]);

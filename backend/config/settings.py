@@ -28,7 +28,7 @@ load_dotenv(dotenv_path=dotenv_path)
 SECRET_KEY = 'django-insecure-0jw9+)8g7gh)_6ze1b@_qo2az(=m@gntra$q4uzvh(9$a@c=^y'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = False
+DEBUG = True
 
 ALLOWED_HOSTS = ['sgdl.mogidascruzes.sp.gov.br', 'localhost']
 
@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'django_filters',
     'corsheaders',
     'core',
+    'reports',
 ]
 
 AUTH_USER_MODEL = 'core.Usuario'

@@ -1,7 +1,7 @@
 # /var/www/sgdl/backend/core/views.py
 
 from datetime import datetime, timedelta
-from rest_framework import viewsets, mixins, status
+from rest_framework import viewsets, mixins, status, permissions
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -24,7 +24,7 @@ from .models import Demanda, Servico, Anexo, Secretaria, Tramitacao, AnexoTramit
 from .serializers import ( DemandaSerializer, ServicoSerializer, AnexoSerializer, SecretariaSerializer, CustomTokenObtainPairSerializer, PasswordResetConfirmSerializer,
     TramitacaoSerializer, AnexoTramitacaoSerializer, UsuarioSerializer, UserProfileSerializer, ChangePasswordSerializer, NotificacaoSerializer
 )
-from .filters import DemandaFilter
+from .filters import DemandaFilter, UsuarioFilter
 from rest_framework.permissions import IsAuthenticated
 
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -379,13 +379,10 @@ class UsuarioViewSet(viewsets.ReadOnlyModelViewSet):
     """
     queryset = Usuario.objects.all().order_by('first_name', 'last_name')
     serializer_class = UsuarioSerializer
+    permission_classes = [permissions.IsAuthenticated]
     
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        perfil = self.request.query_params.get('perfil')
-        if perfil:
-            queryset = queryset.filter(perfil=perfil)
-        return queryset
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = UsuarioFilter
     
 class UserProfileView(APIView):
     """

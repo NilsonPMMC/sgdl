@@ -15,6 +15,15 @@ const router = createRouter({
                     component: () => import('@/views/DashboardView.vue')
                 },
                 {
+                    path: '/relatorios',
+                    name: 'relatorios',
+                    component: () => import('@/views/RelatoriosView.vue'),
+                    meta: { 
+                        requiresAuth: true,
+                        perfis: ['GESTOR'] 
+                    }
+                },
+                {
                     path: '/mapa-calor',
                     name: 'mapa-calor',
                     component: () => import('@/views/MapaCalorView.vue')
