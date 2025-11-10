@@ -44,6 +44,17 @@ const filtros = ref({
 
 const statusAbertos = ['AGUARDANDO_PROTOCOLO', 'PROTOCOLADO', 'EM_EXECUCAO', 'AGUARDANDO_TRANSFERENCIA'];
 
+// Helper function para verificar se uma *única* demanda está atrasada
+const isAtrasada = (demanda) => {
+    const hoje = new Date();
+    // Clona a data de hoje e subtrai 30 dias para definir o limite
+    const limite = new Date(new Date().setDate(hoje.getDate() - 30)); 
+    const dataCriacao = new Date(demanda.data_criacao);
+    
+    // Está atrasada se a data de criação for anterior ao limite E o status ainda estiver aberto
+    return dataCriacao < limite && statusAbertos.includes(demanda.status);
+};
+
 const totalAbertos = computed(() => {
     return demandas.value.filter(d => statusAbertos.includes(d.status)).length;
 });
@@ -53,14 +64,8 @@ const totalFinalizados = computed(() => {
 });
 
 const totalAtrasados = computed(() => {
-    const hoje = new Date();
-    const limite = new Date(hoje.setDate(hoje.getDate() - 30)); // Data de 30 dias atrás
-
-    return demandas.value.filter(d => {
-        const dataCriacao = new Date(d.data_criacao);
-        // Está atrasada se a data de criação for anterior ao limite E o status ainda estiver aberto
-        return dataCriacao < limite && statusAbertos.includes(d.status);
-    }).length;
+    // Reutiliza a função helper
+    return demandas.value.filter(isAtrasada).length; 
 });
 
 const statusOptions = ref([
@@ -76,17 +81,23 @@ const statusOptions = ref([
 const isGestorOuProtocolo = computed(() => ['GESTOR', 'PROTOCOLO'].includes(userStore.currentUser?.perfil));
 const showVereadorFilter = computed(() => ['GESTOR', 'PROTOCOLO', 'SECRETARIA'].includes(userStore.currentUser?.perfil));
 
-const getStatusSeverity = (status) => {
-    const map = {
-        'RASCUNHO': 'info',
-        'AGUARDANDO_PROTOCOLO': 'warn',
-        'PROTOCOLADO': 'primary',
-        'EM_EXECUCAO': 'success',
-        'FINALIZADO': 'success',
-        'CANCELADO': 'danger',
-        'AGUARDANDO_TRANSFERENCIA': 'warning'
-    };
-    return map[status] || 'contrast';
+const getStatusSeverity = (demanda) => {
+    // 1. Verifica o atraso PRIMEIRO
+    if (isAtrasada(demanda)) {
+        return 'danger'; // Vermelho para atrasados
+    }
+    
+    // 2. Se não estiver atrasado, usa a lógica de status normal
+    const map = {
+        'RASCUNHO': 'info',
+        'AGUARDANDO_PROTOCOLO': 'warn',
+        'PROTOCOLADO': 'primary',
+        'EM_EXECUCAO': 'success',
+        'FINALIZADO': 'success',
+        'CANCELADO': 'danger',
+        'AGUARDANDO_TRANSFERENCIA': 'warning'
+    };
+    return map[demanda.status] || 'contrast';
 };
 
 async function carregarDemandas() {
@@ -119,13 +130,13 @@ async function carregarDemandas() {
         Object.keys(params).forEach(key => (params[key] == null || params[key] === '') && delete params[key]);
 
         const response = await ApiService.getDemandas(params);
-        demandas.value = response.data;
-    } catch (error) {
-        console.error('Erro ao buscar demandas:', error);
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao carregar demandas.', life: 3000 });
-    } finally {
-        loading.value = false;
-    }
+        demandas.value = response.data.results || response.data;
+    } catch (error) {
+        console.error('Erro ao buscar demandas:', error);
+        toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao carregar demandas.', life: 3000 });
+    } finally {
+        loading.value = false;
+    }
 }
 
 const limparFiltros = () => {
@@ -293,13 +304,22 @@ const confirmarAprovacaoTransferencia = async () => {
                 <Button label="Limpar" icon="pi pi-times" @click="limparFiltros" class="p-button-outlined" />
         </Panel>
 
-        <DataTable :value="demandas" :loading="loading" responsiveLayout="scroll">
+        <DataTable :value="demandas" 
+                   :loading="loading" 
+                   responsiveLayout="scroll"
+                   paginator :rows="10" :rowsPerPageOptions="[5, 10, 20, 50]"
+        >
           <Column field="protocolo_legislativo" header="Ofício" :sortable="true"></Column>
           <Column field="protocolo_executivo" header="Protocolo" :sortable="true"></Column>
+          <Column field="data_criacao" header="Criado em" :sortable="true">
+            <template #body="{ data }">
+                {{ new Date(data.data_criacao).toLocaleDateString('pt-BR') }}
+            </template>
+          </Column>
           <Column field="titulo" header="Título" :sortable="true"></Column>
           <Column field="status" header="Status" :sortable="true">
             <template #body="{ data }">
-                <Tag :value="data.status_display" :severity="getStatusSeverity(data.status)" />
+                <Tag :value="isAtrasada(data) ? 'ATRASADO' : data.status_display" :severity="getStatusSeverity(data)" />
             </template>
           </Column>
           <Column field="secretaria_destino.nome" header="Secretaria Destino"></Column>

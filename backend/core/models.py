@@ -6,6 +6,7 @@ from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 from django.conf import settings
 from django.contrib.auth.models import AbstractUser
+from django.utils import timezone
 
 class Secretaria(models.Model):
     nome = models.CharField(max_length=255, unique=True)
@@ -78,7 +79,7 @@ class Demanda(models.Model):
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     bairro = models.CharField(max_length=100, blank=True, null=True)
     status = models.CharField(max_length=30, choices=STATUS_CHOICES, default='RASCUNHO')
-    data_criacao = models.DateTimeField(auto_now_add=True)
+    data_criacao = models.DateTimeField(default=timezone.now)
     data_finalizacao = models.DateTimeField(blank=True, null=True)
     autor = models.ForeignKey('Usuario', on_delete=models.PROTECT, related_name='demandas_criadas')
     servico = models.ForeignKey(Servico, on_delete=models.PROTECT, related_name='demandas')

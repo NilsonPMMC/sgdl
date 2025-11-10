@@ -156,8 +156,11 @@ const getStatusSeverity = (status) => {
 
 // --- Métodos de Formatação ---
 const formatarData = (data) => {
-    if (!data) return null;
-    return data.toISOString().split('T')[0];
+    if (!data) return null;
+    const d = new Date(data);
+    // Corrige o fuso horário (bug "um dia a menos")
+    d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
+    return d.toISOString().split('T')[0]; // Formato 'YYYY-MM-DD'
 };
 
 const formatarParams = () => {
@@ -166,8 +169,16 @@ const formatarParams = () => {
         params.data_inicio = formatarData(filtros.datas[0]);
     }
     if (filtros.datas && filtros.datas[1]) {
-        params.data_fim = formatarData(filtros.datas[1]);
-    }
+        // 1. Pega a data final selecionada (ex: 10/11/2025)
+        let dataFim = new Date(filtros.datas[1]);
+        
+        // 2. Adiciona 1 dia (ex: 11/11/2025)
+        dataFim.setDate(dataFim.getDate() + 1); 
+        
+        // 3. Formata e envia o dia *seguinte*
+        // O backend vai filtar "menor que" 11/11/2025 00:00:00
+        params.data_fim = formatarData(dataFim);
+    }
     if (filtros.status && filtros.status.length > 0) {
         params.status__in = filtros.status.join(',');
     }

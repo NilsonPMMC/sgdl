@@ -146,7 +146,10 @@ class DemandasFiltradasView(generics.ListAPIView):
         'secretaria_destino' # APENAS secretaria
     ).order_by('-data_criacao')
 
-    # Usa o serializer que retorna o ID
     serializer_class = DemandaListSerializer 
-    filterset_class = DemandaReportFilter # MANTENHA COMENTADO
+    
+    # --- CORREÇÃO AQUI ---
+    # Descomente (ou adicione) esta linha para ativar os filtros na tabela
+    filterset_class = DemandaReportFilter 
+    
     permission_classes = [permissions.IsAuthenticated]

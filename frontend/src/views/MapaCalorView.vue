@@ -54,7 +54,7 @@ const filteredServicos = ref([]);
 
 const createColoredIcon = (color) => {
     return L.divIcon({
-        className: `custom-div-icon bg-${color}-500`,
+        className: `custom-div-icon bg-${color}`,
         html: `<i class="pi pi-map-marker text-white" style="font-size: 1.5rem;"></i>`,
         iconSize: [30, 42],
         iconAnchor: [15, 42]
@@ -274,4 +274,14 @@ const searchServico = (event) => {
 
 .marker-cluster-blue { background-color: rgba(59, 130, 246, 0.6); }
 .marker-cluster-blue div { background-color: rgba(59, 130, 246, 0.8); }
+
+.bg-red {
+    background-color: rgb(239, 68, 68) !important; 
+}
+.bg-green {
+    background-color: rgb(34, 197, 94) !important;
+}
+.bg-blue { 
+    background-color: rgb(59, 130, 246) !important;
+}
 </style>

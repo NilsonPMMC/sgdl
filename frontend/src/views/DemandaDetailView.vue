@@ -1,6 +1,4 @@
 <script setup>
-// A seção <script> permanece exatamente a mesma da última versão que te passei.
-// Não há necessidade de alterá-la.
 import { ref, onMounted, computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import ApiService from '@/service/ApiService.js';
@@ -30,6 +28,20 @@ const novaTramitacao = ref({
     tipo: null,
     descricao: '',
     anexos_arquivos: []
+});
+
+const dataCriacaoFormatada = computed(() => {
+  if (demanda.value?.data_criacao) {
+    // Formato mais detalhado se preferir
+    return new Date(demanda.value.data_criacao).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+  return '';
 });
 
 const tiposTramitacao = ref([
@@ -296,6 +308,10 @@ const goBack = () => {
         </Message>
 
         <div class="card !m-0">
+            <Tag class="mb-3">
+                <small class="font-semibold">Criado em:</small>
+                <small>{{ dataCriacaoFormatada }}</small>
+            </Tag>
             <h4 class="mt-1">{{ demanda.titulo }}</h4>
             <div class="flex items-center gap-6 mb-4">
                 <div class="flex items-center gap-2">
