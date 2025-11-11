@@ -1,7 +1,13 @@
+# Em /var/www/sgdl/backend/reports/views.py
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, generics
 from django.db.models import Count, Q
+from django.utils import timezone  # GARANTA QUE ESTA LINHA ESTÁ AQUI
+import traceback
+import logging  # E GARANTA QUE ESTA LINHA ESTÁ AQUI
+logger = logging.getLogger(__name__)
 
 from core.models import Demanda
 from core.serializers import DemandaListSerializer
@@ -14,7 +20,7 @@ class BaseReportView(APIView):
     permission_classes = [permissions.IsAuthenticated] # Protege os relatórios
 
     def get_filtered_queryset(self, request):
-        # Instancia o filtro com os parâmetros da URL (request.GET)
+        logger.error(f"[DEBUG SGDL-GRAFICOS] Filtros recebidos: {request.GET}")
         filterset = DemandaReportFilter(request.GET, queryset=Demanda.objects.all())
         
         # Retorna o queryset já filtrado
@@ -139,17 +145,74 @@ class HeatmapView(BaseReportView):
         
         return Response(dados)
     
-# Em /var/www/sgdl/backend/reports/views.py
-
 class DemandasFiltradasView(generics.ListAPIView):
     queryset = Demanda.objects.all().select_related(
-        'secretaria_destino' # APENAS secretaria
-    ).order_by('-data_criacao')
-
+        'secretaria_destino'
+    )
     serializer_class = DemandaListSerializer 
-    
-    # --- CORREÇÃO AQUI ---
-    # Descomente (ou adicione) esta linha para ativar os filtros na tabela
+    permission_classes = [permissions.IsAuthenticated]
     filterset_class = DemandaReportFilter 
     
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        """
+        Sobrescreve o get_queryset para APLICAR O FILTRO MANUALMENTE,
+        já que o modo automático (declarativo) não está funcionando.
+        """
+        logger.error(f"[DEBUG SGDL-TABELA] Filtros recebidos: {self.request.GET}")
+        base_queryset = self.queryset
+        filterset = DemandaReportFilter(self.request.GET, queryset=base_queryset)
+        return filterset.qs.order_by('-data_criacao')
+
+# Em backend/reports/views.py
+
+class ReportKPIsView(BaseReportView):
+    """
+    Endpoint: /api/reports/kpis/
+    Retorna os 4 KPIs (cards) para a tela de Relatórios,
+    respeitando o DemandaReportFilter.
+    """
+    def get(self, request, *args, **kwargs):
+        # --- DEBUG: VAMOS CAPTURAR O ERRO REAL ---
+        try:
+            # self.get_filtered_queryset() JÁ usa o DemandaReportFilter
+            # (Esta linha também pode falhar se o 'logger' não foi importado)
+            queryset = self.get_filtered_queryset(request)
+
+            total_demandas = queryset.count()
+
+            status_aberto = [
+                'AGUARDANDO_PROTOCOLO', 
+                'PROTOCOLADO', 
+                'EM_EXECUCAO', 
+                'AGUARDANDO_TRANSFERENCIA'
+            ]
+            demandas_abertas = queryset.filter(status__in=status_aberto).count()
+            
+            demandas_concluidas = queryset.filter(status='FINALIZADO').count()
+
+            demandas_atrasadas = queryset.filter(
+                data_inicio_prazo__isnull=False,
+                data_inicio_prazo__lt=timezone.now().date(),
+                status__in=status_aberto
+            ).count()
+
+            return Response({
+                'total_demandas': total_demandas,
+                'demandas_abertas': demandas_abertas,
+                'demandas_concluidas': demandas_concluidas,
+                'demandas_atrasadas': demandas_atrasadas
+            })
+        
+        except Exception as e:
+            # --- SE FALHAR, RETORNA O ERRO EXATO PARA O NAVEGADOR ---
+            logger.error(f"[DEBUG SGDL] ERRO FATAL NA KPIS VIEW: {e}")
+            return Response(
+                {
+                    "erro": "Erro 500 na ReportKPIsView",
+                    "detalhe_erro": str(e),
+                    "traceback_completo": traceback.format_exc()
+                }, 
+                status=500 # Mantém o status 500, mas agora com um JSON útil
+            )
+        # --- FIM DO DEBUG ---

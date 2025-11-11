@@ -1,11 +1,12 @@
 // Em frontend/src/constants.js
 
 export const STATUS_CHOICES_REPORTS = [
-    { label: 'Aberta', value: 'ABERTA' },
-    { label: 'Protocolada', value: 'PROTOCOLADA' },
+    { label: 'Rascunho', value: 'RASCUNHO' },
+    { label: 'Aberta', value: 'AGUARDANDO_PROTOCOLO' },
+    { label: 'Protocolado', value: 'PROTOCOLADO' },
     { label: 'Em Execução', value: 'EM_EXECUCAO' },
-    { label: 'Concluída', value: 'CONCLUIDA' },
-    { label: 'Rejeitada', value: 'REJEITADA' },
+    { label: 'Finalizada', value: 'FINALIZADO' },
+    { label: 'Cancelada', value: 'CANCELADO' },
     { label: 'Aguardando Transferência', value: 'AGUARDANDO_TRANSFERENCIA' }
 ];
 

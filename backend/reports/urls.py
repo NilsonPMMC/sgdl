@@ -25,6 +25,11 @@ urlpatterns = [
         name='report-heatmap'
     ),
     path(
+        'kpis/', 
+        views.ReportKPIsView.as_view(), 
+        name='report-kpis'
+    ),
+    path(
         'demandas-filtradas/', 
         views.DemandasFiltradasView.as_view(), 
         name='report-demandas-filtradas'

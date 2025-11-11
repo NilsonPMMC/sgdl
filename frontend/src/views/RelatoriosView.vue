@@ -1,7 +1,10 @@
 <template>
-    <div class="card">
-        <h5>Relatórios Gerenciais</h5>
+    <div class="fixed bottom-4 right-4 z-50 no-print hidden lg:block">
+        <Button icon="pi pi-print" rounded severity="info" @click="imprimirPagina" v-tooltip.left="'Imprimir Relatório'" />
+    </div>
 
+    <div class="card no-print">
+        <h5>Relatórios Gerenciais</h5>
         <div class="col-12">
             <Panel class="mb-3" header="Filtrar" toggleable>
                 <div class="flex flex-wrap gap-4 mb-3">
@@ -41,66 +44,130 @@
         </div>
     </div>
 
-    <div v-if="isLoading" class="text-center p-5">
+    <div v-if="isLoading" class="text-center p-5 no-print">
         <ProgressSpinner />
         <p>Buscando dados...</p>
     </div>
 
-    <div v-if="!isLoading && isLoaded" class="grid grid-cols-12 gap-8">
+    <div v-if="!isLoading && isLoaded" class="relatorio-container">
         
-        <div class="col-span-12 lg:col-span-6 xl:col-span-6">
+        <div class="grid grid-cols-12 gap-4 mb-4 print-card-grid">
+            <div class="col-span-12 md:col-span-6 lg:col-span-3">
+                <div class="card h-full">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-gray-500 font-medium">TOTAL</div>
+                            <div class="text-2xl font-bold mt-2">{{ statsCards.total }}</div>
+                        </div>
+                        <div class="flex items-center justify-center bg-blue-100 rounded-full w-12 h-12">
+                            <i class="pi pi-inbox text-blue-500 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 md:col-span-6 lg:col-span-3">
+                <div class="card h-full">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-gray-500 font-medium">ABERTAS</div>
+                            <div class="text-2xl font-bold text-orange-500 mt-2">{{ statsCards.abertas }}</div>
+                        </div>
+                        <div class="flex items-center justify-center bg-orange-100 rounded-full w-12 h-12">
+                            <i class="pi pi-folder-open text-orange-500 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 md:col-span-6 lg:col-span-3">
+                <div class="card h-full">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-gray-500 font-medium">CONCLUÍDAS</div>
+                            <div class="text-2xl font-bold text-green-500 mt-2">{{ statsCards.concluidas }}</div>
+                        </div>
+                        <div class="flex items-center justify-center bg-green-100 rounded-full w-12 h-12">
+                            <i class="pi pi-check-circle text-green-500 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-span-12 md:col-span-6 lg:col-span-3">
+                <div class="card h-full">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="text-gray-500 font-medium">ATRASADAS</div>
+                            <div class="text-2xl font-bold text-red-500 mt-2">{{ statsCards.atrasadas }}</div>
+                        </div>
+                        <div class="flex items-center justify-center bg-red-100 rounded-full w-12 h-12">
+                            <i class="pi pi-exclamation-triangle text-red-500 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="grid grid-cols-12 gap-8 print-avoid-break print-chart-grid">
+            <div class="col-span-12 lg:col-span-6 xl:col-span-6">
+                <div class="card">
+                    <div class="font-semibold text-xl mb-4">Demandas por Secretaria</div>
+                    <Chart type="bar" :data="barSecretariaData" :options="barOptions"></Chart>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-6 xl:col-span-6">
+                <div class="card flex flex-col items-center">
+                    <div class="font-semibold text-xl mb-4">Visão Geral por Status</div>
+                    <Chart type="doughnut" :data="doughnutData" :options="pieOptions"></Chart>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-span-12 print-avoid-break">
             <div class="card">
-                <div class="font-semibold text-xl mb-4">Demandas por Secretaria</div>
-                <Chart type="bar" :data="barSecretariaData" :options="barOptions"></Chart>
+                <div class="font-semibold text-xl mb-4">Dados das Demandas Filtradas</div>
+
+                <DataTable :value="rawData" :rows="dataTableRows" paginator responsiveLayout="scroll"
+                    :loading="isLoading" dataKey="id"
+                    paginatorTemplate="CurrentPageReport FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown"
+                    currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords}">
+
+                    <Column field="protocolo_legislativo" header="Ofício" :sortable="true"></Column>
+                    <Column field="protocolo_executivo" header="Protocolo" :sortable="true"></Column>
+
+                    <Column field="criado_por_id" header="Autor" :sortable="true">
+                        <template #body="slotProps">
+                            {{ userMap[slotProps.data.criado_por_id] || 'Sem Autor' }}
+                        </template>
+                    </Column>
+
+                    <Column field="secretaria_destino_nome" header="Secretaria" :sortable="true"></Column>
+
+                    <Column field="status" header="Status" :sortable="true">
+                        <template #body="slotProps">
+                            <Tag :value="slotProps.data.status_display" :severity="getStatusSeverity(slotProps.data.status)" />
+                        </template>
+                    </Column>
+
+                    <Column field="data_criacao" header="Criado em" :sortable="true">
+                        <template #body="slotProps">
+                            {{ new Date(slotProps.data.data_criacao).toLocaleDateString('pt-BR') }}
+                        </template>
+                    </Column>
+                </DataTable>
             </div>
         </div>
-
-        <div class="col-span-12 lg:col-span-6 xl:col-span-6">
-            <div class="card flex flex-col items-center">
-                <div class="font-semibold text-xl mb-4">Visão Geral por Status</div>
-                <Chart type="doughnut" :data="doughnutData" :options="pieOptions"></Chart>
-            </div>
-        </div>
-
-        <div class="col-span-12">
-            <div class="font-semibold text-xl mb-4">Dados das Demandas Filtradas</div>
-            <DataTable :value="rawData" :rows="10" paginator responsiveLayout="scroll"
-                :loading="isLoading" dataKey="id">
-
-                <Column field="protocolo_legislativo" header="Ofício" :sortable="true"></Column>
-                <Column field="protocolo_executivo" header="Protocolo" :sortable="true"></Column>
-
-                <Column field="criado_por_id" header="Autor" :sortable="true">
-                    <template #body="slotProps">
-                        {{ userMap[slotProps.data.criado_por_id] || 'Sem Autor' }}
-                    </template>
-                </Column>
-
-                <Column field="secretaria_destino_nome" header="Secretaria" :sortable="true"></Column>
-
-                <Column field="status" header="Status" :sortable="true">
-                    <template #body="slotProps">
-                        <Tag :value="slotProps.data.status_display" :severity="getStatusSeverity(slotProps.data.status)" />
-                    </template>
-                </Column>
-
-                <Column field="data_criacao" header="Criado em" :sortable="true">
-                    <template #body="slotProps">
-                        {{ new Date(slotProps.data.data_criacao).toLocaleDateString('pt-BR') }}
-                    </template>
-                </Column>
-            </DataTable>
-        </div>
-
     </div>
 </template>
 
 <script setup>
-import { ref, onMounted, reactive, watch } from 'vue'; 
+import { ref, onMounted, reactive, watch, nextTick, onUnmounted } from 'vue'; 
 import ApiService from '@/service/ApiService.js';
 import { STATUS_CHOICES_REPORTS, CHART_COLORS } from '@/constants.js'; 
 import { useLayout } from '@/layout/composables/layout'; 
 
+// --- Componentes PrimeVue ---
 import Panel from 'primevue/panel';
 import MultiSelect from 'primevue/multiselect';
 import DatePicker from 'primevue/datepicker';
@@ -109,6 +176,12 @@ import Chart from 'primevue/chart';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Tag from 'primevue/tag';
+import ProgressSpinner from 'primevue/progressspinner';
+import Tooltip from 'primevue/tooltip';
+import Card from 'primevue/card';
+
+// --- Diretivas ---
+const vTooltip = Tooltip; 
 
 // --- Estado ---
 const isLoading = ref(false);
@@ -117,6 +190,20 @@ const apiService = ApiService;
 const rawData = ref(null);
 const userMap = ref({});
 const { isDarkTheme } = useLayout(); 
+
+// --- Stats dos Cards ---
+const statsCards = ref({
+    total: 0,
+    abertas: 0,
+    concluidas: 0,
+    atrasadas: 0
+});
+
+// =============================================
+// MUDANÇA NO SCRIPT:
+// Ref reativo para as linhas da tabela
+// =============================================
+const dataTableRows = ref(10); // Valor padrão da paginação
 
 // --- Filtros ---
 const filtros = reactive({
@@ -127,7 +214,7 @@ const filtros = reactive({
     vereadores: null 
 });
 
-// --- Opções dos Filtros (para os MultiSelect) ---
+// --- Opções dos Filtros ---
 const opcoes = reactive({
     status: STATUS_CHOICES_REPORTS,
     secretarias: [],
@@ -145,22 +232,22 @@ const pieOptions = ref(null);
 
 const getStatusSeverity = (status) => {
     switch (status) {
-        case 'ABERTA': return 'info';
-        case 'PROTOCOLADA': return 'warning';
+        case 'AGUARDANDO_PROTOCOLO': return 'info';
+        case 'PROTOCOLADO': return 'warning';
         case 'EM_EXECUCAO': return 'primary';
-        case 'CONCLUIDA': return 'success';
-        case 'REJEITADA': return 'danger';
+        case 'FINALIZADO': return 'success';
+        case 'CANCELADO': return 'danger';
+        case 'AGUARDANDO_TRANSFERENCIA': return 'warning';
         default: return 'secondary';
     }
 };
 
 // --- Métodos de Formatação ---
 const formatarData = (data) => {
-    if (!data) return null;
+    if (!data) return null;
     const d = new Date(data);
-    // Corrige o fuso horário (bug "um dia a menos")
     d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
-    return d.toISOString().split('T')[0]; // Formato 'YYYY-MM-DD'
+    return d.toISOString().split('T')[0];
 };
 
 const formatarParams = () => {
@@ -169,14 +256,8 @@ const formatarParams = () => {
         params.data_inicio = formatarData(filtros.datas[0]);
     }
     if (filtros.datas && filtros.datas[1]) {
-        // 1. Pega a data final selecionada (ex: 10/11/2025)
         let dataFim = new Date(filtros.datas[1]);
-        
-        // 2. Adiciona 1 dia (ex: 11/11/2025)
         dataFim.setDate(dataFim.getDate() + 1); 
-        
-        // 3. Formata e envia o dia *seguinte*
-        // O backend vai filtar "menor que" 11/11/2025 00:00:00
         params.data_fim = formatarData(dataFim);
     }
     if (filtros.status && filtros.status.length > 0) {
@@ -194,7 +275,7 @@ const formatarParams = () => {
     return params;
 };
 
-// --- Métodos de Formatação de Gráficos (API -> Chart.js) ---
+// --- Formatação de Gráficos (sem mudanças) ---
 
 const formatarChartStatus = (data) => {
     const documentStyle = getComputedStyle(document.body);
@@ -219,7 +300,6 @@ const formatarChartStatus = (data) => {
     };
 };
 
-// ATUALIZADO: Funcao para formatar o grafico de secretaria (agora com empilhamento correto)
 const formatarChartSecretaria = (data) => {
     const documentStyle = getComputedStyle(document.body);
     const labels = data.map(item => item.secretaria); 
@@ -241,7 +321,6 @@ const formatarChartSecretaria = (data) => {
     };
 };
 
-// ATUALIZADO: Funcao 'setChartOptions' com stacked: true para os eixos x e y
 function setChartOptions() {
     const documentStyle = getComputedStyle(document.documentElement);
     const textColor = documentStyle.getPropertyValue('--text-color');
@@ -249,13 +328,8 @@ function setChartOptions() {
     const surfaceBorder = documentStyle.getPropertyValue('--surface-border');
     
     barOptions.value = {
-        plugins: { 
-            legend: { 
-                labels: { color: textColor } 
-            } 
-        },
+        plugins: { legend: { labels: { color: textColor } } },
         scales: {
-            // ATUALIZADO: stacked: true para ambos os eixos para o empilhamento total
             x: { stacked: true, ticks: { color: textColorSecondary }, grid: { color: surfaceBorder } },
             y: { stacked: true, ticks: { color: textColorSecondary }, grid: { color: surfaceBorder } }
         }
@@ -271,7 +345,7 @@ function setChartOptions() {
 }
 
 
-// --- Métodos de Busca ---
+// --- Métodos de Busca (sem mudanças, usando getReportKPIs) ---
 const carregarOpcoesFiltros = async () => {
     try {
         const [respSecretarias, respServicos, respVereadores] = await Promise.all([
@@ -302,55 +376,53 @@ const buscarRelatorios = async () => {
     console.log("1. Buscando relatórios com params:", params); 
 
     try {
-        const [respStatus, respSecretaria, respHeatmap, respDemandas] = await Promise.all([
+        const [respKPIs, respStatus, respSecretaria, respHeatmap, respDemandas] = await Promise.all([
+            apiService.getReportKPIs(params),
             apiService.getReportPorStatus(params),
             apiService.getReportPorSecretaria(params),
             apiService.getReportHeatmap(params),
             apiService.getReportDemandasList(params) 
         ]);
 
+        statsCards.value = {
+            total: respKPIs.data.total_demandas || 0,
+            abertas: respKPIs.data.demandas_abertas || 0,
+            concluidas: respKPIs.data.demandas_concluidas || 0,
+            atrasadas: respKPIs.data.demandas_atrasadas || 0
+        };
+
         console.log("2. Resposta Demandas:", respDemandas.data);
 
         doughnutData.value = formatarChartStatus(respStatus.data);
-        // ATUALIZADO: Chamando a função para o gráfico de secretaria empilhado
         barSecretariaData.value = formatarChartSecretaria(respSecretaria.data);
 
         const demandasData = respDemandas.data.results || respDemandas.data;
 
         if (demandasData && demandasData.length > 0) {
+            rawData.value = demandasData; // Define os dados antes de buscar autores
             const autorIds = [...new Set(demandasData.map(d => d.criado_por_id).filter(id => id != null))];
-            console.log("3. IDs de Autores encontrados:", autorIds); 
             if (autorIds.length > 0) {
                 try {
-                    console.log("4. Buscando detalhes para IDs:", autorIds.join(',')); 
                     const respUsuarios = await apiService.getUsuarios({ id__in: autorIds.join(',') });
-                    console.log("5. Resposta Usuarios:", respUsuarios.data); 
                     const usuariosData = respUsuarios.data.results || respUsuarios.data;
                     if (usuariosData && usuariosData.length > 0) { 
                         usuariosData.forEach(user => {
                             const nome = `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username;
                             userMap.value[user.id] = nome;
                         });
-                        console.log("6. Mapa de Usuários criado:", userMap.value); 
-                    } else {
-                        console.log("6. Nenhum dado de usuário retornado pela API."); 
                     }
                 } catch (userError) {
                     console.error("Erro ao buscar detalhes dos autores:", userError);
-                    console.log("6. Falha ao buscar usuários."); 
                 }
-            } else {
-                console.log("3b. Nenhum ID de autor válido para buscar."); 
             }
-            rawData.value = demandasData;
         } else {
-            console.log("2b. Nenhuma demanda encontrada."); 
+            console.log("2.b Nenhuma demanda encontrada.");
         }
     } catch (error) {
         console.error("Erro ao buscar relatórios:", error);
     } finally {
         isLoading.value = false;
-        console.log("7. Busca finalizada. rawData:", rawData.value); 
+        console.log("7. Busca finalizada."); 
     }
 };
 
@@ -364,18 +436,138 @@ const limparFiltros = () => {
 };
 
 
+// =============================================
+// MUDANÇAS NO SCRIPT:
+// Lógica de impressão movida para cá
+// =============================================
+
+const imprimirPagina = async () => {
+    // 1. Define para mostrar todas as linhas
+    if (rawData.value && rawData.value.length > 0) {
+        dataTableRows.value = rawData.value.length; 
+    }
+
+    // 2. Espera o Vue atualizar o DOM
+    await nextTick();
+
+    // 3. Chama a impressão
+    window.print();
+};
+
+const afterPrint = () => {
+    // 4. Restaura a paginação após a impressão
+    dataTableRows.value = 10;
+};
+
 // --- Lifecycle Hooks ---
 onMounted(() => {
     setChartOptions(); 
     carregarOpcoesFiltros(); 
     buscarRelatorios();      
+
+    // Só precisamos escutar o 'afterprint'
+    window.addEventListener('afterprint', afterPrint);
+});
+
+onUnmounted(() => {
+    // 3. Remove os listeners ao sair da página
+    window.removeEventListener('beforeprint', beforePrint);
+    window.removeEventListener('afterprint', afterPrint);
 });
 
 watch(isDarkTheme, setChartOptions); 
 </script>
 
+<style>
+@media print {
+    /* Esconde tudo que não deve ser impresso */
+    body .layout-sidebar,
+    body .layout-topbar,
+    body .layout-footer,
+    body .no-print,
+    .p-paginator {
+        display: none !important;
+    }
+
+    /* Força o conteúdo principal a ocupar 100% */
+    body .layout-main-container {
+        padding-top: 0 !important;
+        margin-left: 0 !important;
+        width: 100% !important;
+        min-width: 100% !important;
+    }
+
+    /* Evita quebras de página ruins */
+    .print-avoid-break {
+        page-break-inside: avoid;
+    }
+
+    /* ============================================= */
+    /* CORREÇÃO 2: Força o tema claro (não-dark)     */
+    /* ============================================= */
+    :root {
+        /* Força variáveis de tema claro para os gráficos */
+        --text-color: #495057 !important;
+        --text-color-secondary: #6C757D !important;
+        --surface-border: #dee2e6 !important;
+    }
+
+    body {
+        margin: 0;
+        padding: 0;
+        background-color: #fff !important;
+        color: #000 !important;
+    }
+
+    .card {
+        background-color: #fff !important;
+        box-shadow: none !important;
+        border: 1px solid #dee2e6; /* Borda leve para delimitar */
+    }
+
+    /* Força textos a serem escuros */
+    h5, .font-semibold, .text-gray-500, .text-2xl, .text-lg, .text-xl {
+        color: #000 !important;
+    }
+    /* ============================================= */
+    
+    /* Garante que as cores dos gráficos sejam impressas */
+    * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+    }
+
+    /* ============================================= */
+    /* CORREÇÃO 1: Imprimir na horizontal (paisagem) */
+    /* ============================================= */
+    @page {
+        size: A4 landscape; /* Define para paisagem */
+        margin: 1.5cm;
+    }
+    
+    /* ============================================= */
+    /* CORREÇÃO 4: Contadores na mesma linha         */
+    /* ============================================= */
+    .print-chart-grid {
+        display: grid !important;
+        grid-template-columns: repeat(2, 1fr) !important; /* Força 2 colunas */
+        gap: 1.5rem !important;
+    }
+    .print-chart-grid > * {
+        grid-column: span 1 / span 1 !important; /* Cada filho ocupa 1 coluna */
+    }
+    .print-card-grid {
+        display: grid !important;
+        grid-template-columns: repeat(4, 1fr) !important; /* Força 4 colunas */
+        gap: 1rem !important;
+    }
+    .print-card-grid > * {
+        grid-column: span 1 / span 1 !important; /* Cada card ocupa 1 coluna */
+    }
+}
+</style>
+
 <style scoped>
-/* Adiciona um pouco de espaço entre os cards de filtro e gráficos */
 .card {
     margin-bottom: 1rem;
 }

@@ -165,10 +165,14 @@ export default {
   confirmPasswordReset(data) {
     return apiClient.post('password-reset-confirm/', data);
   },
+  
   /**
      * Busca dados agregados para os relatórios.
      * @param {object} params - Objeto com os filtros (data_inicio, status__in, etc.)
      */
+  getReportKPIs(params) {
+    return apiClient.get('/reports/kpis/', { params });
+  },
   getReportPorStatus(params) {
     return apiClient.get('/reports/por-status/', { params }); // CORRIGIDO
   },
