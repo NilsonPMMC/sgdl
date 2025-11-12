@@ -24,6 +24,12 @@ const router = createRouter({
                     }
                 },
                 {
+                    path: '/notificacoes',
+                    name: 'notificacoes',
+                    component: () => import('@/views/NotificacoesView.vue'),
+                    meta: { requiresAuth: true }
+                },
+                {
                     path: '/mapa-calor',
                     name: 'mapa-calor',
                     component: () => import('@/views/MapaCalorView.vue')

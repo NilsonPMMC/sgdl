@@ -11,14 +11,15 @@ const model = ref([
         label: 'Home',
         items: [
             { label: 'Dashboard', icon: 'pi pi-fw pi-home', to: '/' },
-            { label: 'Mapa de Calor', icon: 'pi pi-fw pi-map', to: '/mapa-calor' },
             { label: 'Demandas', icon: 'pi pi-fw pi-book', to: '/demandas' },
+            { label: 'Mapa de Calor', icon: 'pi pi-fw pi-map', to: '/mapa-calor' },
             { 
                 label: 'Relatórios', 
                 icon: 'pi pi-fw pi-chart-bar', 
                 to: '/relatorios',
                 meta: { perfis: ['GESTOR'] } 
-            }
+            },
+            { label: 'Notificações', icon: 'pi pi-fw pi-bell', to: '/notificacoes' }
         ]
     }
 ]);

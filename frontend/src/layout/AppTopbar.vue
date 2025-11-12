@@ -51,6 +51,17 @@ const fetchNotificacoes = async () => {
     } catch (error) {
         console.error('Erro ao buscar notificações:', error);
     }
+    if (notificacoes.value.length > 0) {
+        // Adiciona um separador
+        notificacoes.value.push({ separator: true });
+    }
+    notificacoes.value.push({
+        label: 'Ver todas as notificações',
+        icon: 'pi pi-list',
+        command: () => {
+            router.push('/notificacoes');
+        }
+    });
 };
 
 const handleNotificacaoClick = async (notificacao) => {

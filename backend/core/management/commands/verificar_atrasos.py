@@ -16,28 +16,50 @@ class Command(BaseCommand):
         # Status que consideramos "em andamento"
         status_em_andamento = ['PROTOCOLADO', 'EM_EXECUCAO', 'AGUARDANDO_TRANSFERENCIA']
 
-        # Filtros:
-        # 1. Status deve ser um dos "em andamento"
-        # 2. A notificação de atraso ainda não foi enviada
-        # 3. O serviço associado TEM um prazo definido
-        # 4. A data de início do prazo ESTÁ definida
+        # Filtros: (Esta consulta já estava correta)
         demandas_para_verificar = Demanda.objects.filter(
             status__in=status_em_andamento,
             notificacao_atraso_enviada=False,
             servico__prazo__isnull=False,
             data_inicio_prazo__isnull=False
-        ).select_related('servico', 'secretaria_destino')
+        ).select_related('servico', 'secretaria_destino') # Boa otimização!
 
         self.stdout.write(f"Encontradas {demandas_para_verificar.count()} demandas para verificar.")
 
+        # --- CORREÇÃO: Otimizar busca por usuários ---
+            
+        # 1. Usuários globais (Protocolo, Gestor)
         usuarios_protocolo = list(Usuario.objects.filter(perfil='PROTOCOLO'))
         usuarios_gestor = list(Usuario.objects.filter(perfil='GESTOR'))
+
+        # 2. Usuários de Secretaria (agrupados por ID da secretaria para NUNCA consultar no loop)
+        usuarios_secretaria_por_id = {}
         
+        # Filtra usuários que SÃO de secretaria E têm uma secretaria associada
+        qs_secretaria = Usuario.objects.filter(
+            perfil='SECRETARIA', 
+            secretaria__isnull=False
+        )
+        
+        for usuario in qs_secretaria:
+            # Se o ID da secretaria ainda não é uma chave, cria uma lista vazia
+            if usuario.secretaria_id not in usuarios_secretaria_por_id:
+                usuarios_secretaria_por_id[usuario.secretaria_id] = []
+            # Adiciona o usuário à lista daquela secretaria
+            usuarios_secretaria_por_id[usuario.secretaria_id].append(usuario)
+        
+        self.stdout.write(f"Encontrados {len(usuarios_protocolo)} usuários 'Protocolo'.")
+        self.stdout.write(f"Encontrados {len(usuarios_gestor)} usuários 'Gestor'.")
+        self.stdout.write(f"Mapeados usuários para {len(usuarios_secretaria_por_id)} secretarias.")
+        # --- FIM DA CORREÇÃO ---
+
         demandas_atrasadas_ids = []
         notificacoes_para_criar = []
 
         for demanda in demandas_para_verificar:
             prazo_dias = demanda.servico.prazo
+            
+            # Garante que estamos comparando 'date' com 'date'
             data_inicio = demanda.data_inicio_prazo.date()
             data_vencimento = data_inicio + timedelta(days=prazo_dias)
 
@@ -48,19 +70,25 @@ class Command(BaseCommand):
                 link = f'/demandas/detalhes/{demanda.id}'
                 msg = f'Alerta: A demanda nº {protocolo} ({demanda.titulo}) está atrasada.'
 
+                # --- CORREÇÃO: Usar o lookup de secretarias ---
                 # 1. Notificar Secretaria responsável
-                for usuario in usuarios_secretaria:
-                    notificacoes_para_criar.append(
-                        Notificacao(destinatario=usuario, mensagem=msg, link=link, tipo='ATRASO')
-                    )
+                if demanda.secretaria_destino_id:
+                    # Pega a lista de usuários daquele ID, ou uma lista vazia se não houver
+                    usuarios_da_secretaria = usuarios_secretaria_por_id.get(demanda.secretaria_destino_id, [])
+                    
+                    for usuario in usuarios_da_secretaria:
+                        notificacoes_para_criar.append(
+                            Notificacao(destinatario=usuario, mensagem=msg, link=link, tipo='ATRASO')
+                        )
+                # --- FIM DA CORREÇÃO ---
                 
-                # 2. Notificar Protocolo
+                # 2. Notificar Protocolo (já estava correto)
                 for usuario in usuarios_protocolo:
                     notificacoes_para_criar.append(
                         Notificacao(destinatario=usuario, mensagem=msg, link=link, tipo='ATRASO')
                     )
 
-                # 3. Notificar Gestor
+                # 3. Notificar Gestor (já estava correto)
                 for usuario in usuarios_gestor:
                     notificacoes_para_criar.append(
                         Notificacao(destinatario=usuario, mensagem=msg, link=link, tipo='ATRASO')

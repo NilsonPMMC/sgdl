@@ -53,12 +53,16 @@ const todosServicos = ref([]);
 const filteredServicos = ref([]);
 
 const createColoredIcon = (color) => {
-    return L.divIcon({
-        className: `custom-div-icon bg-${color}`,
-        html: `<i class="pi pi-map-marker text-white" style="font-size: 1.5rem;"></i>`,
-        iconSize: [30, 42],
-        iconAnchor: [15, 42]
-    });
+    return L.divIcon({
+        className: `custom-div-icon`,
+        html: `
+            <div class="icon-wrapper bg-${color}">
+                <i class="pi pi-map-marker text-white" style="font-size: 1.5rem;"></i>
+            </div>
+        `, 
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+    });
 };
 
 const icons = {
@@ -250,20 +254,38 @@ const searchServico = (event) => {
     </div>
 </template>
 
-<style>
+<style lang="scss">
 /* Estilos para os ícones de marcadores individuais */
-.custom-div-icon {
-    border-radius: 50% 50% 50% 0;
-    transform: rotate(-45deg);
-    border: 1px solid #fff;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+
+/* 1. O Contêiner Externo (Controlado pelo Leaflet) */
+/* (A rotação foi REMOVIDA daqui) */
+.custom-div-icon {  
     display: flex;
     align-items: center;
     justify-content: center;
 }
-.custom-div-icon i {
+
+/* 2. O Wrapper Interno (Novo) */
+/* (A rotação de -45deg foi MOVIDA para cá) */
+.icon-wrapper {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+    border-radius: 50% 50% 50% 0;
+
+    /* Rotação do ícone inteiro (forma de gota) */
+    transform: rotate(-45deg); 
+}
+
+/* 3. O ícone <i> (como você já tinha) */
+/* (Esta regra "des-rotaciona" o ícone para ele ficar reto) */
+.custom-div-icon .icon-wrapper i {
     transform: rotate(45deg);
 }
+
 
 /* Cores para os clusters - herdadas do MarkerCluster.Default.css mas com cores diferentes */
 .marker-cluster-red { background-color: rgba(239, 68, 68, 0.6); }
@@ -275,6 +297,7 @@ const searchServico = (event) => {
 .marker-cluster-blue { background-color: rgba(59, 130, 246, 0.6); }
 .marker-cluster-blue div { background-color: rgba(59, 130, 246, 0.8); }
 
+/* Cores de fundo (já estavam corretas) */
 .bg-red {
     background-color: rgb(239, 68, 68) !important; 
 }
