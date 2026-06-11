@@ -47,7 +47,7 @@ Foco: **validação E2E por perfil** (gate A1) e consolidação de observações
 
 | # | Entrega | Status | Ref. |
 |---|---------|--------|------|
-| **H1** | Roteiro E2E completo (Vereador → Protocolo → Secretaria → encerramento) | **Em andamento** | — |
+| **H1** | Roteiro E2E completo (Vereador → Protocolo → Secretaria → encerramento) | **Em andamento** — backend **GO** ([registro](operacao/homologacao-e2e-registro.md)); UI manual pendente |
 | **H2** | Consolidar observações de teste (bloqueante / incômodo / cosmético) | **Em andamento** | formato: `tela · perfil · esperado · obtido · severidade` |
 | **H3** | Ocultar «Cluster» quando demanda não elegível (≥2, antes do protocolo) | **OK** | 4.1b |
 | **H4** | Fila operacional por setor + visão Super OS na secretaria | **OK** | 4.4 — `fila=operacionais`, `minha_unidade`, coluna setor, deep-link dashboard |

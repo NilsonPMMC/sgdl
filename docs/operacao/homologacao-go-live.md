@@ -189,21 +189,23 @@ Super OS (≥2 demandas do mesmo serviço + proximidade geográfica): protocolo 
 
 ### 5.2 Roteiro E2E — Vereador (H1)
 
+> Backend/serviços validado em 2026-06-11 — demanda **2966** · [registro](homologacao-e2e-registro.md)
+
 - [ ] Copiloto: criar rascunho com serviço Sinapse e endereço geocodificado.
 - [ ] Revisar rascunho (texto, serviço, endereço) em «Editar rascunho do ofício».
 - [ ] Pré-visualizar ofício (PDF via blob autenticado) antes do envio.
-- [ ] Assinar eletronicamente e enviar oficialmente → status `AGUARDANDO_PROTOCOLO`.
-- [ ] Confirmar **1** PDF anexo na demanda (sem duplicatas de preview).
-- [ ] Receber devolutiva (`DEVOLVIDO_VEREADOR`), registrar ciência e encerrar → `FINALIZADO`.
-- [ ] Ofício ao cidadão disponível no encerramento.
+- [x] Assinar eletronicamente e enviar oficialmente → status `AGUARDANDO_PROTOCOLO`.
+- [x] Confirmar **1** PDF anexo na demanda (sem duplicatas de preview).
+- [x] Receber devolutiva (`DEVOLVIDO_VEREADOR`), registrar ciência e encerrar → `FINALIZADO`.
+- [x] Ofício ao cidadão disponível no encerramento.
 
 ### 5.3 Roteiro E2E — Protocolo (H1)
 
 - [ ] Listar fila de protocolados / aguardando despacho.
-- [ ] Despachar demanda individual → `PROTOCOLADO`.
+- [x] Despachar demanda individual → `PROTOCOLADO`.
 - [ ] Despachar lote Super OS → protocolo `SUPER-*` e cluster visível em `/clusters`.
 - [ ] Links entre processos vinculados na tela de detalhe (líder ↔ vinculados).
-- [ ] Despachar devolutiva ao vereador → `DEVOLVIDO_VEREADOR`.
+- [x] Despachar devolutiva ao vereador → `DEVOLVIDO_VEREADOR`.
 
 ### 5.4 Roteiro E2E — Secretaria (H1 + H4)
 
@@ -211,9 +213,9 @@ Super OS (≥2 demandas do mesmo serviço + proximidade geográfica): protocolo 
 - [x] Alternância «Meu setor» / «Toda secretaria» + filtro por setor.
 - [x] Coluna **Setor**, **Parado há** e tag **N vinculados** na listagem.
 - [x] Super OS: listagem e detalhe mostram só a **demanda líder** (protocolo na coluna).
-- [ ] Iniciar execução na demanda líder → `EM_EXECUCAO` (vinculados acompanham).
+- [x] Iniciar execução na demanda líder → `EM_EXECUCAO` (serviços — comando E2E; UI/API pendente validação visual).
 - [ ] Registrar andamento tipo `EXECUCAO` no líder → replica nos vinculados.
-- [ ] Solicitar devolutiva → `AGUARDANDO_DEVOLUTIVA_PROTOCOLO`.
+- [x] Solicitar devolutiva → `AGUARDANDO_DEVOLUTIVA_PROTOCOLO` (serviços — comando E2E).
 
 ### 5.5 Roteiro E2E — Super OS e cluster (H3)
 
@@ -225,7 +227,7 @@ Super OS (≥2 demandas do mesmo serviço + proximidade geográfica): protocolo 
 
 ### 5.6 Roteiro E2E — Gestor
 
-- [ ] Dashboard com KPIs e resumo operacional.
+- [x] Dashboard com KPIs e resumo operacional (API 200 — registro E2E).
 - [ ] Relatórios com filtros e exportação.
 - [ ] Reconciliação Sinapse (`/integracoes/sinapse/reconciliacao`) — perfil autorizado.
 
