@@ -10,6 +10,7 @@ import Password from 'primevue/password';
 import Divider from 'primevue/divider';
 import FloatingConfigurator from '@/components/FloatingConfigurator.vue';
 import Dialog from 'primevue/dialog';
+import { rotaHomePorPerfil } from '@/constants';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -46,7 +47,7 @@ const handleLogin = async () => {
 
     try {
         await userStore.login(username.value, password.value, rememberMe.value);
-        router.push('/');
+        router.push(rotaHomePorPerfil(userStore.currentUser?.perfil));
     } catch (err) {
         error.value = 'Usuário ou senha inválidos.';
     }
@@ -76,7 +77,6 @@ const onResetDialogHide = () => {
 
 <template>
     <div class="grid grid-cols-12 min-h-screen overflow-hidden">
-        
         <div id="col-saudacao" class="flex flex-col col-span-6 items-center justify-center p-8">
             <img src="/layout/images/brasao_nome_pmmc.png" alt="Brasão PMMC" style="width: 300px" class="mb-5" />
             <h1 class="text-6xl font-bold text-white">Bem-vindo!</h1>
@@ -84,13 +84,13 @@ const onResetDialogHide = () => {
         </div>
 
         <div class="flex col-span-6 items-center justify-center p-8">
-            <div class="card" style="width: 30rem">                
+            <div class="card" style="width: 30rem">
                 <div class="flex flex-row items-center justify-center mb-5">
                     <h1 class="text-900 text-4xl font-bold m-0 text-primary">SGDL</h1>
                     <Divider layout="vertical" />
-                    <span class="text-600">Sistema de Gestão de<br>Demandas do Legislativo</span>
+                    <span class="text-600">Sistema de Gestão de<br />Demandas do Legislativo</span>
                 </div>
-                <Divider/>
+                <Divider />
                 <form @submit.prevent="handleLogin">
                     <div class="flex flex-col gap-4">
                         <div>
@@ -101,14 +101,7 @@ const onResetDialogHide = () => {
                         </div>
                         <div>
                             <label for="password" class="block mb-2">Senha</label>
-                            <Password 
-                                id="password" 
-                                v-model="password" 
-                                placeholder="Sua senha"
-                                :feedback="false" 
-                                toggleMask 
-                                fluid
-                            />
+                            <Password id="password" v-model="password" placeholder="Sua senha" :feedback="false" toggleMask fluid />
                             <small v-if="error" class="p-error mb-3">{{ error }}</small>
                         </div>
                     </div>
@@ -117,25 +110,15 @@ const onResetDialogHide = () => {
                             <Checkbox v-model="rememberMe" inputId="rememberMe" binary class="mr-2" />
                             <label for="rememberMe">Lembrar-me</label>
                         </div>
-                        <a class="font-medium text-primary-500 no-underline cursor-pointer" 
-                           @click="showResetPasswordDialog = true">
-                           Esqueceu a senha?
-                        </a>
+                        <a class="font-medium text-primary-500 no-underline cursor-pointer" @click="showResetPasswordDialog = true"> Esqueceu a senha? </a>
                     </div>
 
                     <Button label="Entrar" class="w-full p-3 text-xl" type="submit"></Button>
-                
                 </form>
             </div>
         </div>
     </div>
-    <Dialog v-model:visible="showResetPasswordDialog" 
-            header="Redefinir Senha" 
-            :modal="true" 
-            class="p-fluid" 
-            style="width: 450px;"
-            @hide="onResetDialogHide">
-        
+    <Dialog v-model:visible="showResetPasswordDialog" header="Redefinir Senha" :modal="true" class="p-fluid" style="width: 450px" @hide="onResetDialogHide">
         <div v-if="!resetSuccess">
             <p class="mb-4">Digite seu e-mail e enviaremos um link para redefinir sua senha.</p>
             <div class="field">
@@ -144,7 +127,7 @@ const onResetDialogHide = () => {
                 <small v-if="resetError" class="p-error mt-1">{{ resetError }}</small>
             </div>
         </div>
-        
+
         <div v-else>
             <div class="flex flex-col items-center text-center">
                 <i class="pi pi-check-circle text-6xl text-green-500 mb-3"></i>
@@ -152,14 +135,10 @@ const onResetDialogHide = () => {
                 <p>Se uma conta com este e-mail existir, enviamos um link para redefinição de senha.</p>
             </div>
         </div>
-        
+
         <template #footer>
             <Button label="Cancelar" icon="pi pi-times" text @click="showResetPasswordDialog = false" />
-            <Button v-if="!resetSuccess" 
-                    label="Enviar Link" 
-                    icon="pi pi-send" 
-                    @click="handlePasswordReset"
-                    :loading="resetLoading" />
+            <Button v-if="!resetSuccess" label="Enviar Link" icon="pi pi-send" @click="handlePasswordReset" :loading="resetLoading" />
         </template>
     </Dialog>
     <FloatingConfigurator />
@@ -170,7 +149,7 @@ const onResetDialogHide = () => {
 :deep(.p-password-input) {
     width: 100%;
 }
-#col-saudacao{
+#col-saudacao {
     background-image: url(/layout/images/bg-mogi-green.png);
     background-position: center;
     background-repeat: no-repeat;

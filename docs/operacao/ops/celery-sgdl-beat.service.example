@@ -1,0 +1,20 @@
+[Unit]
+Description=Celery Beat exclusivo SGDL (SLA verificar_atrasos)
+After=network.target celery-sgdl.service
+
+[Service]
+Type=simple
+User=gabinete
+Group=gabinete
+WorkingDirectory=/var/www/sgdl/backend
+Environment=DJANGO_SETTINGS_MODULE=config.settings
+Environment=CELERY_ENABLED=true
+Environment=CELERY_BROKER_URL=redis://127.0.0.1:6379/15
+Environment=CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/15
+Environment=CELERY_TASK_DEFAULT_QUEUE=sgdl_default
+ExecStart=/var/www/sgdl/venv/bin/celery -A config beat -l info
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

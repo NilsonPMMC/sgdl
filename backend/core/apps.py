@@ -5,4 +5,6 @@ class CoreConfig(AppConfig):
     name = 'core'
 
     def ready(self):
-        import core.signals
+        # Registra signals (notificações, embedding IA / VectorService, etc.)
+        import core.signals  # noqa: F401
+        import core.services.copiloto_faq_service  # noqa: F401 — cache FAQ Copiloto

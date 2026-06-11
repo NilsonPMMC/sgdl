@@ -14,7 +14,6 @@ import DatePicker from 'primevue/datepicker';
 import Button from 'primevue/button';
 import AutoComplete from 'primevue/autocomplete';
 import Panel from 'primevue/panel';
-import Divider from 'primevue/divider';
 
 const userStore = useUserStore();
 const loading = ref(true);
@@ -35,7 +34,7 @@ const tiposServico = ref([
     { label: 'Implantação', value: 'IMPLANTAÇÃO' },
     { label: 'Vistoria', value: 'VISTORIA' },
     { label: 'Evento', value: 'EVENTO' },
-    { label: 'Atendimento', value: 'ATENDIMENTO' },
+    { label: 'Atendimento', value: 'ATENDIMENTO' }
 ]);
 
 const statusOptions = ref([
@@ -48,21 +47,20 @@ const statusOptions = ref([
     { label: 'Cancelado', value: 'CANCELADO' }
 ]);
 
-
 const todosServicos = ref([]);
 const filteredServicos = ref([]);
 
 const createColoredIcon = (color) => {
-    return L.divIcon({
-        className: `custom-div-icon`,
-        html: `
+    return L.divIcon({
+        className: `custom-div-icon`,
+        html: `
             <div class="icon-wrapper bg-${color}">
                 <i class="pi pi-map-marker text-white" style="font-size: 1.5rem;"></i>
             </div>
-        `, 
-        iconSize: [30, 30],
-        iconAnchor: [15, 15]
-    });
+        `,
+        iconSize: [30, 30],
+        iconAnchor: [15, 15]
+    });
 };
 
 const icons = {
@@ -99,8 +97,8 @@ const carregarLocalizacoes = async () => {
                 params.secretaria_destino = currentUser.secretaria;
             }
         }
-        
-        Object.keys(params).forEach(key => (params[key] == null || params[key] === '') && delete params[key]);
+
+        Object.keys(params).forEach((key) => (params[key] == null || params[key] === '') && delete params[key]);
 
         const response = await ApiService.getDemandaLocations(params);
         const locationsData = response.data;
@@ -108,7 +106,7 @@ const carregarLocalizacoes = async () => {
         markerClusterGroup.value.clearLayers();
 
         if (locationsData.length > 0) {
-            const markers = locationsData.map(loc => {
+            const markers = locationsData.map((loc) => {
                 let icon;
                 if (loc.is_atrasada) {
                     icon = icons.vermelho;
@@ -117,7 +115,7 @@ const carregarLocalizacoes = async () => {
                 } else {
                     icon = icons.azul;
                 }
-                
+
                 const marker = L.marker([parseFloat(loc.lat), parseFloat(loc.lng)], { icon });
                 marker.options.customData = { status: loc.status, is_atrasada: loc.is_atrasada };
 
@@ -127,7 +125,7 @@ const carregarLocalizacoes = async () => {
             markerClusterGroup.value.addLayers(markers);
         }
     } catch (error) {
-        console.error("Erro ao carregar localizações:", error);
+        console.error('Erro ao carregar localizações:', error);
     } finally {
         loading.value = false;
     }
@@ -142,8 +140,8 @@ onMounted(() => {
             const markers = cluster.getAllChildMarkers();
             let atrasadas = 0;
             let concluidas = 0;
-            
-            markers.forEach(marker => {
+
+            markers.forEach((marker) => {
                 if (marker.options.customData.is_atrasada) {
                     atrasadas++;
                 } else if (marker.options.customData.status === 'FINALIZADO') {
@@ -160,7 +158,7 @@ onMounted(() => {
             } else {
                 cssClass += 'blue'; // Caso contrário, azul (em andamento, no prazo)
             }
-            
+
             return L.divIcon({
                 html: '<div><span>' + cluster.getChildCount() + '</span></div>',
                 className: 'marker-cluster ' + cssClass,
@@ -172,18 +170,20 @@ onMounted(() => {
 
     carregarLocalizacoes();
 
-    ApiService.getServicos().then(response => {
-        todosServicos.value = response.data;
-    }).catch(error => {
-        console.error("Erro ao buscar lista de serviços:", error);
-    });
+    ApiService.getServicos()
+        .then((response) => {
+            todosServicos.value = response.data;
+        })
+        .catch((error) => {
+            console.error('Erro ao buscar lista de serviços:', error);
+        });
 });
 
 // Função de busca para o AutoComplete de serviço
 const searchServico = (event) => {
     let baseList = todosServicos.value;
     if (filtros.value.tipo_servico) {
-        baseList = baseList.filter(s => s.tipo === filtros.value.tipo_servico);
+        baseList = baseList.filter((s) => s.tipo === filtros.value.tipo_servico);
     }
     const query = event.query.trim().toLowerCase();
     if (!query.length) {
@@ -203,28 +203,12 @@ const searchServico = (event) => {
             <div class="flex flex-wrap gap-4 mb-3">
                 <div class="flex flex-col grow basis-0 gap-2">
                     <label for="tipo">Tipo de Serviço</label>
-                    <Select 
-                        id="tipo" 
-                        v-model="filtros.tipo_servico" 
-                        :options="tiposServico" 
-                        optionLabel="label" 
-                        optionValue="value" 
-                        @change="filtros.servico = null" 
-                    />
+                    <Select id="tipo" v-model="filtros.tipo_servico" :options="tiposServico" optionLabel="label" optionValue="value" @change="filtros.servico = null" />
                 </div>
 
                 <div class="flex flex-col grow basis-0 gap-2">
                     <label for="servico">Serviço Específico</label>
-                    <AutoComplete 
-                        id="servico"
-                        v-model="filtros.servico" 
-                        :suggestions="filteredServicos" 
-                        @complete="searchServico" 
-                        optionLabel="nome"
-                        forceSelection
-                        placeholder="Digite para filtrar"
-                        dropdown
-                    />
+                    <AutoComplete id="servico" v-model="filtros.servico" :suggestions="filteredServicos" @complete="searchServico" optionLabel="nome" forceSelection placeholder="Digite para filtrar" dropdown />
                 </div>
             </div>
 
@@ -244,12 +228,11 @@ const searchServico = (event) => {
                     <DatePicker id="data_fim" v-model="filtros.data_fim" dateFormat="yy-mm-dd" />
                 </div>
             </div>
-            
+
             <Button label="Filtrar" icon="pi pi-filter" @click="carregarLocalizacoes" />
         </Panel>
-        
-        <div v-if="loading" class="text-center">
-             </div>
+
+        <div v-if="loading" class="text-center"></div>
         <div id="map-container" style="height: 60vh"></div>
     </div>
 </template>
@@ -259,7 +242,7 @@ const searchServico = (event) => {
 
 /* 1. O Contêiner Externo (Controlado pelo Leaflet) */
 /* (A rotação foi REMOVIDA daqui) */
-.custom-div-icon {  
+.custom-div-icon {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -273,11 +256,11 @@ const searchServico = (event) => {
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.4);
     border-radius: 50% 50% 50% 0;
 
     /* Rotação do ícone inteiro (forma de gota) */
-    transform: rotate(-45deg); 
+    transform: rotate(-45deg);
 }
 
 /* 3. O ícone <i> (como você já tinha) */
@@ -286,25 +269,36 @@ const searchServico = (event) => {
     transform: rotate(45deg);
 }
 
-
 /* Cores para os clusters - herdadas do MarkerCluster.Default.css mas com cores diferentes */
-.marker-cluster-red { background-color: rgba(239, 68, 68, 0.6); }
-.marker-cluster-red div { background-color: rgba(239, 68, 68, 0.8); }
+.marker-cluster-red {
+    background-color: rgba(239, 68, 68, 0.6);
+}
+.marker-cluster-red div {
+    background-color: rgba(239, 68, 68, 0.8);
+}
 
-.marker-cluster-green { background-color: rgba(34, 197, 94, 0.6); }
-.marker-cluster-green div { background-color: rgba(34, 197, 94, 0.8); }
+.marker-cluster-green {
+    background-color: rgba(34, 197, 94, 0.6);
+}
+.marker-cluster-green div {
+    background-color: rgba(34, 197, 94, 0.8);
+}
 
-.marker-cluster-blue { background-color: rgba(59, 130, 246, 0.6); }
-.marker-cluster-blue div { background-color: rgba(59, 130, 246, 0.8); }
+.marker-cluster-blue {
+    background-color: rgba(59, 130, 246, 0.6);
+}
+.marker-cluster-blue div {
+    background-color: rgba(59, 130, 246, 0.8);
+}
 
 /* Cores de fundo (já estavam corretas) */
 .bg-red {
-    background-color: rgb(239, 68, 68) !important; 
+    background-color: rgb(239, 68, 68) !important;
 }
 .bg-green {
     background-color: rgb(34, 197, 94) !important;
 }
-.bg-blue { 
+.bg-blue {
     background-color: rgb(59, 130, 246) !important;
 }
 </style>

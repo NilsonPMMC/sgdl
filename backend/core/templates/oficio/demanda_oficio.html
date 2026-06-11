@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <title>Ofício — {{ titulo }}</title>
+  {% include "oficio/_oficio_estilos_pagina.html" %}
+</head>
+<body>
+  {% include "oficio/_cabecalho_camara.html" %}
+
+  <p class="meta">
+    {% if protocolo_legislativo %}<strong>Ofício nº {{ protocolo_legislativo }}</strong>{% endif %}
+    {% if protocolo_id and not protocolo_legislativo %}Referência interna: demanda nº {{ protocolo_id }}{% endif %}
+    {% if protocolo_executivo %} · Protocolo executivo: {{ protocolo_executivo }}{% endif %}
+  </p>
+
+  {% include "oficio/_corpo_oficio.html" %}
+
+  {% include "oficio/_bloco_assinatura.html" %}
+
+  {% include "oficio/_rodape_protocolo.html" %}
+
+  <p class="rodape-sgdl">Documento gerado pelo SGDL em {{ data_emissao }}.</p>
+</body>
+</html>

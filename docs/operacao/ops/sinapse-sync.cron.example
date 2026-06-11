@@ -1,0 +1,15 @@
+# SGDL — agendamento Sinapse (copiar para crontab do servidor)
+# Pré-requisito: SINAPSE_SERVICE_TABLE=catalog_servico no backend/.env
+# Log: mkdir -p /var/log/sgdl && chown <usuario-cron>:<grupo> /var/log/sgdl
+
+# Incremental diário — 08:00
+0 8 * * * cd /var/www/sgdl/backend && /var/www/sgdl/backend/venv/bin/python manage.py sync_sinapse_services --incremental-sync >> /var/log/sgdl/sinapse-sync.log 2>&1
+
+# Full semanal — segunda 07:00 (sem --limit: processa a carta inteira)
+0 7 * * 1 cd /var/www/sgdl/backend && /var/www/sgdl/backend/venv/bin/python manage.py sync_sinapse_services --full-sync >> /var/log/sgdl/sinapse-sync.log 2>&1
+
+# Reconcile — domingo 06:30
+30 6 * * 0 cd /var/www/sgdl/backend && /var/www/sgdl/backend/venv/bin/python manage.py sync_sinapse_services --reconcile >> /var/log/sgdl/sinapse-sync.log 2>&1
+
+# Health report — 08:15 (alerta e-mail/webhook se ALERT)
+15 8 * * * cd /var/www/sgdl/backend && /var/www/sgdl/backend/venv/bin/python manage.py sync_sinapse_services --sync-health-report --notify-alert-email --notify-alert-webhook >> /var/log/sgdl/sinapse-health.log 2>&1

@@ -45,23 +45,27 @@ const userInitial = computed(() => {
 const fetchNotificacoes = async () => {
     try {
         const response = await ApiService.getNotificacoes();
-        notificacoes.value = response.data;
+
+        // Lógica de verificação (caso a API mude entre paginada ou não)
+        if (response.data && Array.isArray(response.data.results)) {
+            notificacoes.value = response.data.results;
+        } else if (Array.isArray(response.data)) {
+            notificacoes.value = response.data;
+        } else {
+            notificacoes.value = [];
+        }
+
         // Calcula o número de não lidas e atualiza o badge
-        unreadCount.value = notificacoes.value.filter((n) => !n.lida).length;
+        // O filtro .filter() é seguro mesmo se o array estiver vazio
+        unreadCount.value = notificacoes.value.filter((n) => n && !n.lida).length;
     } catch (error) {
         console.error('Erro ao buscar notificações:', error);
+        notificacoes.value = []; // Limpa em caso de erro
+        unreadCount.value = 0; // Zera em caso de erro
     }
-    if (notificacoes.value.length > 0) {
-        // Adiciona um separador
-        notificacoes.value.push({ separator: true });
-    }
-    notificacoes.value.push({
-        label: 'Ver todas as notificações',
-        icon: 'pi pi-list',
-        command: () => {
-            router.push('/notificacoes');
-        }
-    });
+
+    // NÃO ADICIONE MAIS NADA AQUI.
+    // Os blocos .push() foram removidos.
 };
 
 const handleNotificacaoClick = async (notificacao) => {
@@ -134,7 +138,7 @@ onMounted(() => {
                 <i class="pi pi-bars"></i>
             </button>
             <router-link to="/" class="layout-topbar-logo">
-                <img src="/layout/images/brasao_pmmc.png" alt="Brasão da Prefeitura" style="height:40px" />
+                <img src="/layout/images/brasao_pmmc.png" alt="Brasão da Prefeitura" style="height: 40px" />
                 <span>SGDL</span>
             </router-link>
         </div>
@@ -146,98 +150,98 @@ onMounted(() => {
                 </button>
 
                 <button type="button" class="layout-topbar-action" @click="toggleNotificacoes">
-    
                     <OverlayBadge v-if="unreadCount > 0" :value="unreadCount" severity="danger">
                         <i class="pi pi-bell" />
                     </OverlayBadge>
-                    
+
                     <i v-else class="pi pi-bell" />
 
                     <span>Notificações</span>
                 </button>
 
                 <OverlayPanel ref="on" appendTo="body" :pt="{ content: { class: 'p-0' } }">
-                    <div class="flex flex-col" style="width: 25rem;">
+                    <div class="flex flex-col" style="width: 25rem">
                         <div class="flex justify-between items-center py-3 px-4">
                             <span class="font-bold text-lg">Notificações</span>
                             <Button v-if="unreadCount > 0" label="Marcar todas como lidas" class="p-button-text p-button-sm" @click="marcarTodasComoLidas"></Button>
                         </div>
                         <Divider class="m-0" />
 
-                        <ScrollPanel style="height: 250px;" class="px-4">
+                        <ScrollPanel style="height: 250px" class="px-4">
                             <div class="flex flex-col gap-1">
-                                <div v-for="notificacao in notificacoes" :key="notificacao.id" @click="handleNotificacaoClick(notificacao)"
-                                    :class="['flex align-items-center gap-3 p-3 border-round-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700', 
-                                    { 
-                                        'bg-gray-100 dark:bg-gray-800': !notificacao.lida,  
-                                        'opacity-60': notificacao.lida 
-                                    }]">
-                                    
-                                    <Avatar :class="['flex-shrink-0', getNotificacaoClass(notificacao)]"
-                                        :icon="getNotificacaoIcon(notificacao.tipo)" 
-                                        shape="circle" />
-                                    
+                                <div
+                                    v-for="notificacao in notificacoes"
+                                    :key="notificacao.id"
+                                    @click="handleNotificacaoClick(notificacao)"
+                                    :class="[
+                                        'flex align-items-center gap-3 p-3 border-round-md cursor-pointer hover:bg-gray-200 dark:hover:bg-gray-700',
+                                        {
+                                            'bg-gray-100 dark:bg-gray-800': !notificacao.lida,
+                                            'opacity-60': notificacao.lida
+                                        }
+                                    ]"
+                                >
+                                    <Avatar :class="['flex-shrink-0', getNotificacaoClass(notificacao)]" :icon="getNotificacaoIcon(notificacao.tipo)" shape="circle" />
+
                                     <div class="flex flex-col">
                                         <p :class="['m-0 text-sm', { 'font-bold': !notificacao.lida, 'font-normal': notificacao.lida }]">
                                             {{ notificacao.mensagem }}
                                         </p>
                                     </div>
-
                                 </div>
-                                <div v-if="!notificacoes.length" class="text-center text-color-secondary p-4">
-                                    Nenhuma notificação por aqui.
-                                </div>
+                                <div v-if="!notificacoes.length" class="text-center text-color-secondary p-4">Nenhuma notificação por aqui.</div>
                             </div>
                         </ScrollPanel>
                         <Divider class="m-0" />
 
                         <div class="px-4 py-3">
-                            <Button label="Ver todas as notificações" icon="pi pi-arrow-right" iconPos="right" class="p-button-outlined w-full" @click="router.push('/notificacoes'); on.hide()"></Button>
+                            <Button
+                                label="Ver todas as notificações"
+                                icon="pi pi-arrow-right"
+                                iconPos="right"
+                                class="p-button-outlined w-full"
+                                @click="
+                                    router.push('/notificacoes');
+                                    on.hide();
+                                "
+                            ></Button>
                         </div>
                     </div>
                 </OverlayPanel>
             </div>
 
             <div v-if="userStore.isAuthenticated" class="flex items-center">
-                <Avatar 
+                <Avatar
                     :key="userStore.currentUser?.avatar"
-                    :image="userStore.currentUser?.avatar" 
+                    :image="userStore.currentUser?.avatar"
                     :label="userStore.currentUser?.avatar ? null : userInitial"
-                    class="cursor-pointer" 
+                    class="cursor-pointer"
                     shape="circle"
-                    @click="toggle" 
-                    aria-haspopup="true" 
+                    @click="toggle"
+                    aria-haspopup="true"
                     aria-controls="overlay_panel"
                 />
             </div>
 
             <OverlayPanel ref="op" id="overlay_panel">
-                <div class="flex flex-col items-center gap-4 p-4" style="min-width: 250px;">
-                    <Avatar 
-                        :key="userStore.currentUser?.avatar"
-                        :image="userStore.currentUser?.avatar" 
-                        :label="userStore.currentUser?.avatar ? null : userInitial"
-                        size="xlarge"
-                        shape="circle" 
-                    />
+                <div class="flex flex-col items-center gap-4 p-4" style="min-width: 250px">
+                    <Avatar :key="userStore.currentUser?.avatar" :image="userStore.currentUser?.avatar" :label="userStore.currentUser?.avatar ? null : userInitial" size="xlarge" shape="circle" />
                     <div class="text-center">
                         <span class="font-bold">{{ userStore.currentUser?.first_name }} {{ userStore.currentUser?.last_name }}</span>
                         <div class="text-sm text-muted-color">{{ userStore.currentUser?.username }}</div>
                     </div>
 
                     <div class="flex flex-col gap-2 w-full">
-                        <Button 
-                            label="Meu Perfil" 
-                            icon="pi pi-user" 
+                        <Button
+                            label="Meu Perfil"
+                            icon="pi pi-user"
                             class="p-button-text"
-                            @click="router.push('/perfil'); toggle($event);"
+                            @click="
+                                router.push('/perfil');
+                                toggle($event);
+                            "
                         />
-                        <Button 
-                            label="Sair" 
-                            icon="pi pi-sign-out" 
-                            class="p-button-text p-button-danger"
-                            @click="userStore.logout()"
-                        />
+                        <Button label="Sair" icon="pi pi-sign-out" class="p-button-text p-button-danger" @click="userStore.logout()" />
                     </div>
                 </div>
             </OverlayPanel>
@@ -246,9 +250,9 @@ onMounted(() => {
 </template>
 
 <style>
-.p-overlaybadge span{
+.p-overlaybadge span {
     display: inline-flex !important;
-    font-size: .75rem !important;
+    font-size: 0.75rem !important;
     min-width: 1.25rem !important;
     height: 1.25rem !important;
     align-items: center;

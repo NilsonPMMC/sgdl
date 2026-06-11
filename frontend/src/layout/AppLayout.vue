@@ -6,6 +6,7 @@ import AppSidebar from './AppSidebar.vue';
 import AppTopbar from './AppTopbar.vue';
 import Toast from 'primevue/toast';
 import ConfirmDialog from 'primevue/confirmdialog';
+import VinculoSecretariaAlert from '@/components/VinculoSecretariaAlert.vue';
 
 const { layoutConfig, layoutState, isSidebarActive } = useLayout();
 
@@ -65,6 +66,7 @@ function isOutsideClicked(event) {
         <app-sidebar></app-sidebar>
         <div class="layout-main-container">
             <div class="layout-main">
+                <VinculoSecretariaAlert />
                 <router-view></router-view>
             </div>
             <app-footer></app-footer>

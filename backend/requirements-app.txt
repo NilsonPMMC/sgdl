@@ -1,0 +1,27 @@
+# Dependências do SGDL (API Django). Use ESTE arquivo no venv do projeto:
+#   /var/www/sgdl/venv/bin/python -m pip install -r requirements-app.txt
+#
+# NÃO use requirements.txt na raiz do backend — é um freeze da máquina (cloud-init, certbot, etc.).
+
+Django==5.2.6
+djangorestframework==3.16.0
+djangorestframework-simplejwt==5.5.0
+django-cors-headers==4.7.0
+django-filter==25.1
+django-rest-passwordreset==1.5.0
+dj-database-url==3.1.2
+python-dotenv==1.1.0
+
+psycopg2-binary==2.9.10
+pgvector==0.4.2
+
+requests==2.32.3
+geopy==2.4.1
+weasyprint==63.1
+Pillow==11.1.0
+qrcode[pil]==8.0
+
+gunicorn==23.0.0
+
+# Opcional: seed e testes locais
+Faker==37.12.0

@@ -1,0 +1,32 @@
+cod_rm,sinapse_orgao_id,observacao,ativo
+SMSBE,3,Saúde e Bem-Estar,true
+SMAS,2,Assistência Social,true
+SME,4,Educação,true
+SMF,10,Finanças,true
+SMGCP,11,Gestão e Contratações Públicas,true
+SMSEG,16,Segurança,true
+PGM,7,Assuntos Jurídicos (Procuradoria),true
+GABP,12,Gabinete do Prefeito → Governo e Transparência,true
+SMSUZ,17,Serviços Urbanos e Zeladoria,true
+SMPU,15,Planejamento e Urbanismo,true
+SMDET,8,Desenvolvimento Econômico e Trabalho,true
+SMMT,18,Mobilidade e Trânsito,true
+SMGOV,12,Governo e Transparência,true
+IPREM,10,Instituto de Previdência → Finanças (validar),true
+SMC,1,Cultura (validar),true
+SMHSRF,21,Habitação Social,true
+SMELQV,6,Agricultura e Segurança Alimentar,true
+SECLIMA,19,Meio Ambiente e Proteção Animal,true
+SEMAS,2,Assistência Social (validar sigla),true
+SMAJRI,7,Assuntos Jurídicos,true
+SMASA,6,Agricultura e Segurança Alimentar,true
+SMLONG,76,Longevidade,true
+SMM,75,Mulher,true
+SMOP,13,Obras e Infraestrutura,true
+SMEL,6,Agricultura (validar),true
+EXP,12,Exportação/eventual — Governo (validar),true
+GABPA,12,Gabinete — Governo (validar),true
+SMGOT,12,Governo (validar),true
+SMCMA,19,Meio Ambiente (validar),true
+SMOI,12,Governo (validar),true
+SEMAE,5,Serviço Municipal de Águas e Esgotos (SEMAE),true

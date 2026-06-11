@@ -1,0 +1,12 @@
+{% if exibir_texto_cabecalho %}
+<div class="cabecalho-texto">
+  {% if titulo_instituicao %}
+  <h1>{{ titulo_instituicao }}</h1>
+  {% endif %}
+  {% if config.municipio or config.uf %}
+  <p class="cabecalho-subtitulo">
+    {% if config.municipio %}{{ config.municipio }}{% endif %}{% if config.municipio and config.uf %} — {% endif %}{% if config.uf %}{{ config.uf }}{% endif %}
+  </p>
+  {% endif %}
+</div>
+{% endif %}

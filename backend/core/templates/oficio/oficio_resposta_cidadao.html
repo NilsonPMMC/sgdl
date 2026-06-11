@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <title>Resposta ao cidadão — {{ titulo }}</title>
+  {% include "oficio/_oficio_estilos_pagina.html" %}
+</head>
+<body>
+  {% include "oficio/_cabecalho_camara.html" %}
+
+  <p class="meta">
+    {% if protocolo_executivo %}Protocolo: {{ protocolo_executivo }}{% endif %}
+    {% if protocolo_legislativo %} · Ofício nº {{ protocolo_legislativo }}{% endif %}
+  </p>
+
+  {% include "oficio/_corpo_oficio.html" %}
+
+  {% include "oficio/_bloco_assinatura.html" %}
+
+  {% include "oficio/_rodape_protocolo.html" %}
+
+  <p class="rodape-sgdl">Documento gerado pelo SGDL em {{ data_emissao }} — devolutiva ao cidadão.</p>
+</body>
+</html>

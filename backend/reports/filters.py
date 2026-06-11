@@ -1,7 +1,7 @@
 # /var/www/sgdl/backend/reports/filters.py
 
 import django_filters
-from core.models import Demanda, Usuario, Secretaria, Servico
+from core.models import Demanda, Usuario
 
 class DemandaReportFilter(django_filters.FilterSet):
     """
@@ -31,7 +31,7 @@ class DemandaReportFilter(django_filters.FilterSet):
     # 3. Filtro de SECRETARIA (Múltipla Escolha)
     # CORREÇÃO: Alterado de ModelMultipleChoiceFilter para BaseInFilter
     secretaria__in = django_filters.BaseInFilter(
-        field_name='secretaria_destino_id', # Usar _id é mais rápido
+        field_name='sinapse_orgao_id',
         lookup_expr='in',
         label='Secretarias (Múltiplas)'
     )
@@ -39,7 +39,7 @@ class DemandaReportFilter(django_filters.FilterSet):
     # 4. Filtro de SERVIÇO (Múltipla Escolha)
     # CORREÇÃO: Alterado de ModelMultipleChoiceFilter para BaseInFilter
     servico__in = django_filters.BaseInFilter(
-        field_name='servico_id', # Usar _id é mais rápido
+        field_name='sinapse_servico_id',
         lookup_expr='in',
         label='Serviços (Múltiplos)'
     )

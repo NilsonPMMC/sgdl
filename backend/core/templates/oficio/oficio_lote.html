@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <title>Ofício — solicitações SGDL</title>
+  {% include "oficio/_oficio_estilos_pagina.html" %}
+</head>
+<body>
+  {% include "oficio/_cabecalho_camara.html" %}
+
+  {% include "oficio/_corpo_oficio.html" %}
+
+  {% include "oficio/_bloco_assinatura.html" %}
+
+  {% include "oficio/_rodape_protocolo.html" %}
+
+  <p class="rodape-sgdl">Documento gerado pelo copiloto SGDL em {{ data_emissao }}.</p>
+</body>
+</html>

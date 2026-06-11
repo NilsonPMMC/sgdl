@@ -4,7 +4,7 @@ import ApiService from '@/service/ApiService';
 import { computed, ref } from 'vue';
 
 export const useUserStore = defineStore('user', () => {
-    const currentUserStore = useStorage('sgdl_user', {}); 
+    const currentUserStore = useStorage('sgdl_user', {});
     const accessToken = useStorage('sgdl_access_token', null);
     const refreshToken = useStorage('sgdl_refresh_token', null);
     const loading = ref(true);
@@ -26,7 +26,7 @@ export const useUserStore = defineStore('user', () => {
                 const userResponse = await ApiService.getCurrentUser();
                 currentUserStore.value = userResponse.data;
             } catch (error) {
-                console.error("Token inválido ou expirado. Deslogando.", error);
+                console.error('Token inválido ou expirado. Deslogando.', error);
                 logout();
             }
         }
@@ -35,7 +35,7 @@ export const useUserStore = defineStore('user', () => {
     async function login(username, password, rememberMe = false) {
         const response = await ApiService.getTokens(username, password, rememberMe);
         accessToken.value = response.data.access;
-        refreshToken.value = response.data.refresh;        
+        refreshToken.value = response.data.refresh;
         await fetchCurrentUser();
     }
 
@@ -46,15 +46,15 @@ export const useUserStore = defineStore('user', () => {
         window.location.href = '/login';
     }
 
-    return { 
-      currentUser, 
-      accessToken, 
-      isAuthenticated, 
-      loading, 
-      login, 
-      logout, 
-      finishLoading, 
-      fetchCurrentUser,
-      updateCurrentUser
+    return {
+        currentUser,
+        accessToken,
+        isAuthenticated,
+        loading,
+        login,
+        logout,
+        finishLoading,
+        fetchCurrentUser,
+        updateCurrentUser
     };
 });

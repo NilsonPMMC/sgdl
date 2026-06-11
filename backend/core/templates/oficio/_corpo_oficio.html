@@ -1,0 +1,3 @@
+<section class="corpo{% if corpo_richtext %} corpo-richtext{% endif %}">
+{% if corpo_richtext %}{{ corpo_texto|safe }}{% else %}{{ corpo_texto }}{% endif %}
+</section>

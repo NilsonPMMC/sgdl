@@ -1,0 +1,18 @@
+{% if tem_assinatura %}
+<section class="assinatura">
+  {% if assinatura_imagem_url %}
+  <img src="{{ assinatura_imagem_url }}" alt="Assinatura" class="assinatura-img"/>
+  {% endif %}
+  {% if assinatura_texto %}
+  <p class="assinatura-texto">{{ assinatura_texto }}</p>
+  {% elif not assinatura_imagem_url %}
+  <p class="assinatura-texto">
+    {% if assinatura_nome %}{{ assinatura_nome }}{% endif %}
+    {% if assinatura_cargo %}<br/><span class="assinatura-cargo">{{ assinatura_cargo }}</span>{% endif %}
+  </p>
+  {% endif %}
+  {% if assinatura_imagem_url and assinatura_nome %}
+  <p class="assinatura-legenda">{{ assinatura_nome }}{% if assinatura_cargo %} — {{ assinatura_cargo }}{% endif %}</p>
+  {% endif %}
+</section>
+{% endif %}

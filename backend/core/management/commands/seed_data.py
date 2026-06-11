@@ -2,7 +2,7 @@ import random
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from faker import Faker
-from core.models import Usuario, Secretaria, Servico, Demanda
+from core.models import Usuario, Demanda
 from django.utils import timezone # Importar timezone
 from datetime import timedelta # Importar timedelta
 
@@ -23,11 +23,13 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        self.stdout.write('Limpando dados antigos...')
-        Demanda.objects.all().delete()
-        Servico.objects.all().delete()
-        Usuario.objects.filter(is_superuser=False).delete() 
-        Secretaria.objects.all().delete()
+        self.stdout.write(
+            self.style.ERROR(
+                "seed_data descontinuado: catálogo de serviços/órgãos vem do Sinapse. "
+                "Use sync_sinapse_services e crie demandas pela API/copiloto."
+            )
+        )
+        return
 
         fake = Faker('pt_BR')
         self.stdout.write('Criando novos dados realistas...')
@@ -81,26 +83,31 @@ class Command(BaseCommand):
         # (Esta seção não muda)
         servicos_criados = []
         servicos_a_criar = [
-            ('Tapa-buraco', 'obras', 'SERVIÇO'),
-            ('Reparo de iluminação pública', 'serviços', 'SERVIÇO'),
-            ('Poda de árvore em via pública', 'serviços', 'SERVIÇO'),
-            ('Limpeza de bueiro', 'serviços', 'SERVIÇO'),
-            ('Remoção de entulho', 'serviços', 'SERVIÇO'),
-            ('Solicitação de vaga em creche', 'educação', 'ATENDIMENTO'),
-            ('Matrícula escolar (Ensino Fundamental)', 'educação', 'ATENDIMENTO'),
-            ('Agendamento de consulta (Clínico Geral)', 'saúde', 'ATENDIMENTO'),
-            ('Agendamento de exame (Ex: Sangue)', 'saúde', 'ATENDIMENTO'),
-            ('Solicitação de medicamentos (Farmácia Básica)', 'saúde', 'ATENDIMENTO'),
-            ('Vistoria de terreno baldio (Dengue)', 'saúde', 'VISTORIA'),
-            ('Sinalização de via (Placa/Pintura)', 'obras', 'IMPLANTAÇÃO'),
+            ('Tapa-buraco', 'obras', 'SERVIÇO', 15),
+            ('Reparo de iluminação pública', 'serviços', 'SERVIÇO', 7),
+            ('Poda de árvore em via pública', 'serviços', 'SERVIÇO', 20),
+            ('Limpeza de bueiro', 'serviços', 'SERVIÇO', 10),
+            ('Remoção de entulho', 'serviços', 'SERVIÇO', 5),
+            ('Solicitação de vaga em creche', 'educação', 'ATENDIMENTO', 5),
+            ('Matrícula escolar (Ensino Fundamental)', 'educação', 'ATENDIMENTO', 30),
+            ('Agendamento de consulta (Clínico Geral)', 'saúde', 'ATENDIMENTO', 14),
+            ('Agendamento de exame (Ex: Sangue)', 'saúde', 'ATENDIMENTO', 20),
+            ('Solicitação de medicamentos (Farmácia Básica)', 'saúde', 'ATENDIMENTO', 3),
+            ('Vistoria de terreno baldio (Dengue)', 'saúde', 'VISTORIA', 10),
+            ('Sinalização de via (Placa/Pintura)', 'obras', 'IMPLANTAÇÃO', 30),
         ]
-        for nome, chave_sec, tipo in servicos_a_criar:
+        for nome, chave_sec, tipo, prazo in servicos_a_criar:
             if chave_sec in secretarias_map:
                 serv = Servico.objects.create(
-                    nome=nome, tipo=tipo,
-                    secretaria_responsavel=secretarias_map[chave_sec]
+                    nome=nome, 
+                    tipo=tipo,
+                    secretaria_responsavel=secretarias_map[chave_sec],
+                    prazo=prazo
                 )
                 servicos_criados.append(serv)
+            else:
+                self.stdout.write(self.style.WARNING(f'Atenção: Chave de secretaria "{chave_sec}" não encontrada no mapa.'))
+
         self.stdout.write(f'-> {len(servicos_criados)} serviços realistas criados.')
 
         # --- 4. Criar Demandas Realistas (COM DATAS VARIADAS) ---

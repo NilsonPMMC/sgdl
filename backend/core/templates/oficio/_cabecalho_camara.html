@@ -1,0 +1,31 @@
+<header class="cabecalho cabecalho-layout-{{ cabecalho_layout|lower }}">
+  {% if cabecalho_layout == "BRASAO_CENTRO" %}
+    <div class="cabecalho-centro">
+      {% include "oficio/_cabecalho_brasao.html" %}
+    </div>
+  {% elif cabecalho_layout == "TEXTO_CENTRO" %}
+    <div class="cabecalho-centro">
+      {% include "oficio/_cabecalho_texto.html" %}
+    </div>
+  {% elif cabecalho_layout == "BRASAO_ACIMA_TEXTO" %}
+    <div class="cabecalho-coluna">
+      {% include "oficio/_cabecalho_brasao.html" %}
+      {% include "oficio/_cabecalho_texto.html" %}
+    </div>
+  {% elif cabecalho_layout == "TEXTO_ESQUERDA_BRASAO" %}
+    <table class="cabecalho-tabela" role="presentation">
+      <tr>
+        <td class="cabecalho-celula-texto">{% include "oficio/_cabecalho_texto.html" %}</td>
+        <td class="cabecalho-celula-brasao">{% include "oficio/_cabecalho_brasao.html" %}</td>
+      </tr>
+    </table>
+  {% else %}
+    <table class="cabecalho-tabela" role="presentation">
+      <tr>
+        <td class="cabecalho-celula-brasao">{% include "oficio/_cabecalho_brasao.html" %}</td>
+        <td class="cabecalho-celula-texto">{% include "oficio/_cabecalho_texto.html" %}</td>
+      </tr>
+    </table>
+  {% endif %}
+  <hr class="cabecalho-separador"/>
+</header>

@@ -3,3 +3,41 @@
 @use '@/assets/tailwind.css';
 @use '@/assets/layout/layout.scss';
 @use '@/assets/demo/demo.scss';
+
+/* PrimeVue 4: container de scroll é .p-datatable-table-container (não .p-datatable-wrapper) */
+.sgdl-datatable-host,
+.sgdl-table-scroll-wrap {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.sgdl-datatable-host .p-datatable,
+.sgdl-table-scroll-wrap .p-datatable {
+    display: block;
+    width: 100%;
+    min-width: 0;
+}
+
+.sgdl-datatable-host .p-datatable-table-container,
+.sgdl-table-scroll-wrap .p-datatable-table-container {
+    overflow-x: auto !important;
+    overflow-y: visible;
+    max-width: 100%;
+}
+
+.sgdl-datatable-host .p-datatable-table,
+.sgdl-table-scroll-wrap .p-datatable-table {
+    width: max-content !important;
+    min-width: 100%;
+    table-layout: auto;
+}
+
+.sgdl-datatable-host .p-datatable-thead > tr > th,
+.sgdl-datatable-host .p-datatable-tbody > tr > td,
+.sgdl-table-scroll-wrap .p-datatable-thead > tr > th,
+.sgdl-table-scroll-wrap .p-datatable-tbody > tr > td {
+    white-space: nowrap;
+}

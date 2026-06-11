@@ -4,12 +4,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions, generics
 from django.db.models import Count, Q
-from django.utils import timezone  # GARANTA QUE ESTA LINHA ESTÁ AQUI
-import traceback
-import logging  # E GARANTA QUE ESTA LINHA ESTÁ AQUI
+from django.utils import timezone
+from datetime import timedelta
+import logging
 logger = logging.getLogger(__name__)
 
 from core.models import Demanda
+from integrations import sinapse_catalog
 from core.serializers import DemandaListSerializer
 from .filters import DemandaReportFilter
 
@@ -20,7 +21,7 @@ class BaseReportView(APIView):
     permission_classes = [permissions.IsAuthenticated] # Protege os relatórios
 
     def get_filtered_queryset(self, request):
-        logger.error(f"[DEBUG SGDL-GRAFICOS] Filtros recebidos: {request.GET}")
+        logger.debug("Filtros recebidos para relatórios: %s", request.GET)
         filterset = DemandaReportFilter(request.GET, queryset=Demanda.objects.all())
         
         # Retorna o queryset já filtrado
@@ -53,23 +54,28 @@ class DemandasPorSecretariaView(BaseReportView):
             'AGUARDANDO_TRANSFERENCIA'
         ]
         
-        dados_agregados = qs_filtrado.filter(
-            secretaria_destino__isnull=False
-        ).values(
-            'secretaria_destino__nome'
-        ).annotate(
-            total=Count('id'),
-            abertas=Count('id', filter=Q(status__in=status_aberto))
-        ).order_by('-total')
-        
-        dados = [
-            {
-                'secretaria': item['secretaria_destino__nome'], 
-                'total': item['total'],
-                'abertas': item['abertas']
-            } 
-            for item in dados_agregados
-        ]
+        por_orgao: dict[int, dict] = {}
+        for row in qs_filtrado.filter(sinapse_orgao_id__isnull=False).values(
+            "sinapse_orgao_id", "status"
+        ):
+            oid = row["sinapse_orgao_id"]
+            bucket = por_orgao.setdefault(oid, {"total": 0, "abertas": 0})
+            bucket["total"] += 1
+            if row["status"] in status_aberto:
+                bucket["abertas"] += 1
+
+        dados = sorted(
+            [
+                {
+                    "secretaria": sinapse_catalog.get_orgao_nome(oid) or str(oid),
+                    "total": vals["total"],
+                    "abertas": vals["abertas"],
+                }
+                for oid, vals in por_orgao.items()
+            ],
+            key=lambda x: x["total"],
+            reverse=True,
+        )
         
         return Response(dados)
 
@@ -77,36 +83,36 @@ class DemandasPorVereadorView(BaseReportView):
     """
     Endpoint: /api/reports/por-vereador/
     Versão Híbrida: Separa o processamento de demandas com autor
-    daquelas que não têm (criado_por=NULL).
+    daquelas que não têm (autor=NULL).
     """
     def get(self, request, *args, **kwargs):
         qs_filtrado = self.get_filtered_queryset(request)
         
         # --- ABORDAGEM HÍBRIDA ---
 
-        # 1. Agrega apenas as demandas que TÊM um autor (criado_por != NULL)
+        # 1. Agrega apenas as demandas que TÊM um autor (autor != NULL)
         # Isso evita o crash do JOIN com NULLs.
-        qs_com_autor = qs_filtrado.filter(criado_por__isnull=False)
+        qs_com_autor = qs_filtrado.filter(autor__isnull=False)
         
         dados_agregados = qs_com_autor.values(
-            'criado_por_id', 
-            'criado_por__first_name', 
-            'criado_por__last_name',
-            'criado_por__username'
+            'autor_id', 
+            'autor__first_name', 
+            'autor__last_name',
+            'autor__username'
         ).annotate(
             total=Count('id')
         ).order_by('-total')
 
-        # 2. Conta as demandas SEM autor (criado_por = NULL) separadamente
-        total_sem_autor = qs_filtrado.filter(criado_por__isnull=True).count()
+        # 2. Conta as demandas SEM autor (autor = NULL) separadamente
+        total_sem_autor = qs_filtrado.filter(autor__isnull=True).count()
 
         # 3. Formata a resposta
         dados = []
         for item in dados_agregados:
             # Formata o nome de forma segura, com fallback para username
-            nome = f"{item['criado_por__first_name'] or ''} {item['criado_por__last_name'] or ''}".strip()
+            nome = f"{item['autor__first_name'] or ''} {item['autor__last_name'] or ''}".strip()
             if not nome:
-                nome = item['criado_por__username']
+                nome = item['autor__username']
             
             dados.append({
                 'vereador': nome,
@@ -159,7 +165,7 @@ class DemandasFiltradasView(generics.ListAPIView):
         Sobrescreve o get_queryset para APLICAR O FILTRO MANUALMENTE,
         já que o modo automático (declarativo) não está funcionando.
         """
-        logger.error(f"[DEBUG SGDL-TABELA] Filtros recebidos: {self.request.GET}")
+        logger.debug("Filtros recebidos para tabela: %s", self.request.GET)
         base_queryset = self.queryset
         filterset = DemandaReportFilter(self.request.GET, queryset=base_queryset)
         return filterset.qs.order_by('-data_criacao')
@@ -173,10 +179,7 @@ class ReportKPIsView(BaseReportView):
     respeitando o DemandaReportFilter.
     """
     def get(self, request, *args, **kwargs):
-        # --- DEBUG: VAMOS CAPTURAR O ERRO REAL ---
         try:
-            # self.get_filtered_queryset() JÁ usa o DemandaReportFilter
-            # (Esta linha também pode falhar se o 'logger' não foi importado)
             queryset = self.get_filtered_queryset(request)
 
             total_demandas = queryset.count()
@@ -191,11 +194,18 @@ class ReportKPIsView(BaseReportView):
             
             demandas_concluidas = queryset.filter(status='FINALIZADO').count()
 
-            demandas_atrasadas = queryset.filter(
+            agora = timezone.now()
+            demandas_com_vencimento = queryset.filter(
+                status__in=status_aberto,
                 data_inicio_prazo__isnull=False,
-                data_inicio_prazo__lt=timezone.now().date(),
-                status__in=status_aberto
-            ).count()
+            )
+
+            demandas_atrasadas = sum(
+                1
+                for demanda in demandas_com_vencimento
+                if demanda.prazo_dias() is not None
+                and demanda.data_inicio_prazo + timedelta(days=demanda.prazo_dias()) < agora
+            )
 
             return Response({
                 'total_demandas': total_demandas,
@@ -204,15 +214,9 @@ class ReportKPIsView(BaseReportView):
                 'demandas_atrasadas': demandas_atrasadas
             })
         
-        except Exception as e:
-            # --- SE FALHAR, RETORNA O ERRO EXATO PARA O NAVEGADOR ---
-            logger.error(f"[DEBUG SGDL] ERRO FATAL NA KPIS VIEW: {e}")
+        except Exception:
+            logger.exception("Falha inesperada ao gerar KPIs.")
             return Response(
-                {
-                    "erro": "Erro 500 na ReportKPIsView",
-                    "detalhe_erro": str(e),
-                    "traceback_completo": traceback.format_exc()
-                }, 
-                status=500 # Mantém o status 500, mas agora com um JSON útil
+                {"erro": "Erro interno ao gerar os KPIs."}, 
+                status=500 
             )
-        # --- FIM DO DEBUG ---

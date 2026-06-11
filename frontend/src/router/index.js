@@ -1,4 +1,5 @@
 import AppLayout from '@/layout/AppLayout.vue';
+import { rotaHomePorPerfil } from '@/constants';
 import { createRouter, createWebHistory } from 'vue-router';
 import { useUserStore } from '@/stores/userStore';
 
@@ -12,15 +13,25 @@ const router = createRouter({
                 {
                     path: '/',
                     name: 'dashboard',
-                    component: () => import('@/views/DashboardView.vue')
+                    component: () => import('@/views/DashboardView.vue'),
+                    meta: { requiresAuth: true }
+                },
+                {
+                    path: '/consulta',
+                    name: 'consulta',
+                    component: () => import('@/views/ConsultaHubView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['VEREADOR', 'PROTOCOLO', 'SECRETARIA', 'GESTOR']
+                    }
                 },
                 {
                     path: '/relatorios',
                     name: 'relatorios',
                     component: () => import('@/views/RelatoriosView.vue'),
-                    meta: { 
+                    meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR'] 
+                        perfis: ['GESTOR']
                     }
                 },
                 {
@@ -40,15 +51,28 @@ const router = createRouter({
                     component: () => import('@/views/DemandasView.vue')
                 },
                 {
+                    path: '/copiloto',
+                    name: 'copiloto',
+                    component: () => import('@/views/CopilotoView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['VEREADOR', 'GESTOR']
+                    }
+                },
+                {
                     path: '/demandas/novo',
-                    name: 'demandas-novo',
-                    component: () => import('@/views/DemandaForm.vue')
+                    redirect: { name: 'copiloto' }
                 },
                 {
                     path: '/demandas/editar/:id',
                     name: 'demandas-editar',
                     component: () => import('@/views/DemandaForm.vue'),
-                    props: true
+                    props: true,
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['VEREADOR', 'GESTOR'],
+                        somenteRascunho: true
+                    }
                 },
                 {
                     path: '/demandas/detalhes/:id',
@@ -60,8 +84,129 @@ const router = createRouter({
                     path: '/perfil',
                     name: 'perfil',
                     component: () => import('@/views/pages/ProfileView.vue')
+                },
+                {
+                    path: '/integracoes/sinapse/reconciliacao',
+                    name: 'sinapse-reconciliacao',
+                    component: () => import('@/views/SinapseReconciliacaoView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR']
+                    }
+                },
+                {
+                    path: '/carta-servicos',
+                    name: 'carta-servicos',
+                    component: () => import('@/views/CartaExplorerView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['VEREADOR', 'GESTOR', 'PROTOCOLO', 'SECRETARIA']
+                    }
+                },
+                {
+                    path: '/gestao-tendencias',
+                    name: 'gestao-tendencias',
+                    component: () => import('@/views/TendenciasGestaoView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO']
+                    }
+                },
+                {
+                    path: '/gestao-recusas-copiloto',
+                    name: 'gestao-recusas-copiloto',
+                    component: () => import('@/views/RecusasCopilotoView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO']
+                    }
+                },
+                {
+                    path: '/gestao-fluxo-servicos',
+                    name: 'gestao-fluxo-servicos',
+                    component: () => import('@/views/FluxoServicosView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO']
+                    }
+                },
+                {
+                    path: '/gestao-setores',
+                    name: 'gestao-setores',
+                    component: () => import('@/views/SetoresView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO', 'SECRETARIA']
+                    }
+                },
+                {
+                    path: '/gestao-usuarios',
+                    name: 'gestao-usuarios',
+                    component: () => import('@/views/GestaoUsuariosView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO']
+                    }
+                },
+                {
+                    path: '/gestao-usuarios-secretaria',
+                    redirect: { name: 'gestao-usuarios', query: { perfil: 'SECRETARIA' } }
+                },
+                {
+                    path: '/gestao-usuarios-gestor',
+                    redirect: { name: 'gestao-usuarios', query: { perfil: 'GESTOR' } }
+                },
+                {
+                    path: '/clusters',
+                    name: 'clusters',
+                    component: () => import('@/views/ClustersView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO']
+                    }
+                },
+                {
+                    path: '/admin/faq-copiloto',
+                    name: 'admin-faq-copiloto',
+                    component: () => import('@/views/AdminFaqView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR']
+                    }
+                },
+                {
+                    path: '/admin/configuracao-oficio',
+                    name: 'configuracao-oficio',
+                    component: () => import('@/views/ConfiguracaoOficioView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR']
+                    }
+                },
+                {
+                    path: '/admin/configuracao-carta',
+                    name: 'configuracao-carta',
+                    component: () => import('@/views/ConfiguracaoCartaView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR']
+                    }
+                },
+                {
+                    path: '/admin/assuntos-carta',
+                    name: 'assuntos-carta',
+                    component: () => import('@/views/AssuntosCartaView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR']
+                    }
                 }
             ]
+        },
+        {
+            path: '/validar-assinatura/:codigo',
+            name: 'validar-assinatura',
+            component: () => import('@/views/ValidarAssinaturaView.vue')
         },
         {
             path: '/pages/notfound',
@@ -96,10 +241,11 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
     const userStore = useUserStore();
     const isAuthenticated = userStore.accessToken;
+    const perfil = userStore.currentUser?.perfil;
 
     // --- INÍCIO DA CORREÇÃO ---
     // 1. Define uma lista de rotas públicas
-    const publicPages = ['login', 'resetar-senha']; 
+    const publicPages = ['login', 'resetar-senha', 'validar-assinatura'];
     const authRequired = !publicPages.includes(to.name);
     // --- FIM DA CORREÇÃO ---
 
@@ -107,9 +253,10 @@ router.beforeEach((to, from, next) => {
     if (authRequired && !isAuthenticated) {
         // Se a rota exige login e o usuário não está logado, vai para /login
         next({ name: 'login' });
+    } else if (to.meta?.perfis && Array.isArray(to.meta.perfis) && !to.meta.perfis.includes(perfil)) {
+        next({ name: 'accessDenied' });
     } else if (isAuthenticated && to.name === 'login') {
-        // Se já está logado e tenta ir para /login, vai para /
-        next({ path: '/' }); 
+        next(rotaHomePorPerfil(perfil));
     } else {
         // Em todos os outros casos (logado, ou indo para uma página pública), permite o acesso
         next();

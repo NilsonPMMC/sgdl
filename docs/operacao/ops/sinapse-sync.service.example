@@ -1,0 +1,11 @@
+[Unit]
+Description=SGDL Sinapse Sync Job
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/www/sgdl/backend
+ExecStart=/usr/bin/python manage.py sync_sinapse_services --incremental-sync --table public.catalog_servico --limit 200
+User=www-data
+
+[Install]
+WantedBy=multi-user.target
