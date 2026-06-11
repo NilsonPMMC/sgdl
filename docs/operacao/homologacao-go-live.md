@@ -189,7 +189,8 @@ Super OS (≥2 demandas do mesmo serviço + proximidade geográfica): protocolo 
 
 ### 5.2 Roteiro E2E — Vereador (H1)
 
-> Backend/serviços validado em 2026-06-11 — demanda **2966** · [registro](homologacao-e2e-registro.md)
+> Backend/serviços validado em 2026-06-11 — demanda **2966** · [registro](homologacao-e2e-registro.md)  
+> **Roteiro browser (operadores):** [roteiro-e2e-browser-operadores.md](roteiro-e2e-browser-operadores.md)
 
 - [ ] Copiloto: criar rascunho com serviço Sinapse e endereço geocodificado.
 - [ ] Revisar rascunho (texto, serviço, endereço) em «Editar rascunho do ofício».
@@ -201,7 +202,7 @@ Super OS (≥2 demandas do mesmo serviço + proximidade geográfica): protocolo 
 
 ### 5.3 Roteiro E2E — Protocolo (H1)
 
-- [ ] Listar fila de protocolados / aguardando despacho.
+- [x] Listar fila de protocolados / aguardando despacho. *(API prod 2026-06-10 — 3 filas 200)*
 - [x] Despachar demanda individual → `PROTOCOLADO`.
 - [ ] Despachar lote Super OS → protocolo `SUPER-*` e cluster visível em `/clusters`.
 - [ ] Links entre processos vinculados na tela de detalhe (líder ↔ vinculados).
