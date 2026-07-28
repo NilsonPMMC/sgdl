@@ -241,13 +241,33 @@ SINAPSE_TRIAGEM_LOG = os.environ.get("SINAPSE_TRIAGEM_LOG", "False").lower() == 
 SINAPSE_TRIAGEM_LEXICAL_MERGE = os.environ.get("SINAPSE_TRIAGEM_LEXICAL_MERGE", "True").lower() == "true"
 
 # Tendências (solicitações fora da carta Sinapse) — braço interno + copiloto
-COPILOTO_TENDENCIAS_ENABLED = os.environ.get("COPILOTO_TENDENCIAS_ENABLED", "False").lower() == "true"
+COPILOTO_TENDENCIAS_ENABLED = os.environ.get("COPILOTO_TENDENCIAS_ENABLED", "True").lower() == "true"
+# FAQ de orientação (fora da competência) — desativada por padrão; pedidos seguem carta ou tendência.
+COPILOTO_FAQ_ENABLED = os.environ.get("COPILOTO_FAQ_ENABLED", "False").lower() == "true"
 TENDENCIA_SIMILARITY_THRESHOLD = float(os.environ.get("TENDENCIA_SIMILARITY_THRESHOLD", "0.85"))
 COPILOTO_TRIAGEM_SCORE_LIMIAR = float(os.environ.get("COPILOTO_TRIAGEM_SCORE_LIMIAR", "0.45"))
+# Corpus legado (aprendizado — não importa Demandas; JSON gerado por analisar_corpus_legado)
+CORPUS_LEGADO_ENABLED = os.environ.get("CORPUS_LEGADO_ENABLED", "True").lower() == "true"
+CORPUS_LEGADO_HINTS_COPILOTO_ENABLED = (
+    os.environ.get("CORPUS_LEGADO_HINTS_COPILOTO_ENABLED", "True").lower() == "true"
+)
+CORPUS_LEGADO_CSV_PATH = os.environ.get(
+    "CORPUS_LEGADO_CSV_PATH", "docs/bd-legado-demandas-vereadores.csv"
+)
+CORPUS_LEGADO_JSON_PATH = os.environ.get(
+    "CORPUS_LEGADO_JSON_PATH", "docs/insights/corpus-legado.json"
+)
+CORPUS_LEGADO_DEPARA_PATH = os.environ.get(
+    "CORPUS_LEGADO_DEPARA_PATH", "docs/insights/depara-legado-sinapse.json"
+)
 # Score mínimo na carta Sinapse para priorizar escolha de serviço (abaixo disso → tendência).
 COPILOTO_CARTA_SCORE_MINIMO = float(os.environ.get("COPILOTO_CARTA_SCORE_MINIMO", "0.6666"))
 # Limiar mais baixo ao listar serviços por domínio operacional (ex.: mobilidade).
 COPILOTO_CARTA_SCORE_DOMINIO = float(os.environ.get("COPILOTO_CARTA_SCORE_DOMINIO", "0.40"))
+# Trilha A′ — serviço Sinapse «Atendimento ao Cidadão (Ouvidoria)» (O1).
+COPILOTO_OUVIDORIA_SINAPSE_SERVICO_ID = int(
+    os.environ.get("COPILOTO_OUVIDORIA_SINAPSE_SERVICO_ID", "13")
+)
 
 # Clusterização (Super Ordem de Serviço) — semântica 1024d + raio geográfico
 CLUSTER_ENABLED = os.environ.get("CLUSTER_ENABLED", "True").lower() == "true"

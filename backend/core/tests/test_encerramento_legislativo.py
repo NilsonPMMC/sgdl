@@ -59,8 +59,12 @@ class EncerramentoLegislativoServiceTests(SinapseCatalogTestMixin, TestCase):
     def test_pacote_devolutiva_monta_pareceres(self):
         self._ate_devolvido_vereador()
         pacote = EncerramentoLegislativoService().montar_pacote_devolutiva(self.demanda)
-        self.assertIn("Lâmpada substituída", pacote["parecer_operacional"])
-        self.assertIn("Secretaria concluiu", pacote["resposta_protocolo"])
+        self.assertIn("Secretaria concluiu", pacote["laudo_final"])
+        self.assertIn("conclusao_em", pacote)
+        self.assertIsNotNone(pacote["conclusao_em"])
+        self.assertEqual(pacote["oficio_original"], "Poste apagado na rua X")
+        self.assertIn("assinaturas", pacote)
+        self.assertFalse(pacote["pesquisa_satisfacao_habilitada"])
 
     def test_confirmar_ciencia_encerra_e_gera_pdf(self):
         self._ate_devolvido_vereador()

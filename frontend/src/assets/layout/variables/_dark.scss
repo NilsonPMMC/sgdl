@@ -1,5 +1,10 @@
 :root[class*='app-dark'] {
-    --surface-ground: var(--p-surface-950);
+    --surface-ground: var(--p-surface-950, #0a1628);
+    --surface-card: var(--p-surface-900, #1e293b);
+    --sgdl-dark-ground: #0a1628;
+    --sgdl-dark-elevated: #1e293b;
+    --text-color: var(--p-text-color, #f1f5f9);
+    --text-color-secondary: var(--p-text-muted-color, #94a3b8);
     --code-background: var(--p-surface-800);
     --code-color: var(--p-surface-100);
 }

@@ -2,6 +2,7 @@
 
 from django.conf import settings
 from django.db.models import Count
+from django.http import Http404
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +12,7 @@ from .models import ClusterExecucao, Demanda
 from .serializers import ClusterExecucaoSerializer, DemandaListSerializer
 from .services.cluster_despacho_service import ClusterDespachoService
 from .services.cluster_service import CLUSTER_MIN_DEMANDAS, ClusterService
+from .services.gestor_escopo import TIPO_SETORIAL, orgaos_escopo_gestor, tipo_gestor
 
 _PERFIS = frozenset({"PROTOCOLO", "GESTOR"})
 _PERFIS_RESUMO_SUPER_OS = frozenset({"PROTOCOLO", "GESTOR", "SECRETARIA"})
@@ -56,7 +58,28 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(pk=int(cluster_id))
             except (TypeError, ValueError):
                 pass
+        user = self.request.user
+        if getattr(user, "perfil", None) == "GESTOR" and tipo_gestor(user) == TIPO_SETORIAL:
+            orgaos = orgaos_escopo_gestor(user)
+            if orgaos:
+                qs = qs.filter(demandas__sinapse_orgao_id__in=orgaos).distinct()
+            else:
+                qs = qs.none()
         return qs
+
+    def get_object(self):
+        """Deep-link /clusters/:id — permite detalhe mesmo fora dos filtros da listagem."""
+        if self.action == "retrieve":
+            ClusterService().purgar_clusters_unitarios()
+            pk = self.kwargs.get(self.lookup_field or "pk")
+            try:
+                return (
+                    ClusterExecucao.objects.annotate(demandas_count=Count("demandas"))
+                    .get(pk=int(pk))
+                )
+            except (ClusterExecucao.DoesNotExist, TypeError, ValueError):
+                raise Http404 from None
+        return super().get_object()
 
     def list(self, request, *args, **kwargs):
         if not _pode_ver_clusters(request.user):

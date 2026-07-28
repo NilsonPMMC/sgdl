@@ -5,9 +5,11 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from core.models import Demanda, Tramitacao
-from core.models_assinatura_eletronica import AssinaturaEletronica
+from core.models_assinatura_eletronica import AssinaturaEletronica, AssinaturaPendingAcao, AssinaturaValidacaoGestor
 from core.services.assinatura_eletronica_service import (
+    DECLARACAO_DESPACHO,
     DECLARACAO_ENVIO,
+    DECLARACAO_GESTOR_PROTOCOLO,
     AssinaturaEletronicaService,
 )
 
@@ -51,6 +53,26 @@ class AssinaturaEletronicaServiceTests(SinapseCatalogTestMixin, TestCase):
         self.assertTrue(preview["preview_pdf_disponivel"])
         self.assertEqual(self.demanda.anexos.count(), 0)
 
+    def test_pending_despacho_persiste_no_banco(self):
+        svc = AssinaturaEletronicaService()
+        preview = svc.preparar_assinatura_despacho_inicial(
+            self.demanda,
+            secretaria_id=SINAPSE_ORGAO_A,
+            unidade_administrativa_id=None,
+            protocolo_executivo="2026/0001",
+        )
+        row = AssinaturaPendingAcao.objects.get(
+            demanda=self.demanda,
+            etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+        )
+        self.assertEqual(row.hash_documento, preview["hash_documento"])
+        pending = svc._validar_hash_pending(
+            int(self.demanda.pk),
+            AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+            preview["hash_documento"],
+        )
+        self.assertEqual(pending["payload"]["protocolo_executivo"], "2026/0001")
+
     def test_registrar_assinatura_um_unico_anexo(self):
         preview = AssinaturaEletronicaService().preparar_preview_envio(self.demanda)
         AssinaturaEletronicaService().registrar_assinatura(
@@ -86,6 +108,179 @@ class AssinaturaEletronicaServiceTests(SinapseCatalogTestMixin, TestCase):
         payload = AssinaturaEletronicaService().validar_codigo(assinatura.codigo_validacao)
         self.assertTrue(payload["valido"])
         self.assertEqual(payload["demanda_id"], self.demanda.pk)
+
+    def test_cargo_signatario_prefere_usuario_cargo(self):
+        self.vereador.cargo = "Vereador Municipal"
+        self.vereador.save(update_fields=["cargo"])
+        from core.services.assinatura_eletronica_service import cargo_signatario
+
+        self.assertEqual(
+            cargo_signatario(self.vereador, AssinaturaEletronica.PAPEL_OPERADOR),
+            "Vereador Municipal",
+        )
+
+    def test_listar_gestores_inclui_cargo(self):
+        gestor = _legacy.Usuario.objects.create_user(
+            username="gest_cargo",
+            password="x",
+            perfil="PROTOCOLO",
+            cargo="Chefe de Seção de Protocolo",
+        )
+        lista = AssinaturaEletronicaService().listar_gestores_protocolo()
+        item = next((g for g in lista if g["id"] == gestor.pk), None)
+        self.assertIsNotNone(item)
+        self.assertEqual(item["cargo"], "Chefe de Seção de Protocolo")
+
+    def test_validar_codigo_inclui_cargo(self):
+        self.vereador.cargo = "Vereador"
+        self.vereador.save(update_fields=["cargo"])
+        preview = AssinaturaEletronicaService().preparar_preview_envio(self.demanda)
+        assinatura = AssinaturaEletronicaService().registrar_assinatura(
+            self.demanda,
+            self.vereador,
+            hash_documento_informado=preview["hash_documento"],
+            declaracao=DECLARACAO_ENVIO,
+        )
+        payload = AssinaturaEletronicaService().validar_codigo(assinatura.codigo_validacao)
+        self.assertEqual(payload["cargo"], "Vereador")
+
+    def test_resumo_assinaturas_demanda(self):
+        svc = AssinaturaEletronicaService()
+        operador = _legacy.Usuario.objects.create_user(
+            username="op_res", password="x", perfil="PROTOCOLO"
+        )
+        gestor = _legacy.Usuario.objects.create_user(
+            username="gest_res", password="x", perfil="PROTOCOLO"
+        )
+        preview = svc.preparar_preview_envio(self.demanda)
+        svc.registrar_assinatura(
+            self.demanda,
+            self.vereador,
+            hash_documento_informado=preview["hash_documento"],
+            declaracao=DECLARACAO_ENVIO,
+        )
+        resumo = svc.resumo_assinaturas_demanda(self.demanda)
+        self.assertTrue(resumo["envio_oficio_assinado"])
+        self.assertFalse(resumo["despacho_inicial_assinado"])
+
+        preview_d = svc.preparar_assinatura_despacho_inicial(
+            self.demanda,
+            secretaria_id=SINAPSE_ORGAO_A,
+            unidade_administrativa_id=None,
+            protocolo_executivo="2026/0099",
+        )
+        svc.registrar_assinaturas_despacho_inicial(
+            self.demanda,
+            operador,
+            hash_documento=preview_d["hash_documento"],
+            declaracao_operador=DECLARACAO_DESPACHO,
+            contexto_operacao={
+                "destinos": [{"secretaria_id": SINAPSE_ORGAO_A, "unidade_administrativa_id": None}],
+                "texto_despacho": "Despacho teste resumo.",
+            },
+        )
+        resumo2 = svc.resumo_assinaturas_demanda(self.demanda)
+        self.assertFalse(resumo2["despacho_inicial_assinado"])
+        self.assertTrue(resumo2["despacho_inicial_pendente_gestor"])
+
+        validacao = AssinaturaValidacaoGestor.objects.get(
+            demanda=self.demanda,
+            etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+        )
+        gestor_sgac = _legacy.Usuario.objects.create_user(
+            username="gest_res_sgac", password="x", perfil="GESTOR"
+        )
+        from core.models_unidade_administrativa import UnidadeAdministrativaResponsavel
+        from core.services.usuario_vinculo_service import PROTOCOLO_UNIDADE_PK
+
+        UnidadeAdministrativaResponsavel.objects.create(
+            unidade_id=PROTOCOLO_UNIDADE_PK,
+            usuario=gestor_sgac,
+            ativo=True,
+        )
+        svc.registrar_validacao_gestor(
+            validacao,
+            gestor_sgac,
+            hash_documento=preview_d["hash_documento"],
+            declaracao_gestor=DECLARACAO_GESTOR_PROTOCOLO,
+        )
+        resumo3 = svc.resumo_assinaturas_demanda(self.demanda)
+        self.assertTrue(resumo3["despacho_inicial_assinado"])
+
+    def test_liberar_assinaturas_despacho_inicial(self):
+        self.demanda.status = "AGUARDANDO_PROTOCOLO"
+        self.demanda.save(update_fields=["status"])
+        svc = AssinaturaEletronicaService()
+        operador = _legacy.Usuario.objects.create_user(
+            username="op_lib", password="x", perfil="PROTOCOLO"
+        )
+        gestor = _legacy.Usuario.objects.create_user(
+            username="gest_lib", password="x", perfil="PROTOCOLO"
+        )
+        preview_d = svc.preparar_assinatura_despacho_inicial(
+            self.demanda,
+            secretaria_id=SINAPSE_ORGAO_A,
+            unidade_administrativa_id=None,
+            protocolo_executivo="2026/0099",
+        )
+        svc.registrar_assinaturas_despacho_inicial(
+            self.demanda,
+            operador,
+            hash_documento=preview_d["hash_documento"],
+            declaracao_operador=DECLARACAO_DESPACHO,
+            contexto_operacao={
+                "destinos": [{"secretaria_id": SINAPSE_ORGAO_A, "unidade_administrativa_id": None}],
+                "texto_despacho": "Despacho teste resumo.",
+            },
+        )
+        self.assertEqual(
+            AssinaturaEletronica.objects.filter(
+                demanda=self.demanda,
+                etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+            ).count(),
+            1,
+        )
+        removed = svc.liberar_assinaturas_despacho_inicial(self.demanda)
+        self.assertEqual(removed, 1)
+        self.assertFalse(svc.possui_assinatura_despacho_inicial(self.demanda))
+
+    def test_preparar_redespacho_limpa_rastros_orfaos(self):
+        from core.services.demanda_despacho_service import DemandaDespachoService
+
+        self.demanda.status = "AGUARDANDO_PROTOCOLO"
+        self.demanda.protocolo_executivo = "2026-0100"
+        self.demanda.fluxo_roteamento = "FLUXO_DIRETO"
+        self.demanda.save(
+            update_fields=["status", "protocolo_executivo", "fluxo_roteamento"]
+        )
+        svc = AssinaturaEletronicaService()
+        operador = _legacy.Usuario.objects.create_user(
+            username="op_red", password="x", perfil="PROTOCOLO"
+        )
+        gestor = _legacy.Usuario.objects.create_user(
+            username="gest_red", password="x", perfil="PROTOCOLO"
+        )
+        preview_d = svc.preparar_assinatura_despacho_inicial(
+            self.demanda,
+            secretaria_id=SINAPSE_ORGAO_A,
+            unidade_administrativa_id=None,
+            protocolo_executivo="2026/0100",
+        )
+        svc.registrar_assinaturas_despacho_inicial(
+            self.demanda,
+            operador,
+            hash_documento=preview_d["hash_documento"],
+            declaracao_operador=DECLARACAO_DESPACHO,
+            contexto_operacao={
+                "destinos": [{"secretaria_id": SINAPSE_ORGAO_A, "unidade_administrativa_id": None}],
+                "texto_despacho": "Despacho teste resumo.",
+            },
+        )
+        DemandaDespachoService().preparar_redespacho_protocolo(self.demanda)
+        self.demanda.refresh_from_db()
+        self.assertFalse(svc.possui_assinatura_despacho_inicial(self.demanda))
+        self.assertIsNone(self.demanda.protocolo_executivo)
+        self.assertEqual(self.demanda.fluxo_roteamento, "")
 
 
 class EnviarOficialAssinaturaAPITests(SinapseCatalogTestMixin, APITestCase):
@@ -125,7 +320,11 @@ class EnviarOficialAssinaturaAPITests(SinapseCatalogTestMixin, APITestCase):
         self.demanda.refresh_from_db()
         self.assertEqual(self.demanda.status, "AGUARDANDO_PROTOCOLO")
         self.assertTrue(self.demanda.protocolo_legislativo)
-        self.assertTrue(AssinaturaEletronica.objects.filter(demanda=self.demanda).exists())
+        self.assertTrue(
+            AssinaturaEletronica.objects.filter(
+                demanda=self.demanda, etapa=AssinaturaEletronica.ETAPA_ENVIO_OFICIO
+            ).exists()
+        )
         self.assertTrue(
             Tramitacao.objects.filter(demanda=self.demanda, tipo="ENVIO_OFICIAL").exists()
         )

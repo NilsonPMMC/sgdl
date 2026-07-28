@@ -20,6 +20,8 @@ VIACEP_URL = "https://viacep.com.br/ws/{cep}/json/"
 CIDADE_PADRAO = "Mogi das Cruzes"
 UF_PADRAO = "SP"
 PAIS_PADRAO = "Brasil"
+# Viewbox aproximado de Mogi das Cruzes (lon_min, lat_max, lon_max, lat_min)
+MOGI_VIEWBOX = (-46.28, -23.42, -46.08, -23.62)
 
 _LOGRADOURO_SUJO_RE = re.compile(
     r"\b(of[ií]cio|solicit|tapa|buraco|lombada|instala)\b",
@@ -387,6 +389,168 @@ class GeocodingService:
             push(f"{prefixo}{partes[0]} {partes[1]}")
 
         return ordem
+
+    def buscar_sugestoes_logradouro(
+        self,
+        termo: str,
+        *,
+        bairro: str | None = None,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        """
+        Autocomplete de logradouros via Nominatim, restrito a Mogi das Cruzes.
+        Retorna lista de {label, logradouro, bairro, cep, latitude, longitude}.
+        """
+        texto = (termo or "").strip()
+        if len(texto) < 3:
+            return []
+
+        limite = max(1, min(int(limit or 8), 15))
+        variantes: list[str] = []
+        vistos: set[str] = set()
+
+        def add_query(q: str) -> None:
+            qn = re.sub(r"\s+", " ", (q or "").strip())
+            if len(qn) < 3:
+                return
+            chave = qn.lower()
+            if chave in vistos:
+                return
+            vistos.add(chave)
+            variantes.append(qn)
+
+        sufixo = f"{self.cidade}, {self.uf}, {PAIS_PADRAO}"
+        bai = (bairro or "").strip()
+        if bai:
+            add_query(f"{texto}, {bai}, {sufixo}")
+        add_query(f"{texto}, {sufixo}")
+        if not re.match(r"^(rua|r\.|av\.?|avenida|travessa|alameda|estrada|rodovia)\b", texto, re.I):
+            add_query(f"Rua {texto}, {sufixo}")
+            if bai:
+                add_query(f"Rua {texto}, {bai}, {sufixo}")
+
+        resultados: list[dict[str, Any]] = []
+        chaves_resultado: set[str] = set()
+
+        for query in variantes:
+            if len(resultados) >= limite or self._nominatim_em_backoff():
+                break
+            for item in self._consultar_nominatim_lista(query, limit=limite):
+                parsed = self._parse_sugestao_nominatim(item)
+                if not parsed:
+                    continue
+                chave = (
+                    f"{parsed.get('logradouro', '').lower()}|"
+                    f"{parsed.get('bairro', '').lower()}|"
+                    f"{parsed.get('cep', '')}"
+                )
+                if chave in chaves_resultado:
+                    continue
+                chaves_resultado.add(chave)
+                resultados.append(parsed)
+                if len(resultados) >= limite:
+                    break
+
+        return resultados[:limite]
+
+    @staticmethod
+    def _parse_sugestao_nominatim(item: dict[str, Any]) -> dict[str, Any] | None:
+        if not isinstance(item, dict):
+            return None
+        addr = item.get("address")
+        if not isinstance(addr, dict):
+            return None
+
+        cidade_ref = CIDADE_PADRAO.lower()
+        local = ""
+        for ch in ("city", "town", "municipality", "county", "state_district"):
+            val = (addr.get(ch) or "").strip()
+            if val:
+                local = val
+                break
+        if local and cidade_ref not in local.lower():
+            return None
+
+        logradouro = (
+            (addr.get("road") or addr.get("pedestrian") or addr.get("residential") or "")
+        ).strip()
+        if not logradouro:
+            logradouro = (addr.get("footway") or addr.get("path") or "").strip()
+        bairro = (
+            (addr.get("suburb") or addr.get("neighbourhood") or addr.get("quarter") or "")
+        ).strip()
+        cep_raw = re.sub(r"\D", "", (addr.get("postcode") or ""))
+        cep_fmt = f"{cep_raw[:5]}-{cep_raw[5:8]}" if len(cep_raw) >= 8 else None
+
+        if not logradouro:
+            return None
+
+        try:
+            lat = round(float(item.get("lat")), 6)
+            lng = round(float(item.get("lon")), 6)
+        except (TypeError, ValueError):
+            lat, lng = None, None
+
+        partes_label = [logradouro]
+        if bairro:
+            partes_label.append(bairro)
+        partes_label.append(CIDADE_PADRAO)
+
+        return {
+            "label": ", ".join(partes_label),
+            "logradouro": logradouro,
+            "bairro": bairro or None,
+            "cep": cep_fmt,
+            "latitude": lat,
+            "longitude": lng,
+        }
+
+    def _consultar_nominatim_lista(
+        self, query: str, *, limit: int = 8
+    ) -> list[dict[str, Any]]:
+        if self._nominatim_em_backoff():
+            return []
+
+        self._aguardar_intervalo_nominatim()
+
+        lon_min, lat_max, lon_max, lat_min = MOGI_VIEWBOX
+        params: dict[str, Any] = {
+            "q": query,
+            "format": "json",
+            "limit": limit,
+            "countrycodes": "br",
+            "addressdetails": 1,
+            "viewbox": f"{lon_min},{lat_max},{lon_max},{lat_min}",
+            "bounded": 1,
+        }
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "application/json",
+        }
+        try:
+            response = requests.get(
+                NOMINATIM_SEARCH_URL,
+                params=params,
+                headers=headers,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            logger.warning("Nominatim lista indisponível query=%s: %s", query[:120], exc)
+            return []
+
+        if response.status_code == 429:
+            self._registrar_backoff_429()
+            return []
+        if not response.ok:
+            return []
+
+        try:
+            resultados = response.json()
+        except ValueError:
+            return []
+        if not isinstance(resultados, list):
+            return []
+        return [r for r in resultados if isinstance(r, dict)]
 
     def _consultar_viacep(self, cep_limpo: str) -> dict[str, str] | None:
         now = time.monotonic()

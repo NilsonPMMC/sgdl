@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { useUserStore } from '@/stores/userStore';
+import { buildMultipartPayload } from '@/utils/protocoloFormData';
 
 // Puxa a URL do .env, mas se não existir, cai direto na de produção.
 const API_URL = import.meta.env.VITE_API_BASE_URL || 'https://sgdl.mogidascruzes.sp.gov.br/api/';
@@ -60,8 +61,12 @@ apiClient.interceptors.response.use(
 );
 
 export default {
-    getTokens(username, password, rememberMe = false) {
-        return apiClient.post('token/', { username, password, remember_me: rememberMe });
+    getTokens(username, password, rememberMe = false, portal = null) {
+        const payload = { username, password, remember_me: rememberMe };
+        if (portal) {
+            payload.portal = portal;
+        }
+        return apiClient.post('token/', payload);
     },
     getCurrentUser() {
         return apiClient.get('users/me/');
@@ -75,8 +80,25 @@ export default {
     getDemandaLocations(params = {}) {
         return apiClient.get('demandas/locations/', { params });
     },
+    getMapaAgregacao(params = {}) {
+        return apiClient.get('demandas/mapa/agregacao/', { params });
+    },
     getDemandas(params = {}) {
-        return apiClient.get('demandas/', { params });
+        return apiClient.get('demandas/', {
+            params,
+            paramsSerializer: {
+                indexes: null
+            }
+        });
+    },
+    acompanharDemanda(id, payload = {}) {
+        return apiClient.post(`demandas/${id}/acompanhar/`, payload);
+    },
+    desacompanharDemanda(id) {
+        return apiClient.post(`demandas/${id}/desacompanhar/`);
+    },
+    getDemandasResumoFilas() {
+        return apiClient.get('demandas/resumo-filas/');
     },
     getDemandaById(id) {
         return apiClient.get(`demandas/${id}/`);
@@ -185,11 +207,84 @@ export default {
     getCartaOtimizadaProblemasComuns() {
         return apiClient.get('carta-otimizada/problemas_comuns/');
     },
-    despacharDemanda(id, despachoData) {
-        return apiClient.post(`demandas/${id}/despachar/`, despachoData);
+    despacharDemanda(id, despachoData, arquivos = []) {
+        const { body } = buildMultipartPayload(despachoData, arquivos);
+        return apiClient.post(`demandas/${id}/despachar/`, body);
+    },
+    previewDespachoDemanda(id, payload) {
+        return apiClient.post(`demandas/${id}/preview-despacho/`, payload);
+    },
+    previewConclusaoSecretaria(demandaId, payload) {
+        return apiClient.post(`demandas/${demandaId}/preview-conclusao-secretaria/`, payload);
+    },
+    previewDespachoDevolutiva(demandaId, payload) {
+        return apiClient.post(`demandas/${demandaId}/preview-despacho-devolutiva/`, payload);
+    },
+    getEstadoOperacional(demandaId) {
+        return apiClient.get(`demandas/${demandaId}/operacional/estado/`);
+    },
+    getHistoricoTecnicoOperacional(demandaId) {
+        return apiClient.get(`demandas/${demandaId}/operacional/historico-tecnico/`);
+    },
+    vincularServicoOperacional(demandaId, sinapseServicoId) {
+        return apiClient.post(`demandas/${demandaId}/operacional/vincular-servico/`, {
+            sinapse_servico_id: sinapseServicoId
+        });
+    },
+    recusaProtocoloOperacional(demandaId, payload) {
+        return apiClient.post(`demandas/${demandaId}/operacional/recusa-protocolo/`, payload);
+    },
+    conclusaoParcialOperacional(demandaId, payload, arquivos = []) {
+        const { body } = buildMultipartPayload(payload, arquivos);
+        return apiClient.post(`demandas/${demandaId}/operacional/conclusao-parcial/`, body);
+    },
+    iniciarExecucaoOperacional(demandaId) {
+        return apiClient.post(`demandas/${demandaId}/operacional/iniciar-execucao/`);
+    },
+    abrirPernasTransversal(demandaId, payload) {
+        return apiClient.post(`demandas/${demandaId}/operacional/abrir-pernas-transversal/`, payload);
+    },
+    scatterGatherOperacional(demandaId, payload, multipart = false) {
+        const config = multipart ? { headers: { 'Content-Type': 'multipart/form-data' } } : {};
+        return apiClient.post(`demandas/${demandaId}/operacional/scatter-gather/`, payload, config);
+    },
+    nosUnificadosOperacional(demandaId, payload, multipart = false) {
+        const config = multipart ? { headers: { 'Content-Type': 'multipart/form-data' } } : {};
+        return apiClient.post(`demandas/${demandaId}/operacional/nos-unificados/`, payload, config);
+    },
+    conclusaoTecnicaOperacional(demandaId, payload) {
+        return apiClient.post(`demandas/${demandaId}/operacional/conclusao-tecnica/`, payload);
+    },
+    devolverProtocoloOperacional(demandaId, payload) {
+        return apiClient.post(`demandas/${demandaId}/operacional/devolver-protocolo/`, payload);
+    },
+    previewConclusaoFinalOperacional(demandaId, payload) {
+        return apiClient.post(`demandas/${demandaId}/operacional/preview-conclusao-final/`, payload);
+    },
+    conclusaoFinalOperacional(demandaId, payload, arquivos = []) {
+        const { body } = buildMultipartPayload(payload, arquivos);
+        return apiClient.post(`demandas/${demandaId}/operacional/conclusao-final/`, body);
+    },
+    getGestoresProtocolo() {
+        return apiClient.get('demandas/gestores-protocolo/');
+    },
+    listarAssinaturasValidacaoPendentes() {
+        return apiClient.get('assinaturas-validacao/pendentes/');
+    },
+    previewValidacaoAssinaturaGestor(validacaoId) {
+        return apiClient.post(`assinaturas-validacao/${validacaoId}/preview/`, {});
+    },
+    validarAssinaturaGestor(validacaoId, payload) {
+        return apiClient.post(`assinaturas-validacao/${validacaoId}/validar/`, payload);
     },
     createTramitacao(data) {
         return apiClient.post('tramitacoes/', data);
+    },
+    otimizarTextoTramitacao(payload) {
+        return apiClient.post('v1/tramitacao/otimizar-texto/', payload, { timeout: 60000 });
+    },
+    otimizarTextoTramitacao(payload) {
+        return apiClient.post('v1/tramitacao/otimizar-texto/', payload, { timeout: 60000 });
     },
     solicitarTransferencia(demandaId) {
         return apiClient.post(`demandas/${demandaId}/solicitar_transferencia/`);
@@ -262,9 +357,41 @@ export default {
     getReportDemandasList(params) {
         return apiClient.get('/reports/demandas-filtradas/', { params });
     },
+    getReportProcessMiningSetor(params) {
+        return apiClient.get('/reports/process-mining-setor/', { params });
+    },
+    getReportFunilStatus(params) {
+        return apiClient.get('/reports/funil-status/', { params });
+    },
+    getReportComparativoVereador(params) {
+        return apiClient.get('/reports/comparativo-vereador/', { params });
+    },
+    async exportReportCSV(params) {
+        const response = await apiClient.get('/reports/export-csv/', {
+            params,
+            responseType: 'blob'
+        });
+        const url = window.URL.createObjectURL(new Blob([response.data], { type: 'text/csv;charset=utf-8;' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', `relatorio_demandas_${new Date().toISOString().slice(0, 10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        return response;
+    },
     buscarCepGeocoding(cep) {
         const limpo = String(cep || '').replace(/\D/g, '');
         return apiClient.get('v1/geocoding/cep/', { params: { cep: limpo } });
+    },
+
+    buscarLogradouros(termo, bairro = null, limit = 8) {
+        const params = { q: termo, limit };
+        if (bairro) {
+            params.bairro = bairro;
+        }
+        return apiClient.get('v1/geocoding/logradouros/', { params });
     },
 
     resolverGeocodingEndereco(payload) {
@@ -322,9 +449,41 @@ export default {
         });
     },
 
-    /** Rascunho fora da carta Sinapse (braço tendências). */
     confirmarTendenciaCopiloto(payload) {
         return apiClient.post('v1/chat/confirmar-tendencia/', payload);
+    },
+
+    revisarEtapaCopiloto({ session_id, indice_demanda, etapa }) {
+        return apiClient.post('v1/chat/revisar-etapa/', {
+            session_id,
+            indice_demanda,
+            etapa
+        });
+    },
+
+    editarPedidoCopiloto({ session_id, indice_demanda, titulo, descricao, pedido_integral }) {
+        return apiClient.post('v1/chat/editar-pedido/', {
+            session_id,
+            indice_demanda,
+            titulo,
+            descricao,
+            pedido_integral
+        });
+    },
+
+    editarLocalCopiloto({ session_id, indice_demanda, endereco }) {
+        return apiClient.post('v1/chat/editar-local/', {
+            session_id,
+            indice_demanda,
+            endereco
+        });
+    },
+
+    removerAnexoSessaoCopiloto({ session_id, indice_sessao }) {
+        return apiClient.post('v1/chat/remover-anexo-sessao/', {
+            session_id,
+            indice_sessao
+        });
     },
 
     buscarTendenciasSimilares({ texto, limite = 5 }) {
@@ -381,6 +540,18 @@ export default {
 
     getDemandaClusterElegibilidade(demandaId) {
         return apiClient.get(`demandas/${demandaId}/cluster-elegibilidade/`);
+    },
+
+    getClusterSituacaoAderencia(demandaId) {
+        return apiClient.get(`demandas/${demandaId}/cluster-situacao-aderencia/`);
+    },
+
+    aderirClusterLider(demandaId) {
+        return apiClient.post(`demandas/${demandaId}/cluster-aderir-lider/`);
+    },
+
+    desvincularDemandaClusterIndividual(demandaId) {
+        return apiClient.post(`demandas/${demandaId}/cluster-desvincular/`);
     },
 
     listarFluxoServicosCarta(params = {}) {
@@ -443,6 +614,18 @@ export default {
         return apiClient.post(`unidades-administrativas/${unidadeId}/responsaveis/`, payload);
     },
 
+    desvincularResponsavelSetor(unidadeId, payload) {
+        return apiClient.post(`unidades-administrativas/${unidadeId}/desvincular-responsavel/`, payload);
+    },
+
+    getVinculosSetor(unidadeId) {
+        return apiClient.get(`unidades-administrativas/${unidadeId}/vinculos/`);
+    },
+
+    excluirUnidadeAdministrativa(unidadeId, payload = {}) {
+        return apiClient.post(`unidades-administrativas/${unidadeId}/excluir/`, payload);
+    },
+
     listarGestaoUsuarios(params = {}) {
         return apiClient.get('gestao-usuarios/', { params });
     },
@@ -487,8 +670,13 @@ export default {
         return apiClient.post(`demandas/${demandaId}/solicitar-devolutiva/`, payload);
     },
 
-    despacharDevolutiva(demandaId, payload) {
-        return apiClient.post(`demandas/${demandaId}/despachar-devolutiva/`, payload);
+    listEstudosViabilidade(params = {}) {
+        return apiClient.get('estudos-viabilidade/', { params });
+    },
+
+    despacharDevolutiva(demandaId, payload, arquivos = []) {
+        const { body } = buildMultipartPayload(payload, arquivos);
+        return apiClient.post(`demandas/${demandaId}/despachar-devolutiva/`, body);
     },
 
     encerrarDevolutiva(demandaId) {
@@ -497,6 +685,14 @@ export default {
 
     getPacoteDevolutiva(demandaId) {
         return apiClient.get(`demandas/${demandaId}/pacote-devolutiva/`);
+    },
+
+    getAnexosOperacionais(demandaId) {
+        return apiClient.get(`demandas/${demandaId}/anexos-operacionais/`);
+    },
+
+    getAnexosOperacionais(demandaId) {
+        return apiClient.get(`demandas/${demandaId}/anexos-operacionais/`);
     },
 
     previewRespostaCidadao(demandaId, texto = '') {
@@ -552,6 +748,16 @@ export default {
         return apiClient.post('v1/copiloto-faq/enriquecer-llm/', payload);
     },
 
+    /** Atalhos de pedidos frequentes (corpus legado — aprendizado). */
+    corpusLegadoAtalhosCopiloto(limite = 12) {
+        return apiClient.get('v1/corpus-legado/atalhos-copiloto/', { params: { limite } });
+    },
+
+    /** Detalhamento de pedido frequente — opções na carta Sinapse. */
+    corpusLegadoAtalhoDetalhe(eixoId) {
+        return apiClient.get('v1/corpus-legado/atalho-detalhe/', { params: { id: eixoId } });
+    },
+
     interagirCopiloto(payload) {
         const anexos = payload.anexos;
         if (anexos && anexos.length > 0) {
@@ -562,6 +768,12 @@ export default {
             }
             if (payload.indices_aprovados?.length) {
                 formData.append('indices_aprovados', payload.indices_aprovados.join(','));
+            }
+            if (payload.corpus_sinapse_servico_id != null) {
+                formData.append('corpus_sinapse_servico_id', String(payload.corpus_sinapse_servico_id));
+            }
+            if (payload.corpus_atalho_id) {
+                formData.append('corpus_atalho_id', payload.corpus_atalho_id);
             }
             for (const arquivo of anexos) {
                 formData.append('anexos', arquivo);
@@ -583,6 +795,12 @@ export default {
         }
         if (payload.indices_aprovados?.length) {
             body.indices_aprovados = payload.indices_aprovados.join(',');
+        }
+        if (payload.corpus_sinapse_servico_id != null) {
+            body.corpus_sinapse_servico_id = payload.corpus_sinapse_servico_id;
+        }
+        if (payload.corpus_atalho_id) {
+            body.corpus_atalho_id = payload.corpus_atalho_id;
         }
         return apiClient.post('v1/chat/interagir/', body);
     }

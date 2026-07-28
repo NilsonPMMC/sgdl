@@ -8,7 +8,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import Demanda, Notificacao, Usuario
+from .models import Demanda, Usuario
 from .services.cluster_service import (
     DEMANDA_STATUS_ELEGIVEIS,
     ClusterService,
@@ -134,7 +134,11 @@ def _aplicar_embedding_demanda_async(demanda_pk: int) -> None:
     update_fields.append("ia_processado")
     demanda.save(update_fields=update_fields)
 
-    if demanda.embedding is not None:
+    demanda.refresh_from_db(fields=["status", "sinapse_servico_id", "embedding"])
+    if demanda.embedding is not None and demanda.status not in (
+        "RASCUNHO",
+        "CANCELADO",
+    ):
         try:
             ClusterService().atribuir_demanda_pk(int(demanda.pk))
         except Exception as exc:  # noqa: BLE001
@@ -144,7 +148,6 @@ def _aplicar_embedding_demanda_async(demanda_pk: int) -> None:
         try:
             from core.services.fluxo_protocolo_service import FluxoProtocoloService
 
-            demanda.refresh_from_db(fields=["sinapse_servico_id", "status"])
             if demanda.sinapse_servico_id and demanda.status == "AGUARDANDO_PROTOCOLO":
                 FluxoProtocoloService().processar_cohorte_servico(
                     int(demanda.sinapse_servico_id)
@@ -223,11 +226,32 @@ def demanda_fluxo_automatico_pos_save(sender, instance, created, **kwargs):
 
 
 @receiver(post_save, sender=Demanda)
+def demanda_rascunho_limpa_cluster(sender, instance, **kwargs):
+    """Garante desvinculação mesmo em save(update_fields=[...])."""
+    if instance.status != "RASCUNHO":
+        return
+    cluster_id = (
+        instance.cluster_id
+        or Demanda.objects.filter(pk=instance.pk).values_list("cluster_id", flat=True).first()
+    )
+    if not cluster_id:
+        return
+    Demanda.objects.filter(pk=instance.pk).update(cluster=None)
+    try:
+        ClusterService()._dissolver_cluster_insuficiente(int(cluster_id))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Falha ao reavaliar cluster pk=%s após rascunho pk=%s: %s",
+            cluster_id,
+            instance.pk,
+            exc,
+        )
+
+
+@receiver(post_save, sender=Demanda)
 def demanda_cluster_pos_save(sender, instance, created, **kwargs):
     """Agrupa demandas elegíveis após mudança de status; reavalia fechamento do cluster."""
     if not getattr(instance, "pk", None):
-        return
-    if not embedding_presente(instance.embedding):
         return
 
     status_antigo = getattr(instance, "_status_antigo", None)
@@ -251,6 +275,11 @@ def demanda_cluster_pos_save(sender, instance, created, **kwargs):
             svc.reavaliar_fechamento_cluster(cluster_id)
 
         transaction.on_commit(_pos_cluster)
+
+    if not embedding_presente(instance.embedding):
+        return
+
+    if instance.cluster_id:
         return
 
     if instance.status not in DEMANDA_STATUS_ELEGIVEIS:
@@ -299,6 +328,9 @@ def atualizar_dados_demanda_on_status_change(sender, instance, **kwargs):
     if status_antigo != instance.status or not instance.data_entrada_etapa:
         instance.data_entrada_etapa = timezone.now()
 
+    if instance.status == "RASCUNHO":
+        instance.cluster = None
+
 
 @receiver(post_save, sender=Demanda)
 def notificar_eventos_demanda(sender, instance, created, **kwargs):
@@ -306,8 +338,10 @@ def notificar_eventos_demanda(sender, instance, created, **kwargs):
     Este sinal é executado DEPOIS de salvar.
     Usamos ele apenas para ENVIAR NOTIFICAÇÕES.
     """
-    link_correto = f'/demandas/detalhes/{instance.id}'
-    status_antigo = getattr(instance, '_status_antigo', None)  # Pega o status_antigo que o pre_save guardou
+    from core.services.notificacao_service import NotificacaoService
+
+    svc = NotificacaoService()
+    status_antigo = getattr(instance, '_status_antigo', None)
 
     # 1. FLUXO DE CRIAÇÃO (Rascunho)
     # Não faz nada, pois o 'envio' é uma atualização de status.
@@ -319,117 +353,42 @@ def notificar_eventos_demanda(sender, instance, created, **kwargs):
         return
 
     # --- SÓ EXECUTAMOS NOTIFICAÇÕES SE O STATUS MUDOU ---
-    # 1. NOVO OFÍCIO: Vereador envia para o Protocolo (Status muda para AGUARDANDO_PROTOCOLO)
+    # 1. NOVO OFÍCIO: Vereador envia para o Protocolo
     if instance.status == 'AGUARDANDO_PROTOCOLO':
         from core.services.fluxo_protocolo_service import FluxoProtocoloService
 
         if FluxoProtocoloService().despacho_automatico_habilitado(instance):
             return
 
-        usuarios_protocolo = Usuario.objects.filter(perfil='PROTOCOLO')
-        if not usuarios_protocolo.exists():
-            logger.warning("Nenhum usuário com perfil PROTOCOLO para notificação.")
-            return
+        svc.notificar_oficio_enviado(instance)
 
-        for usuario in usuarios_protocolo:
-            Notificacao.objects.create(
-                destinatario=usuario,
-                mensagem=f'Novo ofício nº {instance.protocolo_legislativo} aguardando protocolo.',
-                link=link_correto,
-                tipo='NOVO_OFICIO'
-            )
-
-    # 2. OFÍCIO PROTOCOLADO: Protocolo despacha para Secretaria
+    # 2. OFÍCIO PROTOCOLADO: despacho inicial → vereador + setores envolvidos
     elif instance.status == 'PROTOCOLADO':
-        # Notifica o vereador autor
-        Notificacao.objects.create(
-            destinatario=instance.autor,
-            mensagem=f'Seu ofício nº {instance.protocolo_legislativo} foi protocolado (nº {instance.protocolo_executivo}) e despachado.',
-            link=link_correto,
-            tipo='DESPACHO'
-        )
-        # Notifica os usuários da secretaria de destino
-        for usuario_secretaria in Usuario.objects.filter(
-            perfil='SECRETARIA',
-            sinapse_orgao_id=instance.sinapse_orgao_id,
-        ):
-            Notificacao.objects.create(
-                destinatario=usuario_secretaria,
-                mensagem=f'Nova demanda (protocolo nº {instance.protocolo_executivo}) foi enviada para sua secretaria.',
-                link=link_correto,
-                tipo='DESPACHO'
+        from integrations import sinapse_catalog
+
+        orgao_nome = ""
+        if instance.sinapse_orgao_id:
+            orgao_nome = (
+                sinapse_catalog.get_orgao_nome(int(instance.sinapse_orgao_id))
+                or str(instance.sinapse_orgao_id)
             )
+        if not getattr(instance, "_notificacao_super_os_lote", False):
+            svc.notificar_despacho_inicial(instance, orgao_nome=orgao_nome)
+        svc.notificar_despacho_inicial_setores(instance)
 
-    # 3. DEMANDA INICIADA: Secretaria inicia a execução
-    elif instance.status == 'EM_EXECUCAO':
-        usuarios_protocolo = Usuario.objects.filter(perfil='PROTOCOLO')
-        Notificacao.objects.create(
-            destinatario=instance.autor,
-            mensagem=f'A execução da sua demanda (protocolo nº {instance.protocolo_executivo}) foi iniciada.',
-            link=link_correto,
-            tipo='ATUALIZACAO'
-        )
-        for usuario in usuarios_protocolo:
-            Notificacao.objects.create(
-                destinatario=usuario,
-                mensagem=f'A demanda nº {instance.protocolo_executivo} teve sua execução iniciada.',
-                link=link_correto,
-                tipo='ATUALIZACAO'
-            )
+    # 3–6: demais transições não disparam notificação automática nesta matriz
+    # (vereador só recebe conclusão em FINALIZADO; protocolo via gather/SLA/cluster)
 
-    # 4. SOLICITAÇÃO DE TRANSFERÊNCIA: Secretaria devolve para o Protocolo
-    elif instance.status == 'AGUARDANDO_TRANSFERENCIA':
-        usuarios_protocolo = Usuario.objects.filter(perfil='PROTOCOLO')
-        for usuario in usuarios_protocolo:
-            Notificacao.objects.create(
-                destinatario=usuario,
-                mensagem=f'Transferência solicitada para a demanda nº {instance.protocolo_executivo}.',
-                link=link_correto,
-                tipo='TRANSFERENCIA'
-            )
-
-    # 5. DEVOLUTIVA SOLICITADA: Secretaria conclui operação → Protocolo
-    elif instance.status == 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO':
-        usuarios_protocolo = Usuario.objects.filter(perfil='PROTOCOLO')
-        for usuario in usuarios_protocolo:
-            Notificacao.objects.create(
-                destinatario=usuario,
-                mensagem=(
-                    f'Devolutiva pendente: demanda nº {instance.protocolo_executivo} '
-                    f'aguarda despacho ao vereador.'
-                ),
-                link=link_correto,
-                tipo='DEVOLUTIVA',
-            )
-
-    # 6. DEVOLUTIVA AO VEREADOR: Protocolo despacha resposta
-    elif instance.status == 'DEVOLVIDO_VEREADOR':
-        Notificacao.objects.create(
-            destinatario=instance.autor,
-            mensagem=(
-                f'O Protocolo encaminhou a devolutiva da demanda '
-                f'nº {instance.protocolo_executivo}. Revise e encerre quando cabível.'
-            ),
-            link=link_correto,
-            tipo='DEVOLUTIVA',
-        )
-
-    # 7. DEMANDA CONCLUÍDA: encerramento após devolutiva
     elif instance.status == 'FINALIZADO':
-        usuarios_protocolo = Usuario.objects.filter(perfil='PROTOCOLO')
-        Notificacao.objects.create(
-            destinatario=instance.autor,
-            mensagem=f'A sua demanda (protocolo nº {instance.protocolo_executivo}) foi concluída.',
-            link=link_correto,
-            tipo='CONCLUSAO'
-        )
-        for usuario in usuarios_protocolo:
-            Notificacao.objects.create(
-                destinatario=usuario,
-                mensagem=f'A demanda nº {instance.protocolo_executivo} foi marcada como concluída.',
-                link=link_correto,
-                tipo='CONCLUSAO'
-            )
+        svc.notificar_conclusao_final(instance)
+        from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
+
+        AcompanhamentoDemandaService().encerrar_acompanhamentos_demanda(instance)
+
+    elif instance.status == 'DEVOLVIDO_VEREADOR':
+        from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
+
+        AcompanhamentoDemandaService().encerrar_acompanhamentos_demanda(instance)
 
 
 @receiver(post_save, sender=Usuario)

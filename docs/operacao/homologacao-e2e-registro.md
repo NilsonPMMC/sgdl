@@ -5,6 +5,30 @@
 
 ---
 
+## Validação remota A1–A5 (2026-06-10)
+
+Testes executados por operadores em **homologação** (`https://sgdl.mogidascruzes.sp.gov.br`).
+
+| ID | Entrega | Resultado | Observação |
+|----|---------|-----------|------------|
+| **A1** | Copiloto calibrado com FAQ | **OK** | Recusas alinhadas ao banco FAQ (energia, água, prisão/furto → orientação, sem tendência indevida) |
+| **A2** | Visibilidade Vereador (P8) | **OK** | Timeline sem tramitações operacionais; marcos e conclusão visíveis |
+| **A3** | Assinatura chefia UA na conclusão (Secretaria) | **OK** | Diálogo de assinatura na conclusão operacional |
+| **A4** | Assinaturas despacho Protocolo (inicial + devolutiva + gestor) | **OK** | Cadeia operador + gestor nos despachos |
+| **A5** | RBAC Secretaria (isolamento órgão/UA) | **OK** | Secretaria vê apenas processos do próprio órgão/setor |
+
+**Gate piloto (2ª quinzena jun/2026):** **GO** (condicional — Onda B em andamento)
+
+**Rodada pós-GO (2026-06-13):** 9 novos apontamentos (H2-09…H2-17) — ver [piloto-apontamentos-jun2026.md](piloto-apontamentos-jun2026.md).
+
+**Próximos passos operacionais:**
+1. Executar **Onda B** (B1–B9) — prioridade B4, B5, B7, B8
+2. Smoke E2E ponta a ponta após entregas P0/P1
+3. Treinamento dos 2 gabinetes parceiros + operadores Protocolo/Secretaria
+4. Backup pré-piloto (tar + sha256) conforme [homologacao-go-live.md](homologacao-go-live.md)
+
+---
+
 ## Execução automatizada (2026-06-11)
 
 Comando:
@@ -49,7 +73,77 @@ Usuários de teste:
 | H2-02 | validar_e2e_homologacao · VEREADOR · envio exige `sinapse_servico_id` · falha sem `--servico 80` · documentado no comando · **cosmético** | cosmético |
 | H2-03 | DemandasView · SECRETARIA · fila `minha_unidade` indisponível sem setor · esperado bloqueio · confirmado regra U3 · **ok** | — |
 
-Itens **bloqueantes:** nenhum na rodada backend.
+### Rodada H3 — Gestão de usuários U5 (jun/2026)
+
+| # | Registro | Status |
+|---|----------|--------|
+| **H3-14** | GestaoUsuariosView · senha alterada sem intenção ao editar · checkbox «Alterar senha» + backend | **OK** |
+| **H3-15** | GestaoUsuariosView · busca «admin» após editar (autofill) · anti-autofill + restauração | **OK** |
+| **U5-UX** | GestaoUsuariosView · vínculos UA invisíveis no form · resumo + MultiSelect com labels | **OK** |
+| **H3-16/28** | Gestor **Geral** vs **Setorial** · especificado em [modulo-usuarios-perfis.md §2.4](../especificacoes/modulo-usuarios-perfis.md) · RBAC **U7 pendente** | backlog |
+
+### Rodada pós-GO — 2026-06-13 (Vereador + Protocolo)
+
+Detalhe completo: [piloto-apontamentos-jun2026.md](piloto-apontamentos-jun2026.md)
+
+| # | Registro | Severidade | Backlog |
+|---|----------|------------|---------|
+| **H2-09** | CopilotoView / DemandaForm · **VEREADOR** · busca identifica logradouros de MC · usuário **não localiza** endereços · **incômodo** | incômodo | **B1** |
+| **H2-10** | Preview ofício rascunho · **VEREADOR** · data uma vez no documento · data **repetida** início e fim · **incômodo** | incômodo | **B2** |
+| **H2-11** | Upload anexos · **VEREADOR** · restringir mesmo nome · permite duplicata · **incômodo** | incômodo | **B3** |
+| **H2-12** | Timeline · **VEREADOR** · marcos com **secretaria/setor** (P8 refinado) · tudo como «Prefeitura» · **incômodo** (refino A2) | incômodo | **B4** |
+| **H2-13** | Despacho · **PROTOCOLO** · encaminhar a **N secretarias** simultaneamente · apenas um destino · **melhoria** (aplicar) | melhoria | **B5** |
+| **H2-14** | Assinatura despacho · **PROTOCOLO** · exibir **cargo** (chefe seção, auxiliar…) · rótulo genérico gestor · **melhoria** | melhoria | **B6** |
+| **H2-15** | Pós-despacho · **PROTOCOLO** · confirmar **despacho assinado** visível · difícil localizar status · **melhoria** | melhoria | **B7** |
+| **H2-16** | Despacho/devolutiva · **PROTOCOLO** · **juntar anexos** · sem upload em despachos/respostas · **melhoria** | melhoria | **B8** |
+| **H2-17** | Timeline · **PROTOCOLO/SECRETARIA** · textos formatados (parágrafos) · texto corrido · **cosmético** | cosmético | **B9** |
+
+Itens **bloqueantes:** nenhum na rodada backend automatizada (2026-06-11).
+
+---
+
+## Reunião de trabalho — 2026-06-11 (operadores)
+
+**Participação:** operadores (Vereador, Protocolo, Secretaria, Gestão).  
+**Acordado:** **+1 semana** de ajustes + **testes remotos** na aplicação antes do piloto (2ª quinzena jun/2026).  
+**Briefing:** [reuniao-trabalho-jun2026.md](reuniao-trabalho-jun2026.md)
+
+### Achados H2 (reunião)
+
+| # | Registro | Severidade | Backlog |
+|---|----------|------------|---------|
+| **H2-04** | CopilotoView · VEREADOR/GESTOR · respostas/orientações alinhadas à **FAQ Copiloto** cadastrada · respostas genéricas ou desalinhadas ao banco FAQ · **incômodo** (qualidade piloto) | incômodo | **A1 — OK (2026-06-10)** |
+| **H2-05** | DemandaDetailView / timeline · **VEREADOR** · ver só marcos relevantes e conclusão (regra **P8** documentada) · vereador vê **todo o processo** operacional · **bloqueante** | bloqueante | **A2 — OK (2026-06-10)** |
+| **H2-06** | Conclusão do processo · **SECRETARIA** (chefia órgão/setor) · assinatura eletrônica na **conclusão** / encaminhamento devolutiva · hoje só tramitação sem assinatura do responsável · **bloqueante** (piloto) | bloqueante | **A3 — OK (2026-06-10)** |
+| **H2-07** | Despacho Protocolo · **PROTOCOLO** · assinatura eletrônica no **despacho inicial** (protocolar) e no **despacho final** (devolutiva ao vereador), com assinatura do **gestor do protocolo** (secretário do órgão) · hoje despacho sem cadeia de assinatura · **bloqueante** (piloto) | bloqueante | **A4 — OK (2026-06-10)** |
+| **H2-08** | DemandasView / listagens · **SECRETARIA** · ver **apenas** processos do **próprio órgão/setor** (regra U3/RBAC) · usuários de uma secretaria vendo processos de **todas** as secretarias · **bloqueante** | bloqueante | **A5 — OK (2026-06-10)** |
+
+**Resumo reunião:** 4 **bloqueantes** (H2-05, H2-06, H2-07, H2-08) + 1 **incômodo** (H2-04) — **todos resolvidos e validados em homologação (2026-06-10).**
+
+**Gate piloto (2ª quinzena jun/2026):** **GO**
+
+### Plano de trabalho (semana pós-reunião)
+
+| Prioridade | Item | Ação |
+|------------|------|------|
+| **P0** | A5 — isolamento Secretaria | **OK (2026-06-10)** |
+| **P0** | A2 — visibilidade Vereador | **OK (2026-06-10)** |
+| **P1** | A4 — assinatura Protocolo | **OK (2026-06-10)** |
+| **P1** | A3 — assinatura chefia setor (Órgão/Secretaria) | **OK (2026-06-10)** |
+| **P2** | A1 — Copiloto × FAQ | **OK (2026-06-10)** |
+| — | Piloto operacional | Iniciar 2ª quinzena jun/2026 — 2 gabinetes + Protocolo + Gestão |
+
+### Encerramento dev — 2026-06-12
+
+| Entrega | Resultado |
+|---------|-----------|
+| A5 RBAC Secretaria | Código em dev — pendente smoke com 2 secretarias |
+| A2 visibilidade Vereador | Código em dev — pendente smoke demanda real |
+| A4 assinaturas Protocolo | UI detalhe + lista; `AssinaturaPendingAcao` (mig. `0063`); fix serializer `assinaturas` |
+| **A3 Secretaria** | **[~] Implementado em dev** — diálogo assinatura conclusão + testes API |
+| A1 Copiloto × FAQ | Não iniciado |
+
+**Deploy homologação pendente:** `python manage.py migrate core 0063` · `npm run build` · restart Gunicorn.
 
 ---
 
@@ -119,4 +213,6 @@ DJANGO_SETTINGS_MODULE=config.settings_test python manage.py test \
 
 ---
 
-**Próximo passo:** rodada visual no browser com operadores — roteiro passo a passo: [roteiro-e2e-browser-operadores.md](roteiro-e2e-browser-operadores.md). Referência de encerramento: demanda **2966**.
+**Próximo passo:** **Onda B** (B1–B9) — ver [piloto-apontamentos-jun2026.md](piloto-apontamentos-jun2026.md). Piloto operacional 2ª quinzena jun/2026.
+
+**Última atualização:** 2026-06-13 — H2-09…H2-17 registrados; gate **GO condicional**.

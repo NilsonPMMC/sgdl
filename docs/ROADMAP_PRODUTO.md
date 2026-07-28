@@ -30,6 +30,7 @@ Três trilhas na ingestão (Copiloto) e dois caminhos estratégicos pós-ingest�
 | Trilha / Caminho | Quando | Destino |
 |------------------|--------|---------|
 | **A — Fast-Track Carta** | Match Sinapse confirmado | Serviço + órgão definidos → ofício → protocolo |
+| **A′ — Ouvidoria** | Teor de denúncia, reclamação, sugestão ou elogio (Groq) | Serviço **Ouvidoria** + subtipo → ofício → protocolo |
 | **B — Malha fina (Tendências)** | Municipal, fora da carta | `Tendencia` + gestão Protocolo → promover à carta |
 | **Recusa** | Fora de competência municipal | FAQ + encerramento sem ofício |
 
@@ -72,6 +73,7 @@ A IA deixa de ser só chat quando houver: Explorer da Carta, KPIs de trilha, clu
 - [x] Bloqueio determinístico `fora_competencia` + heurística de score.
 - [x] Classificador LLM (`competencia_municipal`, `motivo_recusa`, FAQ).
 - [x] FAQ banco + Admin + API + `enriquecer_faq_llm`.
+- [x] **Calibrar Copiloto com FAQ** — respostas alinhadas ao banco `CopilotoFAQ` (**A1**, reunião 2026-06-11): prompt com FAQ completa, pré-classificação regex, mensagens de recusa calibradas. **Validado homologação 2026-06-10.**
 - [ ] Agendar enriquecimento FAQ em cron/Celery + revisão humana em massa.
 
 ### 2.3 Automação de SLA
@@ -102,6 +104,19 @@ A IA deixa de ser só chat quando houver: Explorer da Carta, KPIs de trilha, clu
 - [ ] Campo persistido `ia_sugestoes_sinapse` (ou equivalente) para auditoria pré-protocolo.
 - **Evidência:** `manage.py test core.tests.test_dashboard_trilhas --settings=config.settings_test`.
 
+### 2.7 Serviço «Ouvidoria» (Groq + triagem)
+
+> Pedidos com teor de **Denúncia**, **Reclamação**, **Sugestão** ou **Elogio** devem ser tratados como o serviço **Ouvidoria**, independentemente da redação livre do cidadão.
+
+- [~] **Cadastro do serviço Ouvidoria** na carta Sinapse / catálogo SGDL (órgão destino, SLA, fluxo protocolo).
+  Serviço Sinapse **#13** «Atendimento ao Cidadão (Ouvidoria)» — `COPILOTO_OUVIDORIA_SINAPSE_SERVICO_ID`.
+- [~] **Classificador Groq** — detectar subtipo (denúncia · reclamação · sugestão · elogio) e forçar vínculo ao serviço Ouvidoria quando o teor corresponder.
+  Campos JSON `teor_ouvidoria` / `subtipo_ouvidoria` + heurística em `copiloto_ouvidoria.py`.
+- [~] **Regras de triagem** — prioridade sobre match semântico genérico; trilha auditável (motivo + subtipo sugerido) no Copiloto antes do protocolo.
+- [~] **FAQ / orientação Copiloto** — respostas institucionais por subtipo (ex.: elogio vs denúncia anônima).
+- [~] **Evidência de prova** — casos de teste + amostra em `simular-triagem` com textos típicos de ouvidoria.
+  `core.tests.test_copiloto_ouvidoria`; validar em homologação com textos reais.
+
 ---
 
 ## Fase 3: Governança Digital e Assinatura
@@ -125,6 +140,16 @@ A IA deixa de ser só chat quando houver: Explorer da Carta, KPIs de trilha, clu
 - [x] **Hash SHA-256** — model `AssinaturaEletronica` (migração `0045`): `hash_documento`, `hash_assinatura`, IP, user-agent.
 - [x] **Validação pública** — `GET /api/v1/validar-assinatura/<codigo>/` + QR (`?format=qr`) + página `/validar-assinatura/:codigo`.
 - [x] **Assinatura em lote no Vue** — seleção de N rascunhos + `POST /api/demandas/enviar-lote/`; envio unitário mantido.
+
+### 3.3b Assinaturas em cadeia — Protocolo e Secretaria (pós-reunião 2026-06-11)
+
+> Exigência do piloto: além da assinatura do vereador no envio oficial (3.3), assinar despachos e conclusões operacionais.
+
+- [x] **A4 — Despacho Protocolo (inicial)** — dupla assinatura (operador + gestor); UI em detalhe e lista; prévia no banco (`AssinaturaPendingAcao`, mig. `0063`). **Validado homologação 2026-06-10.**
+- [x] **A4 — Despacho Protocolo (final)** — `preview-despacho-devolutiva` + `despachar-devolutiva` com gestor. **Validado homologação 2026-06-10.**
+- [x] **A3 — Conclusão Secretaria (Órgão/Secretaria)** — diálogo em `DemandaDetailView` com prévia, checkbox «ASSINO A CONCLUSAO OPERACIONAL» e confirmação em duas etapas. **Validado homologação 2026-06-10.**
+- [x] Trilha auditável unificada (`AssinaturaEletronica`) por etapa e perfil — envio oficial, Protocolo e Secretaria validados (A3/A4).
+- **Ref. reunião:** [operacao/reuniao-trabalho-jun2026.md](operacao/reuniao-trabalho-jun2026.md) · H2-06, H2-07 · encerramento 2026-06-12 em [homologacao-e2e-registro.md](operacao/homologacao-e2e-registro.md)
 
 ### 3.3 Envio oficial do ofício assinado (perfil Vereador)
 
@@ -189,8 +214,34 @@ A IA deixa de ser só chat quando houver: Explorer da Carta, KPIs de trilha, clu
 
 ### 4.2 Indicadores e mapa (não confundir com Tendencia operacional)
 
-- [ ] **Análise espacial/sazonal** — agregação `bairro × categoria × mês` (`MapaCalorView` evolui).
+- [~] **Análise espacial/sazonal** — agregação `bairro × categoria × mês` (`MapaCalorView` evolui; E3 parcial).
+- [~] **Relatórios gerenciais** — SLA, process mining por setor, funil, comparativo vereador, export CSV (`RelatoriosView`; perfil Gestor).
 - [ ] **Dashboard IA** — cobertura embedding, clusters abertos, baixa confiança Sinapse.
+
+### 4.2b Escala de dados — paginação server-side
+
+> O SGDL deve absorver **grande volume de demandas em curto intervalo** (piloto 23 gabinetes + picos de protocolo). Tabelas que carregam o dataset inteiro no browser não escalam.
+
+- [~] **Relatórios** — tabela de demandas filtradas com paginação no servidor (`ReportDemandaPagination`, lazy DataTable).
+- [ ] **Padronizar lazy + API paginada** em todas as DataTables críticas: `DemandasView`, `CartaExplorerView` (consulta/otimização), `TendenciasGestaoView`, `ClustersView`, filas Protocolo/Secretaria.
+- [ ] **Contrato API único** — `page`, `page_size`, `count`, `results`; export CSV/streaming para relatórios completos sem paginar no cliente.
+- [ ] **Metas de performance** — tempo de resposta alvo por página (<500 ms p95) com índices e `select_related`/`prefetch` revisados.
+
+### 4.2c Copiloto para gestão operacional (exploração)
+
+> Além da ingestão legislativa (vereador), discutir uso do **Copiloto** como assistente de **gestão operacional** no SGDL — modo assistivo, sempre com validação humana.
+
+**Possibilidades a avaliar em workshop produto + operação:**
+
+- Consultas em linguagem natural sobre filas, SLA e gargalos («quantas atrasadas no setor X?»).
+- Sugestão de despacho / encaminhamento com base em carta + setor + carga atual.
+- Resumo de cluster Super OS e recomendação de ação (despachar, vincular, escalar).
+- Alertas proativos (atraso iminente, devolutiva pendente, tendência emergente).
+- Integração com relatórios e mapa («mostrar no mapa», «exportar recorte»).
+
+- [ ] **Documento de escopo** — perfis elegíveis (Gestor, Protocolo, Secretaria), limites de automação e trilha de auditoria.
+- [ ] **POC técnica** — endpoint ou extensão do chat Copiloto com tools read-only sobre APIs existentes (KPIs, filas, clusters).
+- [ ] **Critério de pronto** — resposta sempre citando fonte (demanda/protocolo/setor); nenhuma mutação sem confirmação explícita.
 
 ### 4.4 Unidade administrativa (setor) e tramitação transversal
 
@@ -205,9 +256,19 @@ A IA deixa de ser só chat quando houver: Explorer da Carta, KPIs de trilha, clu
 - [x] **Import RM271698** — 1 120 unidades (C6); de-para RM ↔ Sinapse.
 - [x] **U2 — Vínculo Protocolo** — `sinapse_orgao_id=12` + responsável UA SGAC na criação (`post_save`) e comando `aplicar_vinculo_protocolo`.
 - [x] **U3 — Gestão Secretaria** — API + UI criar/editar usuário com órgão + setor(es); aviso global e bloqueio fila «Meu setor».
-- [x] **U4 — Gestor** — `is_staff`/`is_superuser` automático; API/UI gestão gestores; referência org/UA opcional.
+- [x] **U4 — Gestor** — cadastro com subtipos **Geral** (sem vínculo) e **Setorial** (órgão/setor); `is_staff`/`is_superuser` para Geral — ver [modulo-usuarios-perfis.md §2.4](especificacoes/modulo-usuarios-perfis.md).
 - [x] **U5 — Gestão de usuários** — hub `/gestao-usuarios` (todos os perfis; Protocolo sem gestores).
+- [x] **U5.1 — UX hub U5** — H3-14/15 (senha, busca) + exibição vínculos UA no formulário (jun/2026).
+- [ ] **U7 — Gestor Geral vs Setorial (RBAC)** — filtro de dados e restrição admin para Setorial (H3-16/H3-28, Onda C).
 - **Dependências:** 4.0 (painéis e fluxo); influencia 4.1b (cluster por serviço+local) e Fase 6 (devolutiva).
+
+### 4.6 RBAC e visibilidade por perfil (revisão pós-reunião)
+
+- [x] **A5 — CRÍTICO:** Secretaria vê **somente** demandas do próprio `sinapse_orgao_id` / UA — `aplicar_escopo_demanda` em listagens, dashboard, mapa, relatórios, API. **Validado homologação 2026-06-10.**
+- [x] **A2 — P8:** Vereador **não** vê tramitações operacionais; marcos + conclusão; texto institucional; pacote devolutiva só após Protocolo. **Validado homologação 2026-06-10.**
+- [ ] **A2.1 / B4 — Refino timeline:** marcos visíveis devem identificar **secretaria e setor** (não rótulo genérico «Prefeitura»). Ver [piloto-apontamentos-jun2026.md](operacao/piloto-apontamentos-jun2026.md).
+- [x] Testes automatizados por perfil reforçados (`test_tramitacao_visibilidade_vereador`, `test_demanda_escopo_secretaria`).
+- **Ref. reunião:** H2-05, H2-08 em [homologacao-e2e-registro.md](operacao/homologacao-e2e-registro.md)
 
 ### 4.5 Ciclo de devolutiva via Protocolo
 
@@ -298,6 +359,17 @@ Especificação detalhada: **[especificacoes/onda2-polimento-ux.md](especificaco
 | **P13** | Tabelas responsivas com scroll horizontal (todas as DataTables) | — | **Concluído** |
 | **P14** | Acesso: carta para secretaria; remover fluxo/reconciliação/FAQ do protocolo | — | **Concluído** |
 
+### Onda B — refinamento pós-GO (jun/2026)
+
+Rodada operadores 2026-06-13. Especificação: [operacao/piloto-apontamentos-jun2026.md](operacao/piloto-apontamentos-jun2026.md).
+
+| Área | Itens | Foco |
+|------|-------|------|
+| **Vereador** | B1, B2, B3, B4 | Endereço, ofício, anexos, timeline institucional |
+| **Protocolo** | B5, B6, B7, B8, B9 | Multi-despacho, assinaturas, anexos, formatação |
+
+---
+
 ### Onda 3 — Escala e analítica (piloto)
 
 Especificação detalhada (Carta + consulta): **[especificacoes/carta-consulta-evolucao.md](especificacoes/carta-consulta-evolucao.md)**
@@ -306,9 +378,26 @@ Especificação detalhada (Carta + consulta): **[especificacoes/carta-consulta-e
 |---|---------|------|--------|
 | **E1** | SLA com prazo da carta Sinapse + alertas e cobrança ativa | 2.3 | [~] Parcial (C1: resolução + snapshot; falta cobrança ativa) |
 | **E2** | Migrar pipeline IA → Celery | 2.3 | [~] SLA isolado (Redis DB 15); IA Copiloto permanece síncrona |
-| **E3** | Mapa espacial/sazonal + dashboard IA | 4.2 | Pendente |
+| **E3** | Mapa espacial/sazonal + dashboard IA | 4.2 | [~] Parcial (mapa + relatórios lapidados) |
 | **E4** | Treinamento piloto 23 gabinetes | 5.1 | Pendente |
 | **E5** | Gov.br (evolução institucional da assinatura) | 5.2 | Pendente |
+| **O1** | Serviço **Ouvidoria** + Groq (Denúncia / Reclamação / Sugestão / Elogio) | 2.7 | **[~] Implementado em dev (2026-06-10)** — validar trilha A′ em homologação |
+| **A1** | Copiloto calibrado com FAQ | 2.2 | **OK** — validado homologação 2026-06-10 |
+| **A2** | Visibilidade Vereador (P8) | 4.6 | **OK** — refino **B4** pendente |
+| **A3** | Assinatura chefia setor na conclusão (Órgão/Secretaria) | 3.3b | **OK** — validado homologação 2026-06-10 |
+| **A4** | Assinaturas despacho Protocolo (inicial/final) | 3.3b | **OK** — refino **B6/B7** pendente |
+| **A5** | RBAC Secretaria (isolamento órgão/UA) | 4.6 | **OK** — validado homologação 2026-06-10 |
+| **B1** | Geocoding / busca logradouro (Copiloto) | 2.1 / UX | Pendente — H2-09 |
+| **B2** | Data duplicada no ofício rascunho | 3.4 | Pendente — H2-10 |
+| **B3** | Restringir anexos com mesmo nome | 2.1 | Pendente — H2-11 |
+| **B4** | Timeline vereador: secretaria + setor (A2.1) | 4.6 | Pendente — H2-12 · **P0** |
+| **B5** | Despacho multi-secretaria | 4.0 | Pendente — H2-13 · **P1** |
+| **B6** | Cargo na assinatura (estrutura prefeitura) | 3.3b | Pendente — H2-14 |
+| **B7** | Indicador «despacho assinado» | 3.3b / 4.0 | Pendente — H2-15 · **P1** |
+| **B8** | Anexos em despachos e devolutivas | 4.5 | Pendente — H2-16 · **P1** |
+| **B9** | Formatação textos na timeline | 4.0 / UX | Pendente — H2-17 |
+| **S1** | **Paginação server-side** em todas as DataTables críticas | 4.2b | [~] Parcial (Relatórios OK; roll-out pendente) |
+| **CO1** | **Copiloto para gestão operacional** — escopo e POC (workshop) | 4.2c | Pendente (discussão) |
 | **C1** | Prazo padrão + política «serviço ou padrão» (fallback natural) | 2.3 / Carta | **Concluído** |
 | **C2** | Carta otimizada → vínculo unidade administrativa (setor) | 4.4 / Carta | **Concluído** |
 | **C3** | Embedding enriquecido ao incorporar tendências à carta | 2.4 / 2.5 | Pendente |
@@ -318,9 +407,11 @@ Especificação detalhada (Carta + consulta): **[especificacoes/carta-consulta-e
 | **U1** | Documentação perfis e vínculos (usuário / órgão / UA) | Governança | **Concluído** — [spec](especificacoes/modulo-usuarios-perfis.md) |
 | **U2** | Vínculo Protocolo → órgão 12 + UA SGAC (754) | Governança | **OK** |
 | **U3** | Gestão Secretaria: órgão + setor(es) RM na criação do usuário | Governança | **OK** |
-| **U4** | Gestor: vínculo institucional + admin pleno (Django + frontend) | Governança | **OK** |
+| **U4** | Gestor: cadastro Geral/Setorial; admin pleno só Geral | Governança | **OK** cadastro · **U7** RBAC pendente |
 | **U5** | UI gestão de usuários unificada (hub por perfil) | UX / Governança | **OK** |
+| **U5.1** | UX U5: senha, busca, vínculos UA no form (H3-14/15) | UX | **OK** jun/2026 |
 | **U6** | Django Admin — Perfil + Órgão + inline Setor + «Onde atua» | Governança | **OK** |
+| **U7** | RBAC Gestor Geral vs Setorial (escopo dados + tramitações) | Governança | **Pendente** Onda C |
 | — | Backfill embeddings legado | 1.2 | **Stand-by** |
 
 Itens concluídos recentemente (não repetir): remoção revisão assessor (`0056`, jun/2026), remoção SEI/1Doc (`0049`), encerramento (`0048`), devolutiva (`0047`), setores (`0046`), assinatura eletrônica (`0045`), tipo tramitação `EXECUCAO` (`0050`), cluster coorte/par retroativo (jun/2026).
@@ -362,8 +453,19 @@ Exemplo: `DemandasView · SECRETARIA · coluna Super OS abre líder · abre /clu
 | C6 import RM271698 | `0059` + `core.tests.test_rm_unidades_import` + [runbook](operacao/importacao-unidades-rm271698.md) |
 | U1 perfis e vínculos | [modulo-usuarios-perfis.md](especificacoes/modulo-usuarios-perfis.md) |
 | Build frontend | `npm run build` |
+| Relatórios lapidados (jun/2026) | `RelatoriosView` + `reports/` (SLA, mining, funil, CSV) |
+| Copiloto Contexto (jun/2026) | `CopilotoContextoPainel.vue` |
+| Reunião de trabalho | [operacao/reuniao-trabalho-jun2026.md](operacao/reuniao-trabalho-jun2026.md) |
 
 ---
 
-**Última atualização:** 2026-06-10.  
-**Status:** **Onda 3 C1–C6 concluídos** (jun/2026). **U1–U5** (governança usuários completa). **Próximo foco:** H1/H2 homologação; **C3** + **E2** (Celery).
+## Marco piloto operacional (jun/2026)
+
+| Marco | Prazo | Escopo |
+|-------|-------|--------|
+| Reunião de homologação | Imediato | Teste guiado por perfil — [reuniao-trabalho-jun2026.md](operacao/reuniao-trabalho-jun2026.md) |
+| Piloto operacional | **2ª quinzena jun/2026** | 2 gabinetes parceiros · Protocolo · Gestão |
+| Secretaria (opcional) | A confirmar | Zeladoria e Serviços Urbanos (infra setores OK — C6) |
+
+**Última atualização:** 2026-06-13.  
+**Status:** **Gate piloto GO condicional** — A1–A5 validados (2026-06-10); **Onda B** (B1–B9) registrada em [piloto-apontamentos-jun2026.md](operacao/piloto-apontamentos-jun2026.md). Piloto previsto 2ª quinzena jun/2026.

@@ -2,7 +2,22 @@
 
 Painel único de **status e prioridades**. O detalhamento por fase de produto está em [ROADMAP_PRODUTO.md](ROADMAP_PRODUTO.md).
 
-**Atualizado:** 2026-06-10 · **Onda 3:** C1–C6 concluídos
+**Atualizado:** 2026-06-18 · **Gate piloto:** **GO condicional** (Onda B em andamento) · Meta piloto: **2ª quinzena jun/2026**
+
+> **Roadmap limpo de ajustes (jun/2026):** [ROADMAP-AJUSTES-HOMOLOGACAO-JUN2026.md](ROADMAP-AJUSTES-HOMOLOGACAO-JUN2026.md) — consolida entregas dev, revalidações P0 e ondas C/D/E para validação.
+
+---
+
+## Marco imediato
+
+| Data / marco | Objetivo |
+|--------------|----------|
+| **Reunião de trabalho (2026-06-11)** | Realizada — 5 apontamentos · ver [operacao/reuniao-trabalho-jun2026.md](operacao/reuniao-trabalho-jun2026.md) |
+| **Semana pós-reunião** | Ajustes A1–A5 + testes remotos em homologação — **concluído 2026-06-10** |
+| **2ª quinzena jun/2026** | Piloto: 2 gabinetes + Protocolo + Gestão (+ possível Zeladoria/Serviços Urbanos) |
+| **Onda B (pós-GO)** | B1–B9 — apontamentos Vereador + Protocolo (2026-06-13) |
+
+**Gate piloto:** **GO condicional** — A1–A5 OK (2026-06-10); **Onda B** priorizada antes/durante piloto. Registro: [homologacao-e2e-registro.md](operacao/homologacao-e2e-registro.md) · [piloto-apontamentos-jun2026.md](operacao/piloto-apontamentos-jun2026.md).
 
 ---
 
@@ -12,13 +27,17 @@ Painel único de **status e prioridades**. O detalhamento por fase de produto es
 |--------|--------|------------|
 | **Infra + Sinapse (Sprints 1–7)** | Concluída | Abr/2026 — sync, reconciliação, `SinapseReconciliacaoView` |
 | **Carta otimizada (RAG)** | Concluída | Mai/2026 — `ServicoOtimizado`, triagem otimizada |
-| **Copiloto** | Em homologação | Multi-pedido, competência, FAQ; tendência no chat parcial |
+| **Copiloto** | **OK** | FAQ calibrada (A1); multi-pedido, painel Contexto, competência |
+| **Relatórios gerenciais** | **OK** | SLA, process mining, funil, CSV, paginação server-side (Gestor) |
+| **Mapa operacional** | **~ homologação** | Heatmap, agregação, filtros por perfil |
+| **Layout / navegação** | **OK** | Menu por seções, sidebar recolhida, atalhos topbar |
 | **Ciclo legislativo ponta a ponta** | **Concluído** | Assinatura → protocolo → operação → devolutiva → cidadão |
 | **Protocolo + tramitação** | **~ homologação** | Painéis, fluxo AUTO, setores, Super OS, devolutiva entregues |
 | **Assinatura envio oficial** | **Concluído** | Preview PDF (disco) + assinatura eletrônica + 1 anexo final |
 | **Revisão assessor (P2)** | **Removido** | Rascunho pós-Copiloto substitui etapa formal (migração `0056`) |
 | **Onda 2 (P1–P14)** | **Concluída** | Polimento UX e regras operacionais |
 | **Cluster / Super OS v2** | **~ homologação** | Mesmo serviço + 300 m + coorte AUTO + UX por perfil |
+| **Stand-by estudo/viabilidade** | **Fase 1 OK** | Registro na conclusão secretaria; fila executivo — ver [estudo-viabilidade-stand-by.md](especificacoes/estudo-viabilidade-stand-by.md) |
 
 > Tramitação **100% no SGDL** — integração SEI/1Doc removida (migração `0049`).
 
@@ -31,10 +50,10 @@ Legenda: **OK** concluído · **~** parcial · **—** pendente
 | Fase | Tema | Status | Destaques |
 |------|------|--------|-----------|
 | **1** | Infra vetorial (pgvector, embeddings) | **OK** | Migração 0028, Kernel mxbai-embed-large |
-| **2** | Ingestão, Copiloto, Carta, Tendências | **~** | Explorer, tendências, FAQ e KPIs trilha OK; SLA Celery pendente |
-| **3** | Ofícios PDF e assinatura | **OK** | Envio oficial + assinatura + preview; rascunho = janela de revisão |
-| **4** | Clusters, Protocolo, setor, fluxo | **~** | Ciclo operacional + Super OS UX OK; analítica e polish pendentes |
-| **5** | Piloto 23 gabinetes / Gov.br | **—** | Não iniciado |
+| **2** | Ingestão, Copiloto, Carta, Tendências | **OK** | Explorer, tendências, FAQ (A1) e KPIs trilha OK; SLA Celery pendente |
+| **3** | Ofícios PDF e assinatura | **OK** | Envio oficial + assinaturas Protocolo/Secretaria (A3/A4) validadas |
+| **4** | Clusters, Protocolo, setor, fluxo | **~** | Ciclo operacional + Super OS UX OK; RBAC Secretaria (A5) validado |
+| **5** | Piloto 23 gabinetes / Gov.br | **—** | **Início previsto** 2ª quinzena jun/2026 (gate GO) |
 | **6** | Encerramento legislativo | **OK** | Pacote devolutiva, ciência, ofício ao cidadão |
 
 Checklist detalhado: [ROADMAP_PRODUTO.md](ROADMAP_PRODUTO.md).
@@ -47,17 +66,74 @@ Foco: **validação E2E por perfil** (gate A1) e consolidação de observações
 
 | # | Entrega | Status | Ref. |
 |---|---------|--------|------|
-| **H1** | Roteiro E2E completo (Vereador → Protocolo → Secretaria → encerramento) | **Em andamento** — backend **GO** ([registro](operacao/homologacao-e2e-registro.md)); UI manual pendente |
-| **H2** | Consolidar observações de teste (bloqueante / incômodo / cosmético) | **Em andamento** | formato: `tela · perfil · esperado · obtido · severidade` |
+| **H1** | Roteiro E2E completo (Vereador → Protocolo → Secretaria → encerramento) | **Reunião 2026-06-11** — achados registrados; ciclo backend OK (demanda 2966) |
+| **H2** | Consolidar observações de teste (bloqueante / incômodo / cosmético) | **OK** — H2-04…H2-08 resolvidos (A1–A5); registro 2026-06-10 |
 | **H3** | Ocultar «Cluster» quando demanda não elegível (≥2, antes do protocolo) | **OK** | 4.1b |
 | **H4** | Fila operacional por setor + visão Super OS na secretaria | **OK** | 4.4 — `fila=operacionais`, `minha_unidade`, coluna setor, deep-link dashboard |
 | **H5** | Mensagens de estado vazio e erros nas filas | **OK** | 4.0 — vazio contextual + retry + fila devolutivas |
 | **H6** | Checklist go-live com fluxo legislativo completo | **OK** | `operacao/homologacao-go-live.md` — seções 5–8 (ciclo, deploy, go/no-go, registro) |
 
+### Onda Ajustes — pós-reunião 2026-06-11 (+1 semana + testes remotos)
+
+| # | Entrega | Severidade | Status |
+|---|---------|------------|--------|
+| **A5** | **RBAC Secretaria** — restringir listagens/API ao órgão/UA do usuário | **Crítico** | **OK** — validado homologação 2026-06-10 |
+| **A2** | **Visibilidade Vereador (P8)** — ocultar tramitações operacionais | Bloqueante | **OK** — validado 2026-06-10 · refino **B4** pendente |
+| **A4** | Assinatura eletrônica **despacho Protocolo** (inicial + final + gestor) | Bloqueante | **OK** — validado homologação 2026-06-10 |
+| **A3** | Assinatura eletrônica **chefia setor** na conclusão (Órgão/Secretaria) | Bloqueante | **OK** — validado homologação 2026-06-10 |
+| **A1** | **Copiloto calibrado** com FAQ | Incômodo | **OK** — validado homologação 2026-06-10 |
+
+### Validação remota — 2026-06-10
+
+| Item | Resultado |
+|------|-----------|
+| **A1** Copiloto × FAQ | **OK** — recusas alinhadas (energia, água, prisão/furto → FAQ) |
+| **A2** Visibilidade Vereador (P8) | **OK** |
+| **A3** Assinatura conclusão Secretaria | **OK** |
+| **A4** Assinaturas despacho Protocolo | **OK** |
+| **A5** RBAC Secretaria (isolamento órgão/UA) | **OK** |
+| **Gate piloto** | **GO** |
+
+Registro completo: [homologacao-e2e-registro.md](operacao/homologacao-e2e-registro.md).
+
+### Onda B — pós-GO (rodada operadores 2026-06-13)
+
+Apontamentos da segunda rodada de testes. Detalhe: [piloto-apontamentos-jun2026.md](operacao/piloto-apontamentos-jun2026.md).
+
+| # | Entrega | Perfil | Prioridade | Status |
+|---|---------|--------|------------|--------|
+| **B4** | **A2.1** — Timeline vereador: **secretaria + setor** (não só «Prefeitura») | VEREADOR | **P0** | **[~] Dev 2026-06-13** |
+| **B5** | Despacho **multi-secretaria** (N órgãos + UAs simultâneos) | PROTOCOLO | **P1** | Pendente |
+| **B7** | Indicador / painel **«despacho assinado»** | PROTOCOLO | **P1** | Pendente |
+| **B8** | **Anexos** em despachos e devolutivas | PROTOCOLO | **P1** | Pendente |
+| **B1** | **Geocoding** — busca de logradouros MC | VEREADOR | **P1** | Pendente |
+| **B2** | Corrigir **data duplicada** no ofício rascunho | VEREADOR | **P2** | Pendente |
+| **B3** | Restringir anexos com **mesmo nome** | VEREADOR | **P2** | Pendente |
+| **B6** | **Cargo** na assinatura (estrutura prefeitura) | PROTOCOLO | **P2** | Pendente |
+| **B9** | **Formatação** de textos na timeline | PROTOCOLO/SECRETARIA | **P3** | Pendente |
+
+**Ordem sugerida:** B4 → B7 → B1 → B2/B3 → B5/B8 → B6 → B9.
+
+**A2:** validação original **OK**; **B4** é refinamento de qualidade (P8+).
+
+| Item | Resultado |
+|------|-----------|
+| **A5** | Implementado — aguarda validação com 2 secretarias distintas |
+| **A2** | Implementado — aguarda validação timeline vereador |
+| **A4** | Implementado Protocolo — migrate `0063`, UI lista + detalhe |
+| **A3** | **Implementado em dev** — diálogo assinatura conclusão Secretaria; testes `test_assinatura_conclusao_secretaria` |
+| **A1** | **Implementado em dev** — FAQ no prompt + regex + respostas calibradas |
+| **Deploy** | migrate `0063` + build frontend + restart em homologação |
+
 ### Correções recentes (jun/2026 — homologação)
 
 | Área | Entrega |
 |------|---------|
+| **Copiloto** | Painel Contexto humanizado (checklist assunto/serviço/local) |
+| **Relatórios** | SLA, process mining setor, funil, comparativo vereador, export CSV, lazy table |
+| **Mapa** | Heatmap, agregação espacial/sazonal, link desde relatórios |
+| **Carta / Setores / Fluxo** | Explorer refatorado; TabView setores; filtros FluxoServicos |
+| **Layout** | AppMenu por seções; sidebar recolhida; atalhos topbar por perfil |
 | Ofício PDF | Preview em disco compartilhado (multi-worker); **1 anexo** na assinatura |
 | Super OS | Coorte AUTO antes do despacho; par com demanda já protocolada; graça 20 min |
 | Super OS UX | Secretaria vê só líder; protocolo com links nos vinculados; vereador só timeline |
@@ -77,7 +153,7 @@ Especificação: [especificacoes/onda2-polimento-ux.md](especificacoes/onda2-pol
 | P5 | Assinatura eletrônica em lote | **OK** |
 | P6 | Painel formatação ofício → PDF | **OK** |
 | **P7** | Numeração ofício por vereador + protocolo global | **OK** |
-| **P8** | Timeline vereador: só marcos / conclusão | **OK** |
+| **P8** | Timeline vereador: só marcos / conclusão | **OK** (A2) · refino secretaria/setor → **B4** |
 | **P9** | Dashboard secretaria sem gráfico por secretaria | **OK** |
 | **P10** | Voltar no editar rascunho | **OK** |
 | **P13** | Tabelas scroll responsivas | **OK** |
@@ -97,10 +173,24 @@ Especificação: [especificacoes/onda2-polimento-ux.md](especificacoes/onda2-pol
 | U1 | Documentação perfis e vínculos usuário | **OK** — [spec](especificacoes/modulo-usuarios-perfis.md) |
 | U2 | Vínculo Protocolo → órgão 12 + UA SGAC (754) | **OK** |
 | U3 | Gestão Secretaria — órgão + setor(es) RM | **OK** |
-| U4 | Gestor — admin pleno + referência institucional | **OK** |
-| U5 | UI gestão usuários unificada | **OK** |
+| U4 | Gestor — **Geral** (admin pleno) vs **Setorial** (escopo vinculado) | **OK** cadastro · **U7** RBAC pendente |
+| U5 | UI gestão usuários unificada + UX H3-14/15/vínculos | **OK** |
+| U7 | RBAC Gestor Geral vs Setorial | — Onda C |
 | C3 | Embedding ao promover tendência | — |
 | E2 | Pipeline IA → Celery | [~] SLA via Celery isolado (Redis /15); IA síncrona mantida |
+| E3 | Mapa + relatórios analíticos | [~] Mapa operacional + Relatórios lapidados OK |
+| **O1** | Ouvidoria + Groq (denúncia/reclamação/sugestão/elogio) | — pós-piloto |
+| **S1** | Paginação server-side (Demandas, Carta, etc.) | [~] Relatórios OK |
+| **CO1** | Copiloto gestão operacional (workshop) | — discussão |
+
+### Piloto operacional (meta)
+
+| Marco | Escopo |
+|-------|--------|
+| **2ª quinzena jun/2026** | 2 gabinetes parceiros + Protocolo + Gestão |
+| **A confirmar** | Secretaria Zeladoria e Serviços Urbanos (UAs já importadas) |
+
+Detalhe: [operacao/reuniao-trabalho-jun2026.md](operacao/reuniao-trabalho-jun2026.md).
 
 ---
 
@@ -110,14 +200,16 @@ Especificação: [especificacoes/onda2-polimento-ux.md](especificacoes/onda2-pol
 
 | Item | Status |
 |------|--------|
-| Copiloto → rascunho de demanda/ofício | ~ homologação |
+| Copiloto → rascunho de demanda/ofício | **OK** (A1) · busca endereço → **B1** |
+| Preview ofício / data no PDF | **~** · data duplicada → **B2** |
+| Anexos — nomes duplicados | — · restringir → **B3** |
 | Editar rascunho e enviar oficialmente (sem etapa assessor) | OK |
 | Assinatura visual no PDF (perfil) | OK |
 | Enviar oficialmente + assinatura eletrônica | OK |
 | Pacote devolutiva + ciência + ofício ao cidadão | OK |
 | Super OS — acompanha andamentos na timeline (`[Super OS]`) | OK |
 | Numeração ofício `OFICIO-AAAA-NNNN` por vereador | **OK** (P7) |
-| Timeline: ocultar gestão operacional; ver conclusão | **OK** (P8) |
+| Timeline: ocultar gestão operacional; ver conclusão | **OK** (A2) · refino **B4** |
 | Botão «Voltar» em editar rascunho | **OK** (P10) |
 
 ### Protocolo
@@ -131,7 +223,8 @@ Especificação: [especificacoes/onda2-polimento-ux.md](especificacoes/onda2-pol
 | Card Super OS na demanda com links entre vinculados | OK |
 | Ocultar cluster quando não elegível | OK |
 | Fluxo por serviço / Reconciliação Sinapse / FAQ Copiloto | **Removido** (P14 — só GESTOR) |
-| Despachar no detalhe da demanda | **OK** (P12) |
+| Despachar no detalhe da demanda | **OK** (P12) · multi-secretaria → **B5** |
+| Confirmar despacho assinado / anexos despacho | — · **B7**, **B8** pendentes |
 
 ### Operação (setor / secretaria)
 
@@ -144,7 +237,7 @@ Especificação: [especificacoes/onda2-polimento-ux.md](especificacoes/onda2-pol
 | Card Super OS + andamentos replicados nos vinculados | OK |
 | Resumo Super OS no dashboard (sem gestor de clusters) | OK |
 | Fila operacional `minha_unidade` + filtro setor | OK |
-| Vínculo órgão Sinapse + setor(es) RM (responsável UA) | **OK** (U3 — `/gestao-usuarios`) |
+| Vínculo órgão Sinapse + setor(es) RM (responsável UA) | **OK** (U3 + A5) |
 | Consulta Carta de Serviços | **OK** (P14) |
 | Dashboard sem gráfico «Demandas por Secretaria» | **OK** (P9) |
 
@@ -153,7 +246,8 @@ Especificação: [especificacoes/onda2-polimento-ux.md](especificacoes/onda2-pol
 | Item | Status |
 |------|--------|
 | Dashboard + relatórios KPI | OK |
-| Mapa de calor (básico) | OK |
+| Mapa de calor (operacional + heatmap) | **~** homologação |
+| Relatórios gerenciais (SLA, mining, CSV) | **OK** |
 | Gestor de clusters + resumo Super OS | OK |
 | KPIs de trilha Carta/Tendência/Recusa | **OK** (P4 — dashboard Protocolo/Gestor) |
 | Assuntos da carta + utilização SGDL (`/admin/assuntos-carta`) | **OK** (C5) |

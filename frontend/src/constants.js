@@ -1,4 +1,4 @@
-// Em frontend/src/constants.js
+import { SGDL_BRAND } from '@/theme/sgdl-preset';
 
 /** Perfis com acesso ao Copiloto (criação de ofícios por conversa). */
 export const PERFIS_COPILOTO = ['VEREADOR', 'GESTOR'];
@@ -9,6 +9,37 @@ export function rotaHomePorPerfil(perfil) {
         return { name: 'copiloto' };
     }
     return { name: 'dashboard' };
+}
+
+/** Rota de login conforme portal escolhido (vereador | prefeitura). */
+export function loginRouteForPortal(portal) {
+    return portal === 'vereador' ? '/login/vereador' : '/login';
+}
+
+export const PORTAL_AUTH = {
+    vereador: {
+        perfis: ['VEREADOR', 'ASSESSOR'],
+        label: 'Portal do Vereador',
+        loginRoute: '/login/vereador'
+    },
+    prefeitura: {
+        perfis: ['PROTOCOLO', 'SECRETARIA', 'GESTOR'],
+        label: 'Portal Operacional',
+        loginRoute: '/login'
+    }
+};
+
+export function portalParaPerfil(perfil) {
+    if (PORTAL_AUTH.vereador.perfis.includes(perfil)) {
+        return 'vereador';
+    }
+    return 'prefeitura';
+}
+
+export function perfilPermitidoNoPortal(perfil, portal) {
+    const cfg = PORTAL_AUTH[portal];
+    if (!cfg) return true;
+    return cfg.perfis.includes(perfil);
 }
 
 export const STATUS_CHOICES_REPORTS = [
@@ -23,14 +54,14 @@ export const STATUS_CHOICES_REPORTS = [
     { label: 'Devolutiva ao vereador', value: 'DEVOLVIDO_VEREADOR' }
 ];
 
-// Cores para os gráficos (padrão PrimeVue)
+/** Cores para gráficos (1ª série = marca institucional #213a8f). */
 export const CHART_COLORS = [
-    '#42A5F5', // blue
-    '#66BB6A', // green
-    '#FFA726', // orange
-    '#26C6DA', // cyan
-    '#7E57C2', // purple
-    '#EF5350', // red
-    '#26A69A', // teal
-    '#FFCA28' // yellow
+    SGDL_BRAND.primary,
+    '#66BB6A',
+    '#FFA726',
+    '#26C6DA',
+    '#7E57C2',
+    '#EF5350',
+    '#26A69A',
+    '#FFCA28'
 ];

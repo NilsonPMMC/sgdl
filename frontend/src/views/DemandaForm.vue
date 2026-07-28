@@ -22,6 +22,14 @@ import Message from 'primevue/message';
 import Dialog from 'primevue/dialog';
 import Checkbox from 'primevue/checkbox';
 import { descricaoParaHtml } from '@/utils/oficioTexto';
+import {
+    filtrarArquivosDuplicados,
+    mensagemAnexosRejeitados,
+    nomeAnexoSalvo
+} from '@/utils/anexoValidacao';
+import {
+    mensagemResumoBackend
+} from '@/utils/duplicidadeAlerta';
 
 const toast = useToast();
 const router = useRouter();
@@ -154,6 +162,9 @@ const coordenadasMapaLabel = computed(() => {
 });
 
 const fonteGeocodificacao = ref(null);
+const sugLogradouros = ref([]);
+const buscandoLogradouros = ref(false);
+let debounceLogradouro = null;
 
 const labelFonteGeo = (fonte) => {
     const map = {
@@ -319,6 +330,48 @@ const buscarCep = async () => {
     } catch (error) {
         const detail = error?.response?.data?.detail || 'CEP não encontrado.';
         toast.add({ severity: 'error', summary: 'CEP', detail, life: 3500 });
+    }
+};
+
+const searchLogradouro = (event) => {
+    const termo = (event.query || '').trim();
+    if (debounceLogradouro) {
+        clearTimeout(debounceLogradouro);
+    }
+    if (termo.length < 3) {
+        sugLogradouros.value = [];
+        return;
+    }
+    debounceLogradouro = setTimeout(async () => {
+        buscandoLogradouros.value = true;
+        try {
+            const bairro = (demanda.value.bairro || '').trim() || null;
+            const { data } = await ApiService.buscarLogradouros(termo, bairro);
+            sugLogradouros.value = data.resultados || [];
+        } catch {
+            sugLogradouros.value = [];
+        } finally {
+            buscandoLogradouros.value = false;
+        }
+    }, 350);
+};
+
+const onLogradouroSelecionado = (event) => {
+    const item = event.value;
+    if (!item || typeof item === 'string') {
+        return;
+    }
+    demanda.value.logradouro = item.logradouro || item.label || demanda.value.logradouro;
+    if (item.bairro) {
+        demanda.value.bairro = item.bairro;
+    }
+    if (item.cep) {
+        demanda.value.cep = item.cep;
+    }
+    if (item.latitude != null && item.longitude != null) {
+        demanda.value.latitude = item.latitude;
+        demanda.value.longitude = item.longitude;
+        fonteGeocodificacao.value = 'logradouro';
     }
 };
 
@@ -504,16 +557,46 @@ const confirmarEnvioOficial = async () => {
 };
 
 const onUpload = async (event) => {
-    const formData = new FormData();
-    formData.append('demanda', demandaId.value);
-    formData.append('arquivo', event.files[0]);
+    if (!demandaId.value) return;
 
-    try {
-        const response = await ApiService.createAnexo(formData);
-        anexos.value.push(response.data);
-        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Anexo enviado!', life: 3000 });
-    } catch (error) {
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha no upload do anexo.', life: 3000 });
+    const existentes = anexos.value.map((a) => nomeAnexoSalvo(a));
+    const { aceitos, rejeitados } = filtrarArquivosDuplicados(event.files || [], existentes);
+
+    if (rejeitados.length) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Anexo duplicado',
+            detail: mensagemAnexosRejeitados(rejeitados),
+            life: 5000
+        });
+    }
+    if (!aceitos.length) {
+        return;
+    }
+
+    for (const file of aceitos) {
+        const formData = new FormData();
+        formData.append('demanda', demandaId.value);
+        formData.append('arquivo', file);
+        try {
+            const response = await ApiService.createAnexo(formData);
+            anexos.value.push(response.data);
+        } catch (error) {
+            const detail =
+                error?.response?.data?.arquivo?.[0] ||
+                error?.response?.data?.detail ||
+                `Falha no upload de «${file.name}».`;
+            toast.add({ severity: 'error', summary: 'Erro', detail: String(detail), life: 4000 });
+        }
+    }
+
+    if (aceitos.length) {
+        toast.add({
+            severity: 'success',
+            summary: 'Sucesso',
+            detail: `${aceitos.length} anexo(s) enviado(s).`,
+            life: 3000
+        });
     }
 };
 
@@ -668,7 +751,20 @@ const removerAnexo = async (anexoId, index) => {
                 </div>
                 <div class="col-span-full lg:col-span-9">
                     <label class="block mb-3" for="logradouro">Logradouro</label>
-                    <InputText id="logradouro" v-model="demanda.logradouro" fluid />
+                    <AutoComplete
+                        id="logradouro"
+                        v-model="demanda.logradouro"
+                        :suggestions="sugLogradouros"
+                        optionLabel="label"
+                        :loading="buscandoLogradouros"
+                        placeholder="Digite ao menos 3 letras (ruas de Mogi das Cruzes)"
+                        fluid
+                        @complete="searchLogradouro"
+                        @item-select="onLogradouroSelecionado"
+                    />
+                    <p class="mt-1 mb-0 text-xs text-[var(--text-color-secondary)]">
+                        Sugestões via Nominatim (Mogi das Cruzes). Você pode digitar manualmente se não encontrar.
+                    </p>
                 </div>
             </div>
 
@@ -747,6 +843,38 @@ const removerAnexo = async (anexoId, index) => {
                     </Message>
                     <div v-if="carregandoPreview" class="text-sm text-muted-color">Gerando pré-visualização…</div>
                     <template v-else-if="previewEnvio">
+                        <Message
+                            v-if="previewEnvio.duplicidade_resumo?.tem_duplicidade"
+                            :severity="previewEnvio.duplicidade_resumo?.sugerir_nao_enviar ? 'error' : 'warn'"
+                            :closable="false"
+                            class="text-sm m-0"
+                        >
+                            <p class="m-0 font-medium">
+                                {{
+                                    previewEnvio.duplicidade_resumo?.sugerir_nao_enviar
+                                        ? 'Atenção — possível duplicidade em tramitação'
+                                        : 'Possível duplicidade de rascunho'
+                                }}
+                            </p>
+                            <p class="m-0 mt-2">
+                                {{ mensagemResumoBackend(previewEnvio.duplicidade_resumo) }}
+                            </p>
+                            <ul
+                                v-if="previewEnvio.alertas_duplicidade?.length"
+                                class="m-0 mt-2 list-disc pl-5"
+                            >
+                                <li
+                                    v-for="a in previewEnvio.alertas_duplicidade"
+                                    :key="a.demanda_id"
+                                >
+                                    {{ a.mensagem }}
+                                </li>
+                            </ul>
+                            <p v-if="previewEnvio.duplicidade_resumo?.sugerir_nao_enviar" class="m-0 mt-2">
+                                Você pode cancelar e acompanhar o processo existente, ou continuar se tiver
+                                certeza de que é um pedido diferente.
+                            </p>
+                        </Message>
                         <div v-if="previewEnvio.preview_pdf_disponivel">
                             <Button
                                 label="Abrir pré-visualização (PDF)"

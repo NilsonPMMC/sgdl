@@ -5,14 +5,11 @@ from rest_framework.views import APIView
 
 from integrations.services.sinapse_sync_service import SinapseSyncService
 from integrations.sinapse_client import SinapseClientError
+from core.services.gestor_escopo import gestor_pode_crud_admin
 
 
 def _can_manage_reconciliation(user) -> bool:
-    return bool(
-        user
-        and user.is_authenticated
-        and getattr(user, "perfil", None) == "GESTOR"
-    )
+    return gestor_pode_crud_admin(user)
 
 
 class SinapseUnmatchedListAPIView(APIView):

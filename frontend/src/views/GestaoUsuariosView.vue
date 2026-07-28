@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import ApiService from '@/service/ApiService';
 import { useToast } from 'primevue/usetoast';
 import { useUserStore } from '@/stores/userStore';
+import { extrairPaginaResposta, paramsPagina } from '@/utils/serverTable';
 
 import Button from 'primevue/button';
 import Card from 'primevue/card';
@@ -23,11 +24,8 @@ import ToggleSwitch from 'primevue/toggleswitch';
 const toast = useToast();
 const userStore = useUserStore();
 const route = useRoute();
-const router = useRouter();
 
-const podeGerirGestores = computed(
-    () => userStore.currentUser?.perfil === 'GESTOR' && userStore.currentUser?.is_staff
-);
+const podeGerirGestores = computed(() => userStore.isGestorGeral);
 
 const PERFIS_BASE = [
     { label: 'Todos', value: '' },
@@ -78,13 +76,29 @@ const REGRAS_ATUACAO = {
         setorFixo: null
     },
     GESTOR: {
-        escopo: 'Administração plena — todo o SGDL (órgão/setor só referência)',
+        escopo: 'Sem vínculo = Gestor Geral (admin pleno). Com órgão/setor = Gestor Setorial (escopo + tramitações).',
         orgao: 'opcional',
         setor: 'opcional',
         orgaoFixo: null,
         setorFixo: null
     }
 };
+
+const tipoGestorFormulario = computed(() => {
+    if (form.value.perfil !== 'GESTOR') return null;
+    if (form.value.sinapse_orgao_id || form.value.unidade_ids?.length) return 'SETORIAL';
+    return 'GERAL';
+});
+
+const labelTipoGestor = (row) => {
+    if (row?.perfil !== 'GESTOR') return null;
+    const tipo = row?.vinculo_gestor?.tipo_gestor || row?.atuacao_sgdl?.tipo_gestor;
+    if (tipo === 'SETORIAL') return 'Setorial';
+    if (tipo === 'GERAL') return 'Geral';
+    return row?.sinapse_orgao_id || row?.unidade_ids?.length ? 'Setorial' : 'Geral';
+};
+
+const severityTipoGestor = (row) => (labelTipoGestor(row) === 'Geral' ? 'danger' : 'warn');
 
 const regraAtuacaoAtual = computed(() => REGRAS_ATUACAO[form.value.perfil] || REGRAS_ATUACAO.VEREADOR);
 
@@ -94,13 +108,32 @@ const mostraBlocoOrgaoSetor = computed(() => form.value.perfil !== 'VEREADOR');
 const loading = ref(false);
 const salvando = ref(false);
 const usuarios = ref([]);
+const totalUsuarios = ref(0);
+const tablePagination = ref({ first: 0, rows: 20 });
+const tabelaJaCarregada = ref(false);
 const orgaos = ref([]);
 const setoresOrgao = ref([]);
+const vinculosExistentes = ref([]);
 const dialogAberto = ref(false);
 const editando = ref(null);
+const alterarSenha = ref(false);
 const filtroPerfil = ref('');
 const busca = ref('');
 const somenteIncompletos = ref(false);
+/** Snapshot da busca ao abrir o modal — evita autofill do navegador após salvar/fechar. */
+let buscaAntesDialog = '';
+
+const restaurarBuscaPosDialog = () => {
+    if (busca.value !== buscaAntesDialog) {
+        busca.value = buscaAntesDialog;
+        return true;
+    }
+    return false;
+};
+
+const limparEstadoDialogBusca = () => {
+    buscaAntesDialog = '';
+};
 
 const form = ref({
     perfil: 'VEREADOR',
@@ -143,7 +176,64 @@ const resetForm = (perfil = 'VEREADOR') => {
         unidade_ids: []
     };
     editando.value = null;
+    alterarSenha.value = false;
+    vinculosExistentes.value = [];
     setoresOrgao.value = [];
+};
+
+const formatUnidadeLabel = (u) => {
+    const sigla = (u.sigla || '').trim();
+    const nome = (u.nome || u.rotulo || '').trim();
+    if (sigla && nome && sigla !== nome) return `${sigla} — ${nome}`;
+    return sigla || nome || `UA #${u.id}`;
+};
+
+const mapUnidadeToOption = (u) => ({
+    label: formatUnidadeLabel(u),
+    value: u.id,
+    sigla: u.sigla || '',
+    nome: u.nome || u.rotulo || '',
+    orgaoId: u.sinapse_orgao_id ?? u.orgao_id ?? null
+});
+
+const mergeOpcoesSetor = (opcoesApi, extras = []) => {
+    const map = new Map();
+    for (const item of extras) {
+        if (!item?.id) continue;
+        const opt = mapUnidadeToOption(item);
+        map.set(opt.value, opt);
+    }
+    for (const opt of opcoesApi) {
+        if (!map.has(opt.value)) map.set(opt.value, opt);
+    }
+    return [...map.values()].sort((a, b) => a.label.localeCompare(b.label, 'pt-BR'));
+};
+
+const extrairVinculosDaLinha = (row) => {
+    if (row?.unidades?.length) return row.unidades;
+    if (row?.atuacao_sgdl?.setores?.length) {
+        return row.atuacao_sgdl.setores.map((s) => ({
+            id: s.id,
+            sigla: s.sigla,
+            nome: s.nome || s.rotulo,
+            sinapse_orgao_id: row.sinapse_orgao_id ?? row.atuacao_sgdl?.orgao_id
+        }));
+    }
+    return [];
+};
+
+const onDialogHide = () => {
+    form.value.password = '';
+    alterarSenha.value = false;
+    restaurarBuscaPosDialog();
+    limparEstadoDialogBusca();
+    resetForm(filtroPerfil.value || 'VEREADOR');
+    // Autofill do navegador pode ocorrer após o modal sumir (ex.: "admin" no campo de busca).
+    nextTick(() => {
+        setTimeout(() => {
+            if (restaurarBuscaPosDialog()) loadUsuarios();
+        }, 120);
+    });
 };
 
 const loadOrgaos = async () => {
@@ -158,9 +248,10 @@ const loadOrgaos = async () => {
     }
 };
 
-const loadSetoresOrgao = async (orgaoId) => {
+const loadSetoresOrgao = async (orgaoId, extras = []) => {
+    const vinculos = extras.length ? extras : vinculosExistentes.value;
     if (!orgaoId) {
-        setoresOrgao.value = [];
+        setoresOrgao.value = mergeOpcoesSetor([], vinculos);
         return;
     }
     try {
@@ -168,40 +259,75 @@ const loadSetoresOrgao = async (orgaoId) => {
             sinapse_orgao_id: orgaoId
         });
         const lista = Array.isArray(data) ? data : data?.results || [];
-        setoresOrgao.value = lista.map((s) => ({
-            label: s.sigla ? `${s.sigla} — ${s.nome}` : s.nome,
-            value: s.id
-        }));
+        const opcoes = lista.map((s) => mapUnidadeToOption(s));
+        setoresOrgao.value = mergeOpcoesSetor(opcoes, vinculos);
     } catch {
-        setoresOrgao.value = [];
+        setoresOrgao.value = mergeOpcoesSetor([], vinculos);
     }
 };
 
 const loadUsuarios = async () => {
     loading.value = true;
     try {
-        const params = {};
-        if (filtroPerfil.value) params.perfil = filtroPerfil.value;
-        if (busca.value.trim()) params.q = busca.value.trim();
-        if (somenteIncompletos.value) params.incompleto = '1';
-        const { data } = await ApiService.listarGestaoUsuarios(params);
-        usuarios.value = Array.isArray(data) ? data : data?.results || [];
+        const params = paramsPagina(tablePagination.value, {
+            perfil: filtroPerfil.value || undefined,
+            q: busca.value.trim() || undefined,
+            incompleto: somenteIncompletos.value ? '1' : undefined
+        });
+        Object.keys(params).forEach((key) => params[key] == null && delete params[key]);
+        const response = await ApiService.listarGestaoUsuarios(params);
+        const { rows, total } = extrairPaginaResposta(response);
+        usuarios.value = rows;
+        totalUsuarios.value = total;
     } catch (error) {
         usuarios.value = [];
+        totalUsuarios.value = 0;
         toast.add({ severity: 'error', summary: 'Usuários', detail: extrairErro(error), life: 4000 });
     } finally {
         loading.value = false;
     }
 };
 
+const resetPaginaUsuarios = () => {
+    tablePagination.value = { ...tablePagination.value, first: 0 };
+};
+
+const aplicarFiltrosUsuarios = () => {
+    resetPaginaUsuarios();
+    loadUsuarios();
+};
+
+const onPageUsuarios = (event) => {
+    tablePagination.value = { first: event.first, rows: event.rows };
+    tabelaJaCarregada.value = true;
+    loadUsuarios();
+};
+
 const abrirNovo = () => {
     const perfil = filtroPerfil.value || 'VEREADOR';
+    buscaAntesDialog = busca.value;
     resetForm(perfil);
     dialogAberto.value = true;
 };
 
 const abrirEditar = async (row) => {
+    if (salvando.value) return;
+
+    buscaAntesDialog = busca.value;
+
+    const vinculos = extrairVinculosDaLinha(row);
+    vinculosExistentes.value = vinculos;
+
+    const orgaoId =
+        row.sinapse_orgao_id ||
+        vinculos[0]?.sinapse_orgao_id ||
+        row.atuacao_sgdl?.orgao_id ||
+        null;
+
+    const unidadeIds = [...(row.unidade_ids?.length ? row.unidade_ids : vinculos.map((u) => u.id))];
+
     editando.value = row;
+    alterarSenha.value = false;
     form.value = {
         perfil: row.perfil,
         username: row.username,
@@ -213,14 +339,39 @@ const abrirEditar = async (row) => {
         telefone: row.telefone || '',
         ramal: row.ramal || '',
         is_active: row.is_active !== false,
-        sinapse_orgao_id: row.sinapse_orgao_id || null,
-        unidade_ids: [...(row.unidade_ids || [])]
+        sinapse_orgao_id: orgaoId,
+        unidade_ids: unidadeIds
     };
-    await loadSetoresOrgao(form.value.sinapse_orgao_id);
+
+    await loadSetoresOrgao(orgaoId, vinculos);
     dialogAberto.value = true;
 };
 
+/** Troca manual de órgão no modal — não usar watch (race com await zerava setores). */
+const onOrgaoChange = async (novoOrgaoId) => {
+    const orgaoAnterior = form.value.sinapse_orgao_id;
+    form.value.sinapse_orgao_id = novoOrgaoId;
+    await loadSetoresOrgao(novoOrgaoId);
+    if (orgaoAnterior != null && novoOrgaoId !== orgaoAnterior) {
+        form.value.unidade_ids = [];
+    }
+};
+
+const idsSetoresDaLinha = (row) => {
+    if (row?.unidade_ids?.length) return [...row.unidade_ids];
+    return extrairVinculosDaLinha(row).map((u) => u.id);
+};
+
 const salvar = async () => {
+    if (salvando.value) return;
+
+    const alvoId = editando.value?.id ?? null;
+    const snapshotForm = {
+        perfil: form.value.perfil,
+        sinapse_orgao_id: form.value.sinapse_orgao_id,
+        unidade_ids: [...(form.value.unidade_ids || [])]
+    };
+
     salvando.value = true;
     try {
         const payload = {
@@ -236,14 +387,36 @@ const salvar = async () => {
             payload.ramal = form.value.ramal;
         }
 
-        if (['SECRETARIA', 'GESTOR'].includes(form.value.perfil)) {
-            payload.sinapse_orgao_id = form.value.sinapse_orgao_id;
-            payload.unidade_ids = form.value.unidade_ids || [];
+        if (['SECRETARIA', 'GESTOR'].includes(snapshotForm.perfil)) {
+            payload.sinapse_orgao_id = snapshotForm.sinapse_orgao_id;
+            let unidadeIds = snapshotForm.unidade_ids;
+            if (alvoId && editando.value && unidadeIds.length === 0) {
+                const idsOriginais = idsSetoresDaLinha(editando.value);
+                const orgInalterado =
+                    snapshotForm.sinapse_orgao_id ===
+                    (editando.value.sinapse_orgao_id ??
+                        editando.value.atuacao_sgdl?.orgao_id ??
+                        null);
+                if (idsOriginais.length > 0 && orgInalterado) {
+                    unidadeIds = idsOriginais;
+                }
+            }
+            payload.unidade_ids = unidadeIds;
         }
 
         if (editando.value) {
-            if (form.value.password) payload.password = form.value.password;
-            await ApiService.atualizarGestaoUsuario(editando.value.id, payload);
+            if (alvoId && editando.value.id !== alvoId) {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Edição interrompida',
+                    detail: 'Outro usuário foi aberto antes de concluir o salvamento. Tente novamente.',
+                    life: 4000
+                });
+                return;
+            }
+            const novaSenha = (form.value.password || '').trim();
+            if (alterarSenha.value && novaSenha) payload.password = novaSenha;
+            await ApiService.atualizarGestaoUsuario(alvoId ?? editando.value.id, payload);
             toast.add({ severity: 'success', summary: 'Usuário atualizado', life: 2500 });
         } else {
             payload.perfil = form.value.perfil;
@@ -253,7 +426,9 @@ const salvar = async () => {
             toast.add({ severity: 'success', summary: 'Usuário criado', life: 2500 });
         }
         dialogAberto.value = false;
+        restaurarBuscaPosDialog();
         await loadUsuarios();
+        limparEstadoDialogBusca();
     } catch (error) {
         toast.add({ severity: 'error', summary: 'Erro', detail: extrairErro(error), life: 5000 });
     } finally {
@@ -289,15 +464,40 @@ const perfilTagSeverity = (perfil) => {
     return m[perfil] || 'secondary';
 };
 
-watch(
-    () => form.value.sinapse_orgao_id,
-    async (novo, antigo) => {
-        await loadSetoresOrgao(novo);
-        if (antigo && novo !== antigo) form.value.unidade_ids = [];
+const orgaoSelecionadoLabel = computed(() => {
+    const id = form.value.sinapse_orgao_id;
+    if (!id) return null;
+    return (
+        orgaos.value.find((o) => o.value === id)?.label ||
+        editando.value?.secretaria_nome ||
+        editando.value?.atuacao_sgdl?.orgao_nome ||
+        `Órgão ${id}`
+    );
+});
+
+const opcoesSetorMap = computed(() => {
+    const map = new Map(setoresOrgao.value.map((o) => [o.value, o]));
+    for (const v of vinculosExistentes.value) {
+        if (v?.id && !map.has(v.id)) map.set(v.id, mapUnidadeToOption(v));
     }
+    return map;
+});
+
+const vinculosSelecionados = computed(() =>
+    (form.value.unidade_ids || []).map((id) => opcoesSetorMap.value.get(id) || { value: id, label: `UA #${id}` })
 );
 
-watch([filtroPerfil, somenteIncompletos], () => loadUsuarios());
+const vinculosProtocoloAtuais = computed(() => {
+    if (form.value.perfil !== 'PROTOCOLO') return [];
+    const setores = editando.value?.atuacao_sgdl?.setores || editando.value?.unidades || [];
+    return setores.map((s) => mapUnidadeToOption(s));
+});
+
+const orgaoProtocoloAtual = computed(() =>
+    editando.value?.atuacao_sgdl?.orgao_nome || regraAtuacaoAtual.value.orgaoFixo
+);
+
+watch([filtroPerfil, somenteIncompletos], () => aplicarFiltrosUsuarios());
 
 onMounted(async () => {
     const qsPerfil = route.query?.perfil;
@@ -305,7 +505,12 @@ onMounted(async () => {
         filtroPerfil.value = qsPerfil.toUpperCase();
     }
     await loadOrgaos();
-    await loadUsuarios();
+    setTimeout(() => {
+        if (!tabelaJaCarregada.value) {
+            tabelaJaCarregada.value = true;
+            loadUsuarios();
+        }
+    }, 80);
 });
 </script>
 
@@ -327,7 +532,8 @@ onMounted(async () => {
             <strong>Perfil</strong> define menus e permissões.
             <strong>Órgão › Setor</strong> define a unidade institucional de atuação
             (obrigatório para Secretaria; fixo para Protocolo; ausente para Vereador).
-            Gestor opera em todo o sistema — órgão/setor são referência opcional.
+            <strong>Gestor Geral</strong> — sem vínculo, acesso e CRUD administrativo plenos.
+            <strong>Gestor Setorial</strong> — com órgão e/ou setor, dados e tramitações no escopo vinculado.
         </Message>
 
         <Card>
@@ -341,15 +547,21 @@ onMounted(async () => {
                     />
                     <div class="flex flex-wrap gap-3 items-center">
                         <span class="p-input-icon-left flex-1 min-w-64">
-                            <i class="pi pi-search" />
+                            <!--<i class="pi pi-search" />-->
                             <InputText
                                 v-model="busca"
+                                name="gestao-usuarios-busca"
+                                autocomplete="off"
+                                autocapitalize="off"
+                                spellcheck="false"
+                                data-lpignore="true"
+                                data-1p-ignore
                                 placeholder="Buscar login, nome ou e-mail"
                                 class="w-full"
-                                @keyup.enter="loadUsuarios"
+                                @keyup.enter="aplicarFiltrosUsuarios"
                             />
                         </span>
-                        <Button label="Buscar" icon="pi pi-search" outlined @click="loadUsuarios" />
+                        <Button label="Buscar" icon="pi pi-search" outlined @click="aplicarFiltrosUsuarios" />
                         <div class="flex items-center gap-2">
                             <Checkbox v-model="somenteIncompletos" inputId="inc" binary />
                             <label for="inc" class="text-sm cursor-pointer">Só atuação incompleta (falta órgão ou setor)</label>
@@ -360,12 +572,19 @@ onMounted(async () => {
                 <DataTable
                     :value="usuarios"
                     :loading="loading"
+                    lazy
                     stripedRows
                     size="small"
                     paginator
-                    :rows="20"
+                    :rows="tablePagination.rows"
+                    :first="tablePagination.first"
+                    :totalRecords="totalUsuarios"
+                    :rowsPerPageOptions="[10, 20, 50, 100]"
+                    paginatorTemplate="CurrentPageReport FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown"
+                    currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords}"
                     responsiveLayout="scroll"
                     class="sgdl-table-scroll"
+                    @page="onPageUsuarios"
                 >
                     <Column field="username" header="Login" />
                     <Column header="Nome">
@@ -375,7 +594,15 @@ onMounted(async () => {
                     </Column>
                     <Column header="Perfil (papel)">
                         <template #body="{ data }">
-                            <Tag :value="data.perfil_display || data.perfil" :severity="perfilTagSeverity(data.perfil)" />
+                            <div class="flex flex-wrap items-center gap-1">
+                                <Tag :value="data.perfil_display || data.perfil" :severity="perfilTagSeverity(data.perfil)" />
+                                <Tag
+                                    v-if="data.perfil === 'GESTOR'"
+                                    :value="labelTipoGestor(data)"
+                                    :severity="severityTipoGestor(data)"
+                                    class="text-xs"
+                                />
+                            </div>
                         </template>
                     </Column>
                     <Column header="Onde atua no SGDL" style="min-width: 14rem">
@@ -403,14 +630,42 @@ onMounted(async () => {
                     </Column>
                     <Column header="" style="width: 6rem">
                         <template #body="{ data }">
-                            <Button icon="pi pi-pencil" text rounded @click="abrirEditar(data)" />
+                            <Button
+                                icon="pi pi-pencil"
+                                text
+                                rounded
+                                :disabled="salvando"
+                                @click="abrirEditar(data)"
+                            />
                         </template>
                     </Column>
                 </DataTable>
             </template>
         </Card>
 
-        <Dialog v-model:visible="dialogAberto" :header="tituloDialog" modal class="w-full max-w-2xl">
+        <Dialog
+            v-model:visible="dialogAberto"
+            :header="tituloDialog"
+            modal
+            class="w-full max-w-2xl"
+            :pt="{ root: { autocomplete: 'off' } }"
+            @hide="onDialogHide"
+        >
+            <!-- Decoy: absorve autofill do navegador fora do campo de busca -->
+            <input
+                type="text"
+                tabindex="-1"
+                aria-hidden="true"
+                class="gestao-dialog-autofill-decoy"
+                autocomplete="username"
+            />
+            <input
+                type="password"
+                tabindex="-1"
+                aria-hidden="true"
+                class="gestao-dialog-autofill-decoy"
+                autocomplete="new-password"
+            />
             <div class="flex flex-col gap-5">
                 <!-- 1. Perfil -->
                 <div class="border border-surface-200 dark:border-surface-700 rounded-lg p-4 flex flex-col gap-3">
@@ -429,6 +684,12 @@ onMounted(async () => {
                         <span class="text-sm text-muted-color">Perfil não alterável após criação</span>
                     </div>
                     <p class="text-sm text-surface-600 m-0">{{ regraAtuacaoAtual.escopo }}</p>
+                    <Tag
+                        v-if="form.perfil === 'GESTOR' && tipoGestorFormulario"
+                        :value="tipoGestorFormulario === 'GERAL' ? 'Gestor Geral' : 'Gestor Setorial'"
+                        :severity="tipoGestorFormulario === 'GERAL' ? 'danger' : 'warn'"
+                        class="w-fit"
+                    />
                 </div>
 
                 <!-- 2. Onde atua: Órgão > Setor -->
@@ -441,15 +702,69 @@ onMounted(async () => {
                     </div>
 
                     <template v-if="form.perfil === 'PROTOCOLO'">
-                        <Message severity="secondary" :closable="false" class="text-sm m-0">
+                        <Message v-if="!editando" severity="secondary" :closable="false" class="text-sm m-0">
                             Vínculo fixo aplicado automaticamente ao salvar:
                             <strong>{{ regraAtuacaoAtual.orgaoFixo }}</strong>
                             ›
                             <strong>{{ regraAtuacaoAtual.setorFixo }}</strong>
                         </Message>
+                        <div v-else class="flex flex-col gap-3">
+                            <div class="rounded-lg bg-surface-50 dark:bg-surface-900 border border-surface-200 dark:border-surface-700 p-3 flex flex-col gap-2">
+                                <span class="text-xs font-semibold uppercase tracking-wide text-muted-color">
+                                    Vínculo institucional atual
+                                </span>
+                                <div class="text-sm">
+                                    <span class="text-muted-color">Órgão:</span>
+                                    <strong class="ml-1">{{ orgaoProtocoloAtual }}</strong>
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <span class="text-xs text-muted-color">Setor(es) vinculado(s):</span>
+                                    <div v-if="vinculosProtocoloAtuais.length" class="flex flex-wrap gap-2">
+                                        <Tag
+                                            v-for="v in vinculosProtocoloAtuais"
+                                            :key="v.value"
+                                            :value="v.label"
+                                            severity="info"
+                                        />
+                                    </div>
+                                    <span v-else class="text-sm">{{ regraAtuacaoAtual.setorFixo }}</span>
+                                </div>
+                            </div>
+                            <Message severity="secondary" :closable="false" class="text-sm m-0">
+                                O vínculo de Protocolo é mantido automaticamente pelo sistema — não requer edição manual.
+                            </Message>
+                        </div>
                     </template>
 
                     <template v-else>
+                        <div
+                            v-if="editando && (orgaoSelecionadoLabel || vinculosSelecionados.length)"
+                            class="rounded-lg bg-surface-50 dark:bg-surface-900 border border-surface-200 dark:border-surface-700 p-3 flex flex-col gap-2"
+                        >
+                            <span class="text-xs font-semibold uppercase tracking-wide text-muted-color">
+                                Atuação vinculada hoje
+                            </span>
+                            <div v-if="orgaoSelecionadoLabel" class="text-sm">
+                                <span class="text-muted-color">Órgão:</span>
+                                <strong class="ml-1">{{ orgaoSelecionadoLabel }}</strong>
+                            </div>
+                            <div v-if="vinculosSelecionados.length" class="flex flex-col gap-1">
+                                <span class="text-xs text-muted-color">
+                                    Setor(es) administrativo(s):
+                                    <span v-if="form.perfil === 'SECRETARIA'" class="text-primary">*</span>
+                                </span>
+                                <div class="flex flex-wrap gap-2">
+                                    <Tag
+                                        v-for="v in vinculosSelecionados"
+                                        :key="v.value"
+                                        :value="v.label"
+                                        severity="info"
+                                    />
+                                </div>
+                            </div>
+                            <span v-else class="text-sm text-muted-color">Nenhum setor vinculado — selecione abaixo.</span>
+                        </div>
+
                         <div class="flex flex-col gap-2">
                             <label class="text-sm font-medium">
                                 Órgão (Sinapse)
@@ -457,7 +772,7 @@ onMounted(async () => {
                                 <span v-else-if="form.perfil === 'GESTOR'" class="text-muted-color font-normal"> (opcional)</span>
                             </label>
                             <Select
-                                v-model="form.sinapse_orgao_id"
+                                :modelValue="form.sinapse_orgao_id"
                                 :options="orgaos"
                                 optionLabel="label"
                                 optionValue="value"
@@ -465,8 +780,12 @@ onMounted(async () => {
                                 filter
                                 showClear
                                 class="w-full"
+                                @update:modelValue="onOrgaoChange"
                             />
-                            <span class="text-xs text-muted-color">Nível superior — secretaria executiva no catálogo Sinapse</span>
+                            <span v-if="orgaoSelecionadoLabel" class="text-xs text-primary">
+                                Selecionado: {{ orgaoSelecionadoLabel }}
+                            </span>
+                            <span v-else class="text-xs text-muted-color">Nível superior — secretaria executiva no catálogo Sinapse</span>
                         </div>
 
                         <div class="flex items-center gap-2 text-muted-color text-xs pl-1">
@@ -485,13 +804,16 @@ onMounted(async () => {
                                 :options="setoresOrgao"
                                 optionLabel="label"
                                 optionValue="value"
-                                :placeholder="form.sinapse_orgao_id ? 'Selecione o(s) setor(es) RM' : 'Escolha o órgão primeiro'"
+                                :placeholder="form.sinapse_orgao_id ? 'Selecione ou ajuste o(s) setor(es) RM' : 'Escolha o órgão para listar setores'"
                                 filter
                                 display="chip"
                                 class="w-full"
-                                :disabled="!form.sinapse_orgao_id"
+                                :disabled="!form.sinapse_orgao_id && !vinculosSelecionados.length"
                             />
-                            <span class="text-xs text-muted-color">Unidade administrativa importada (RM271698) — fila «Meu setor»</span>
+                            <span v-if="vinculosSelecionados.length" class="text-xs text-muted-color">
+                                {{ vinculosSelecionados.length }} setor(es) selecionado(s) — sigla e nome exibidos nos chips acima.
+                            </span>
+                            <span v-else class="text-xs text-muted-color">Unidade administrativa importada (RM271698) — fila «Meu setor»</span>
                         </div>
                     </template>
                 </div>
@@ -513,16 +835,42 @@ onMounted(async () => {
                     <div class="font-semibold text-sm uppercase tracking-wide text-muted-color">3. Dados da conta</div>
                     <div v-if="!editando" class="flex flex-col gap-2">
                         <label class="text-sm font-medium">Login (username)</label>
-                        <InputText v-model="form.username" class="w-full" autocomplete="off" />
+                        <InputText
+                            v-model="form.username"
+                            class="w-full"
+                            autocomplete="off"
+                            autocapitalize="off"
+                            data-lpignore="true"
+                        />
                     </div>
                     <div v-if="!editando" class="flex flex-col gap-2">
                         <label class="text-sm font-medium">Senha inicial</label>
-                        <Password v-model="form.password" toggleMask :feedback="false" class="w-full" inputClass="w-full" />
+                        <Password
+                            v-model="form.password"
+                            toggleMask
+                            :feedback="false"
+                            class="w-full"
+                            inputClass="w-full"
+                            autocomplete="new-password"
+                        />
                     </div>
-                    <div v-else class="flex flex-col gap-2">
-                        <label class="text-sm font-medium">Nova senha (opcional)</label>
-                        <Password v-model="form.password" toggleMask :feedback="false" class="w-full" inputClass="w-full" />
-                    </div>
+                    <template v-else>
+                        <div class="flex items-center gap-2">
+                            <Checkbox v-model="alterarSenha" inputId="alterar-senha" binary />
+                            <label for="alterar-senha" class="text-sm cursor-pointer">Alterar senha</label>
+                        </div>
+                        <div v-if="alterarSenha" class="flex flex-col gap-2">
+                            <label class="text-sm font-medium">Nova senha</label>
+                            <Password
+                                v-model="form.password"
+                                toggleMask
+                                :feedback="false"
+                                class="w-full"
+                                inputClass="w-full"
+                                autocomplete="new-password"
+                            />
+                        </div>
+                    </template>
 
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="flex flex-col gap-2">
@@ -569,3 +917,14 @@ onMounted(async () => {
         </Dialog>
     </div>
 </template>
+
+<style scoped>
+.gestao-dialog-autofill-decoy {
+    position: absolute;
+    width: 0;
+    height: 0;
+    opacity: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+</style>

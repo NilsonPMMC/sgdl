@@ -58,6 +58,27 @@ class ProtocoloNumeracaoServiceTests(TestCase):
             f"OFICIO-{self.ano}-0002",
         )
 
+    def test_clone_multi_destino_nao_regride_sequencia(self):
+        """B5 — sufixo -D2 no protocolo_legislativo não deve resetar numeração."""
+        Demanda.objects.create(
+            titulo="Principal",
+            descricao="x",
+            autor=self.vereador_a,
+            protocolo_legislativo=f"OFICIO-{self.ano}-0035",
+            status="PROTOCOLADO",
+        )
+        Demanda.objects.create(
+            titulo="Clone",
+            descricao="x",
+            autor=self.vereador_a,
+            protocolo_legislativo=f"OFICIO-{self.ano}-0035-D2",
+            status="PROTOCOLADO",
+        )
+        self.assertEqual(
+            proximo_protocolo_legislativo(self.vereador_a.id, ano=self.ano),
+            f"OFICIO-{self.ano}-0036",
+        )
+
     def test_protocolo_executivo_global(self):
         Demanda.objects.create(
             titulo="D1",

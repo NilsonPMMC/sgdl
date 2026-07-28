@@ -117,6 +117,61 @@ def categorias_orientacao_ativas() -> frozenset[str]:
     return cats
 
 
+def listar_faq_detalhada_para_prompt(*, limite: int = 20) -> list[dict[str, str]]:
+    """Entradas completas da FAQ para calibrar o prompt Groq (A1)."""
+    out: list[dict[str, str]] = []
+    for faq in carregar_catalogo_faq():
+        out.append(
+            {
+                "categoria_orientacao": faq.categoria_orientacao,
+                "titulo": faq.titulo,
+                "mensagem": faq.mensagem,
+                "orgao_hint": faq.orgao_hint,
+            }
+        )
+        if len(out) >= limite:
+            break
+    return out
+
+
+def montar_resposta_chat_fora_competencia(rascunho: list[Any]) -> str:
+    """Mensagem ao cidadão alinhada à FAQ cadastrada (itens fora_competencia)."""
+    blocos: list[str] = []
+    for i, item in enumerate(rascunho or []):
+        if not isinstance(item, dict) or not item.get("fora_competencia"):
+            continue
+        titulo = (item.get("titulo") or f"Solicitação {i + 1}").strip()
+        faq = item.get("faq_orientacao") if isinstance(item.get("faq_orientacao"), dict) else {}
+        motivo = (item.get("motivo_recusa") or "").strip()
+        linhas: list[str] = [f"«{titulo}»"]
+        if motivo:
+            linhas.append(motivo)
+        elif faq.get("mensagem"):
+            linhas.append(str(faq["mensagem"]).strip())
+        if faq.get("orgao_hint"):
+            linhas.append(f"Orientação: {faq['orgao_hint']}.")
+        blocos.append("\n".join(linhas))
+
+    if not blocos:
+        return ""
+
+    if len(blocos) == 1:
+        intro = (
+            "Não consigo gerar ofício pelo gabinete para este pedido, "
+            "pois não se trata de serviço público municipal:"
+        )
+    else:
+        intro = (
+            "Não consigo gerar ofício pelo gabinete para os pedidos abaixo, "
+            "pois não se tratam de serviço público municipal:"
+        )
+    fechamento = (
+        "Se precisar de zeladoria, obras, meio ambiente ou outro serviço da Prefeitura, "
+        "descreva o problema e o local (rua ou bairro)."
+    )
+    return intro + "\n\n" + "\n\n".join(blocos) + "\n\n" + fechamento
+
+
 def listar_categorias_para_prompt() -> list[dict[str, str]]:
     """Resumo para injeção em prompt de enriquecimento / triagem LLM."""
     out: list[dict[str, str]] = []
@@ -132,6 +187,72 @@ def listar_categorias_para_prompt() -> list[dict[str, str]]:
     return out
 
 
+# Fallback quando regex cadastradas no banco são estreitas (ex.: «prisão» sem «preventiva»).
+_FALLBACK_FAQ_CATEGORIA_RE: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r"\b(?:(?:mandato|madato)\s+de\s+pris[aã]o|"
+            r"pris[aã]o\s+(?:preventiva|tempor[aá]ria|domiciliar)|"
+            r"(?:solicit(?:o|a|ar)|ped(?:ido|ir)|requisit(?:o|ar))\s+(?:a\s+)?pris[aã]o|"
+            r"pris[aã]o\s+(?:de\s+)?(?:um?\s+)?(?:cidad[aã]o|pessoa|indiv[ií]duo)|"
+            r"pris[aã]o\b)",
+            re.IGNORECASE,
+        ),
+        "MADATO_DE_PRISAO",
+    ),
+    (
+        re.compile(
+            r"\b(?:justi[cç]a\s+estadual|processo\s+judicial|"
+            r"vara\s+(?:criminal|c[ií]vel)|delegacia|boletim\s+de\s+ocorr[eê]ncia|"
+            r"(?:furto|roubo|assalto|sequestro|homic[ií]dio|estupro|"
+            r"tr[aá]fico\s+(?:de\s+)?(?:drogas|entorpecentes)))\b",
+            re.IGNORECASE,
+        ),
+        "JUSTICA_ESTADUAL",
+    ),
+    (
+        re.compile(
+            r"\b(?:ju[ií]z(?:a)?|promotor(?:a)?|defensor(?:a)?\s+p[uú]blico)\b",
+            re.IGNORECASE,
+        ),
+        "JUSTICA_ESTADUAL",
+    ),
+)
+
+_ALIASES_CATEGORIA_FAQ: dict[str, tuple[str, ...]] = {
+    "MADATO_DE_PRISAO": ("MANDATO_DE_PRISAO",),
+    "MANDATO_DE_PRISAO": ("MADATO_DE_PRISAO",),
+}
+
+
+def _faq_por_categoria_com_alias(
+    categoria: str, *, municipio: str | None = None
+) -> FaqOrientacaoRegistro | None:
+    cat = str(categoria).strip().upper().replace(" ", "_")
+    faq = faq_por_categoria(cat, municipio=municipio)
+    if faq:
+        return faq
+    for alias in _ALIASES_CATEGORIA_FAQ.get(cat, ()):
+        faq = faq_por_categoria(alias, municipio=municipio)
+        if faq:
+            return faq
+    return None
+
+
+def _detectar_faq_fallback_por_texto(
+    texto: str, *, municipio: str | None = None
+) -> FaqOrientacaoRegistro | None:
+    t = (texto or "").strip()
+    if not t:
+        return None
+    for pat, cat in _FALLBACK_FAQ_CATEGORIA_RE:
+        if pat.search(t):
+            faq = _faq_por_categoria_com_alias(cat, municipio=municipio)
+            if faq:
+                return faq
+    return None
+
+
 def detectar_faq_por_texto(texto: str, *, municipio: str | None = None) -> FaqOrientacaoRegistro | None:
     t = (texto or "").strip()
     if not t:
@@ -140,7 +261,7 @@ def detectar_faq_por_texto(texto: str, *, municipio: str | None = None) -> FaqOr
         for pat in faq.patterns:
             if pat.search(t):
                 return faq
-    return None
+    return _detectar_faq_fallback_por_texto(t, municipio=municipio)
 
 
 def faq_por_categoria(

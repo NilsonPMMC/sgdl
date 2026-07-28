@@ -21,15 +21,12 @@ from .services.copiloto_faq_service import (
     aplicar_sugestao_llm,
     listar_categorias_para_prompt,
 )
+from .services.gestor_escopo import gestor_pode_crud_admin
 logger = logging.getLogger(__name__)
 
 
 def _usuario_pode_gestao_faq(user) -> bool:
-    return bool(
-        user
-        and user.is_authenticated
-        and (getattr(user, "perfil", None) == "GESTOR" or user.is_staff)
-    )
+    return gestor_pode_crud_admin(user)
 
 
 def _enriquecer_item_atualizacao(item: dict) -> dict:

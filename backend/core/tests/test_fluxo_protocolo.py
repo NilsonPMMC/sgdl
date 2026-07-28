@@ -33,6 +33,7 @@ class FluxoProtocoloServiceTests(SinapseCatalogTestMixin, TestCase):
             "sinapse_servico_id": SINAPSE_SERVICO_ID,
             "sinapse_orgao_id": SINAPSE_ORGAO_A,
             "protocolo_legislativo": "OFICIO-2026-0001",
+            "embedding": [1.0] + [0.0] * 1023,
         }
         defaults.update(kwargs)
         return Demanda.objects.create(**defaults)
@@ -58,6 +59,33 @@ class FluxoProtocoloServiceTests(SinapseCatalogTestMixin, TestCase):
         self.assertTrue(d.protocolo_executivo)
         self.assertEqual(d.sinapse_orgao_id, SINAPSE_ORGAO_A)
 
+    def test_despacho_automatico_registra_assinatura_sistema(self):
+        from core.models_assinatura_eletronica import AssinaturaEletronica
+        from core.services.assinatura_eletronica_service import (
+            AssinaturaEletronicaService,
+            DECLARACAO_DESPACHO_AUTOMATICO,
+        )
+
+        ServicoFluxoProtocolo.objects.create(
+            sinapse_servico_id=SINAPSE_SERVICO_ID,
+            modo=ServicoFluxoProtocolo.MODO_AUTOMATICO,
+            ativo=True,
+        )
+        d = self._demanda_aguardando()
+        FluxoProtocoloService().tentar_despacho_automatico_pk(d.pk)
+        d.refresh_from_db()
+        assinatura = AssinaturaEletronica.objects.filter(
+            demanda=d,
+            etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+            papel=AssinaturaEletronica.PAPEL_OPERADOR,
+        ).first()
+        self.assertIsNotNone(assinatura)
+        self.assertEqual(assinatura.declaracao, DECLARACAO_DESPACHO_AUTOMATICO)
+        self.assertEqual(
+            assinatura.usuario.username,
+            AssinaturaEletronicaService.USUARIO_SISTEMA_USERNAME,
+        )
+
     def test_tendencia_nunca_despacha_automatico(self):
         ServicoFluxoProtocolo.objects.create(
             sinapse_servico_id=SINAPSE_SERVICO_ID,
@@ -67,6 +95,41 @@ class FluxoProtocoloServiceTests(SinapseCatalogTestMixin, TestCase):
             origem_vinculo=Demanda.ORIGEM_VINCULO_TENDENCIA,
         )
         self.assertFalse(FluxoProtocoloService().despacho_automatico_habilitado(d))
+
+    def test_auto_protocola_demanda_nova_em_super_os_existente(self):
+        from core.models import ClusterExecucao
+
+        ServicoFluxoProtocolo.objects.create(
+            sinapse_servico_id=SINAPSE_SERVICO_ID,
+            modo=ServicoFluxoProtocolo.MODO_AUTOMATICO,
+            ativo=True,
+        )
+        cluster = ClusterExecucao.objects.create(
+            titulo="Super OS teste",
+            status="EM_ANDAMENTO",
+            sinapse_servico_id=SINAPSE_SERVICO_ID,
+            protocolo_super_os="SUPER-2026-TEST",
+        )
+        d1 = self._demanda_aguardando(
+            protocolo_legislativo="OFICIO-2026-0101",
+            cluster=cluster,
+        )
+        d1.status = "PROTOCOLADO"
+        d1.protocolo_executivo = "2026-9001"
+        d1.save(update_fields=["status", "protocolo_executivo"])
+
+        d2 = self._demanda_aguardando(protocolo_legislativo="OFICIO-2026-0102", cluster=cluster)
+        d3 = self._demanda_aguardando(protocolo_legislativo="OFICIO-2026-0103", cluster=cluster)
+        d3.status = "PROTOCOLADO"
+        d3.protocolo_executivo = "2026-9002"
+        d3.save(update_fields=["status", "protocolo_executivo"])
+
+        n = FluxoProtocoloService().processar_cohorte_servico(SINAPSE_SERVICO_ID)
+        self.assertGreaterEqual(n, 1)
+        d2.refresh_from_db()
+        self.assertEqual(d2.status, "PROTOCOLADO")
+        self.assertTrue(d2.protocolo_executivo)
+        self.assertEqual(d2.sinapse_orgao_id, SINAPSE_ORGAO_A)
 
 
 class FluxoProtocoloAPITests(SinapseCatalogTestMixin, APITestCase):

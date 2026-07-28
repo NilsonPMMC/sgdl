@@ -20,8 +20,11 @@ class DemandaFilter(django_filters.FilterSet):
     cluster = django_filters.NumberFilter(field_name='cluster_id')
     minha_unidade = django_filters.BooleanFilter(method='filter_minha_unidade')
     fila = django_filters.CharFilter(method='filter_fila', label='Fila operacional')
+    escopo_setor = django_filters.CharFilter(method='filter_escopo_setor_noop', label='Escopo setor secretaria')
     origem_vinculo = django_filters.ChoiceFilter(choices=Demanda.ORIGEM_VINCULO_CHOICES)
     trilha = django_filters.CharFilter(method='filter_trilha', label='Trilha (carta/tendencia)')
+    consulta = django_filters.CharFilter(method='filter_consulta', label='Atalho de consulta (hub)')
+    stand_by_estudo = django_filters.BooleanFilter(field_name='stand_by_estudo_viabilidade')
 
     class Meta:
         model = Demanda
@@ -36,7 +39,22 @@ class DemandaFilter(django_filters.FilterSet):
             'q',
             'fila',
             'minha_unidade',
+            'escopo_setor',
+            'consulta',
+            'stand_by_estudo',
         ]
+
+    def filter_escopo_setor_noop(self, queryset, name, value):
+        """Escopo de setor (em_operacao/encerrado) aplicado em DemandaViewSet.get_queryset."""
+        return queryset
+
+    def filter_consulta(self, queryset, name, value):
+        consulta = (value or "").strip().lower()
+        if consulta == "atrasadas":
+            from core.services.demanda_sla_service import filtrar_demandas_atrasadas
+
+            return filtrar_demandas_atrasadas(queryset)
+        return queryset
 
     def filter_trilha(self, queryset, name, value):
         trilha = (value or "").strip().lower()
@@ -55,20 +73,49 @@ class DemandaFilter(django_filters.FilterSet):
     def filter_minha_unidade(self, queryset, name, value):
         if not value:
             return queryset
-        from core.services.tramitacao_setor_service import UnidadeAdministrativaService
+        from core.services.demanda_visibilidade import filtrar_demandas_minha_unidade
 
-        if not getattr(self.request, 'user', None) or not self.request.user.is_authenticated:
+        if not getattr(self.request, "user", None) or not self.request.user.is_authenticated:
             return queryset.none()
-        ids = UnidadeAdministrativaService().ids_unidades_do_usuario(self.request.user)
-        if not ids:
-            return queryset.none()
-        return queryset.filter(unidade_administrativa_id__in=ids)
+        return filtrar_demandas_minha_unidade(queryset, self.request.user)
+
+    def _parametro_consulta(self, nome: str) -> str:
+        data = getattr(self, "data", None)
+        if data is not None and hasattr(data, "get"):
+            valor = data.get(nome)
+            if valor not in (None, ""):
+                return str(valor).strip().lower()
+        request = getattr(self, "request", None)
+        if request is not None:
+            query_params = getattr(request, "query_params", None)
+            if query_params is not None:
+                valor = query_params.get(nome)
+                if valor not in (None, ""):
+                    return str(valor).strip().lower()
+            get = getattr(request, "GET", None)
+            if get is not None:
+                valor = get.get(nome)
+                if valor not in (None, ""):
+                    return str(valor).strip().lower()
+        return ""
 
     def filter_fila(self, queryset, name, value):
         fila = (value or "").strip().lower()
+        escopo_setor = self._parametro_consulta("escopo_setor")
         if fila == "protocolados":
             return queryset.filter(status="AGUARDANDO_PROTOCOLO")
         if fila == "operacionais":
+            if escopo_setor == "encerrado":
+                return queryset.filter(
+                    status__in=(
+                        "PROTOCOLADO",
+                        "EM_EXECUCAO",
+                        "AGUARDANDO_TRANSFERENCIA",
+                        "AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+                        "DEVOLVIDO_VEREADOR",
+                        "FINALIZADO",
+                    )
+                )
             return queryset.filter(
                 status__in=("PROTOCOLADO", "EM_EXECUCAO", "AGUARDANDO_TRANSFERENCIA")
             )
@@ -76,6 +123,10 @@ class DemandaFilter(django_filters.FilterSet):
             return queryset.filter(
                 status__in=("AGUARDANDO_DEVOLUTIVA_PROTOCOLO", "DEVOLVIDO_VEREADOR")
             )
+        if fila == "finalizados":
+            return queryset.filter(status="FINALIZADO")
+        if fila == "stand_by":
+            return queryset.filter(stand_by_estudo_viabilidade=True)
         return queryset
 
     def filter_q(self, queryset, name, value):

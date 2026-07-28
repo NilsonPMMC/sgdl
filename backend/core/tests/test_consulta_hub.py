@@ -74,6 +74,51 @@ class ConsultaHubAPITests(SinapseCatalogTestMixin, APITestCase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data["demandas"], [])
 
+    def test_busca_retorna_endereco_formatado(self):
+        Demanda.objects.create(
+            titulo="Tapa na rua",
+            descricao="Buraco na via",
+            autor=self.vereador,
+            status="RASCUNHO",
+            logradouro="Rua Ipiranga",
+            numero="100",
+            bairro="Centro",
+        )
+        self.client.force_authenticate(self.vereador)
+        r = self.client.get("/api/consulta/busca/", {"q": "tapa"})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(r.data["demandas"]), 1)
+        endereco = r.data["demandas"][0]["endereco"]
+        self.assertIn("Rua Ipiranga", endereco)
+        self.assertEqual(r.data["demandas"][0]["bairro"], "Centro")
+
+    def test_protocolo_nao_ve_rascunho_na_busca(self):
+        Demanda.objects.create(
+            titulo="Rascunho secreto",
+            descricao="x",
+            autor=self.vereador,
+            status="RASCUNHO",
+        )
+        protocolo = Usuario.objects.create_user(
+            username=f"prot_busca_{self.suffix}", password="x", perfil="PROTOCOLO"
+        )
+        self.client.force_authenticate(protocolo)
+        r = self.client.get("/api/consulta/busca/", {"q": "secreto"})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["demandas"], [])
+
+    def test_protocolo_acessa_hub(self):
+        protocolo = Usuario.objects.create_user(
+            username=f"prot_hub_{self.suffix}", password="x", perfil="PROTOCOLO"
+        )
+        self.client.force_authenticate(protocolo)
+        r = self.client.get("/api/consulta/hub/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["perfil"], "PROTOCOLO")
+        ids = {a["id"] for a in r.data["atalhos"]}
+        self.assertIn("protocolados", ids)
+        self.assertIn("operacionais", ids)
+
     def test_perfil_sem_acesso_recebe_403(self):
         assessor = Usuario.objects.create_user(
             username=f"ass_hub_{self.suffix}", password="x", perfil="ASSESSOR"

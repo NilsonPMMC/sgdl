@@ -1,0 +1,105 @@
+{
+  "versao": 1,
+  "gerado_em": "2026-07-07T19:30:00+00:00",
+  "nota": "De-para curado (Protocolo) — assistivo; não substitui confirmação humana na carta Sinapse.",
+  "mapeamentos": [
+    {
+      "servico_legado": "Limpeza Pública",
+      "consulta_sinapse": "limpeza roçagem via pública",
+      "atalho": "Limpeza e roçada de via",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Recapeamento/Tapa Buraco",
+      "sinapse_servico_id": 80,
+      "titulo_sinapse": "Tapa Buraco",
+      "atalho": "Tapa buraco na via",
+      "confianca": "alta"
+    },
+    {
+      "servico_legado": "Manutenção Estradas Rurais/Urbanas",
+      "sinapse_servico_id": 86,
+      "titulo_sinapse": "Nivelamento e Cascalhamento",
+      "consulta_sinapse": "manutenção estrada municipal",
+      "atalho": "Manutenção de estrada",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Manutenção Iluminação Pública",
+      "sinapse_servico_id": 14,
+      "titulo_sinapse": "Iluminação Pública: Troca de Lâmpadas Queimadas, Quebradas e com Defeitos",
+      "atalho": "Iluminação pública",
+      "confianca": "alta"
+    },
+    {
+      "servico_legado": "Poda de Árvore",
+      "consulta_sinapse": "poda árvore via pública",
+      "atalho": "Poda de árvore",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Manutenção em Terreno particular",
+      "consulta_sinapse": "limpeza terreno particular",
+      "atalho": "Limpeza de terreno",
+      "confianca": "baixa"
+    },
+    {
+      "servico_legado": "Rondas Ostensivas/Intensificação",
+      "sinapse_servico_id": 143,
+      "titulo_sinapse": "Ronda nas Praças e Patrimônios Públicos",
+      "consulta_sinapse": "ronda GCM intensificação",
+      "atalho": "Ronda da GCM",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Implantação de Sinalização viária",
+      "sinapse_servico_id": 133,
+      "titulo_sinapse": "Trânsito: Implantação ou Alteração de Sinalização",
+      "atalho": "Sinalização de trânsito",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Nivelamento e Cascalhamento",
+      "sinapse_servico_id": 86,
+      "titulo_sinapse": "Nivelamento e Cascalhamento",
+      "atalho": "Nivelamento de estrada",
+      "confianca": "alta"
+    },
+    {
+      "servico_legado": "Manutenção Sinalização viária",
+      "consulta_sinapse": "manutenção sinalização viária",
+      "atalho": "Manutenção de sinalização",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Implantação de Iluminação Pública",
+      "consulta_sinapse": "implantação iluminação pública",
+      "atalho": "Nova iluminação pública",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Implantação de Redutor de Velocidade",
+      "sinapse_servico_id": 301,
+      "titulo_sinapse": "Implantação de Lombada",
+      "atalho": "Lombada na via",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Coleta de Lixo/Entulho",
+      "consulta_sinapse": "coleta entulho lixo",
+      "atalho": "Coleta de entulho",
+      "confianca": "media"
+    },
+    {
+      "servico_legado": "Serviços Evento",
+      "consulta_sinapse": "reserva espaço evento parque",
+      "atalho": "Evento em espaço público",
+      "confianca": "baixa"
+    },
+    {
+      "servico_legado": "Implantação de Abrigo de ônibus",
+      "consulta_sinapse": "abrigo ônibus ponto",
+      "confianca": "baixa"
+    }
+  ]
+}

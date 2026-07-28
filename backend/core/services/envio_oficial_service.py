@@ -70,12 +70,15 @@ class EnvioOficialService:
             )
 
     def preparar_preview(self, demanda: Demanda, usuario) -> dict[str, Any]:
+        from core.services.copiloto_duplicidade_service import alertas_duplicidade_para_demanda
+
         self._pode_enviar_demanda(demanda, usuario)
         preview = AssinaturaEletronicaService().preparar_preview_envio(demanda)
         return {
             "demanda_id": demanda.pk,
             "titulo": demanda.titulo,
             **preview,
+            **alertas_duplicidade_para_demanda(demanda, usuario),
         }
 
     def preparar_preview_lote(

@@ -25,12 +25,14 @@ from django.conf import settings
 from .models import Demanda, Anexo, Tramitacao, AnexoTramitacao, Usuario, Notificacao
 from integrations import sinapse_catalog
 from .services.vector_service import VectorService
+from .services.demanda_visibilidade import aplicar_escopo_demanda, aplicar_escopo_rascunho
 from .services.chatbot_service import ChatbotService
 from .serializers import ( DemandaSerializer, DemandaPainelListSerializer, ServicoSerializer, AnexoSerializer, SecretariaSerializer, CustomTokenObtainPairSerializer, PasswordResetConfirmSerializer,
     TramitacaoSerializer, AnexoTramitacaoSerializer, UsuarioSerializer, UserProfileSerializer, ChangePasswordSerializer, NotificacaoSerializer,
     ChatInteracaoSerializer,
 )
 from .filters import DemandaFilter, UsuarioFilter
+from .pagination import DemandaListPagination
 from rest_framework.permissions import IsAuthenticated
 
 logger = logging.getLogger(__name__)
@@ -207,6 +209,139 @@ class ChatConfirmarServicoAPIView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class ChatRevisarEtapaAPIView(APIView):
+    """POST /api/v1/chat/revisar-etapa/ — reabre etapa (pedido|servico|local|anexos) para edição."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        session_id = request.data.get("session_id")
+        indice = request.data.get("indice_demanda")
+        etapa = request.data.get("etapa")
+        if not session_id:
+            return Response({"detail": "session_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            indice_i = int(indice)
+        except (TypeError, ValueError):
+            return Response({"detail": "indice_demanda inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            payload = ChatbotService().revisar_etapa_copiloto(
+                usuario=request.user,
+                session_id=str(session_id),
+                indice_demanda=indice_i,
+                etapa=str(etapa or ""),
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except PermissionError:
+            return Response(
+                {"detail": "Sessão inexistente ou não pertence ao usuário."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class ChatEditarPedidoAPIView(APIView):
+    """POST /api/v1/chat/editar-pedido/ — atualiza relato/título de uma solicitação."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        session_id = request.data.get("session_id")
+        indice = request.data.get("indice_demanda")
+        if not session_id:
+            return Response({"detail": "session_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            indice_i = int(indice)
+        except (TypeError, ValueError):
+            return Response({"detail": "indice_demanda inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            payload = ChatbotService().editar_pedido_demanda(
+                usuario=request.user,
+                session_id=str(session_id),
+                indice_demanda=indice_i,
+                titulo=request.data.get("titulo"),
+                descricao=request.data.get("descricao"),
+                pedido_integral=request.data.get("pedido_integral"),
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except PermissionError:
+            return Response(
+                {"detail": "Sessão inexistente ou não pertence ao usuário."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class ChatEditarLocalAPIView(APIView):
+    """POST /api/v1/chat/editar-local/ — atualiza endereço estruturado de uma solicitação."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        session_id = request.data.get("session_id")
+        indice = request.data.get("indice_demanda")
+        if not session_id:
+            return Response({"detail": "session_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            indice_i = int(indice)
+        except (TypeError, ValueError):
+            return Response({"detail": "indice_demanda inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        endereco = request.data.get("endereco")
+        if not isinstance(endereco, dict):
+            endereco = {
+                k: request.data.get(k)
+                for k in ("cep", "logradouro", "numero", "bairro", "complemento")
+                if request.data.get(k) not in (None, "")
+            }
+        try:
+            payload = ChatbotService().editar_local_demanda(
+                usuario=request.user,
+                session_id=str(session_id),
+                indice_demanda=indice_i,
+                endereco=endereco or None,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except PermissionError:
+            return Response(
+                {"detail": "Sessão inexistente ou não pertence ao usuário."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class ChatRemoverAnexoSessaoAPIView(APIView):
+    """POST /api/v1/chat/remover-anexo-sessao/ — remove anexo já enviado na sessão do copiloto."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        session_id = request.data.get("session_id")
+        indice = request.data.get("indice_sessao")
+        if not session_id:
+            return Response({"detail": "session_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            indice_i = int(indice)
+        except (TypeError, ValueError):
+            return Response({"detail": "indice_sessao inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            payload = ChatbotService().remover_anexo_sessao_copiloto(
+                usuario=request.user,
+                session_id=str(session_id),
+                indice_sessao=indice_i,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except PermissionError:
+            return Response(
+                {"detail": "Sessão inexistente ou não pertence ao usuário."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 class ChatInteragirAPIView(APIView):
     """
     POST /api/v1/chat/interagir/
@@ -260,6 +395,18 @@ class ChatInteragirAPIView(APIView):
                 if parte.isdigit():
                     indices_aprovados.append(int(parte))
 
+        corpus_sid_raw = request.data.get("corpus_sinapse_servico_id")
+        corpus_sinapse_servico_id = None
+        if corpus_sid_raw not in (None, ""):
+            try:
+                corpus_sinapse_servico_id = int(corpus_sid_raw)
+            except (TypeError, ValueError):
+                return Response(
+                    {"corpus_sinapse_servico_id": "Identificador de serviço inválido."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        corpus_atalho_id = (request.data.get("corpus_atalho_id") or "").strip() or None
+
         try:
             payload = ChatbotService().interagir(
                 usuario=request.user,
@@ -268,6 +415,8 @@ class ChatInteragirAPIView(APIView):
                 anexos_upload=anexos,
                 anexo_demanda_indices=anexo_indices or None,
                 indices_aprovados=indices_aprovados,
+                corpus_sinapse_servico_id=corpus_sinapse_servico_id,
+                corpus_atalho_id=corpus_atalho_id,
             )
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
@@ -311,6 +460,15 @@ def _orgao_id_para_envio_demanda(demanda: Demanda) -> int | None:
     return None
 
 
+def _resposta_acesso_protocolo_central(user, mensagem: str = "Acesso restrito ao Protocolo."):
+    """403 se o usuário não for Protocolo, gestor SGAC ou gestor geral."""
+    from core.services.gestor_escopo import usuario_pode_painel_protocolo_central
+
+    if usuario_pode_painel_protocolo_central(user) or getattr(user, "is_staff", False):
+        return None
+    return Response({"detail": mensagem}, status=status.HTTP_403_FORBIDDEN)
+
+
 class DemandaViewSet(viewsets.ModelViewSet):
     queryset = Demanda.objects.select_related(
         "tendencia", "autor", "cluster"
@@ -318,54 +476,177 @@ class DemandaViewSet(viewsets.ModelViewSet):
     serializer_class = DemandaSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = DemandaFilter
+    pagination_class = DemandaListPagination
 
     _DESC_SIMILARES_MAX = 280
 
     def get_serializer_class(self):
         if self.action == "list":
-            fila = (self.request.query_params.get("fila") or "").strip().lower()
-            if fila in ("protocolados", "operacionais", "devolutivas"):
-                return DemandaPainelListSerializer
+            return DemandaPainelListSerializer
         return DemandaSerializer
 
     def get_serializer_context(self):
         return super().get_serializer_context()
 
+    def _aplicar_filtros_cluster_listagem(self, qs):
+        """Oculta seguidoras na listagem; retrieve/detalhe mantém escopo completo."""
+        perfil = getattr(self.request.user, "perfil", None)
+        if perfil == "SECRETARIA":
+            from core.services.cluster_service import ClusterService
+
+            return ClusterService().filtrar_listagem_apenas_lideres(qs)
+        if perfil == "PROTOCOLO":
+            from core.services.cluster_service import ClusterService
+
+            return ClusterService().filtrar_seguidoras_integradas(qs)
+        return qs
+
     def get_queryset(self):
         qs = Demanda.objects.select_related(
             "tendencia", "autor", "cluster", "unidade_administrativa"
         )
+        qs = aplicar_escopo_demanda(qs, self.request.user)
         fila = (self.request.query_params.get("fila") or "").strip().lower()
-        if fila in ("protocolados", "operacionais", "devolutivas"):
-            qs = qs.order_by("data_entrada_etapa", "data_criacao")
+        if fila in ("protocolados", "operacionais", "devolutivas", "finalizados", "stand_by"):
+            from core.services.gestor_escopo import usuario_pode_acessar_fila_demanda
+
+            if not usuario_pode_acessar_fila_demanda(self.request.user, fila):
+                return qs.none()
+        if fila in ("protocolados", "operacionais", "devolutivas", "finalizados", "stand_by"):
+            if fila == "finalizados":
+                qs = qs.prefetch_related("assinaturas_eletronicas").order_by(
+                    "-data_finalizacao", "-data_criacao"
+                )
+            else:
+                qs = qs.prefetch_related("assinaturas_eletronicas").order_by(
+                    "data_entrada_etapa", "data_criacao"
+                )
             if fila == "operacionais":
-                unidade_id = self.request.query_params.get("unidade_administrativa")
-                if unidade_id:
-                    try:
-                        qs = qs.filter(unidade_administrativa_id=int(unidade_id))
-                    except (TypeError, ValueError):
-                        pass
-                elif self.request.query_params.get("minha_unidade") in ("1", "true", "True"):
-                    from core.services.tramitacao_setor_service import (
-                        UnidadeAdministrativaService,
-                    )
+                from core.services.acompanhamento_demanda_service import (
+                    filtrar_demandas_acompanhando,
+                )
+                from core.services.demanda_visibilidade import (
+                    aplicar_escopo_fila_operacional,
+                    aplicar_escopo_fila_operacional_gestor_setorial,
+                    filtrar_demandas_em_operacao_gestor_setorial,
+                    filtrar_demandas_em_operacao_setor,
+                    filtrar_demandas_encerrado_setor,
+                    filtrar_demandas_minha_unidade,
+                )
+                from core.services.gestor_escopo import (
+                    TIPO_SETORIAL,
+                    tipo_gestor,
+                    usuario_pode_painel_protocolo_central,
+                )
 
-                    ids = UnidadeAdministrativaService().ids_unidades_do_usuario(
-                        self.request.user
-                    )
-                    if ids:
-                        qs = qs.filter(unidade_administrativa_id__in=ids)
-            if getattr(self.request.user, "perfil", None) == "SECRETARIA":
-                from core.services.cluster_service import ClusterService
+                escopo_setor = (
+                    self.request.query_params.get("escopo_setor") or "em_operacao"
+                ).strip().lower()
+                perfil = getattr(self.request.user, "perfil", None)
+                painel_protocolo_central = usuario_pode_painel_protocolo_central(
+                    self.request.user
+                )
+                gestor_setorial = (
+                    perfil == "GESTOR"
+                    and tipo_gestor(self.request.user) == TIPO_SETORIAL
+                    and not painel_protocolo_central
+                )
 
-                qs = ClusterService().filtrar_listagem_apenas_lideres(qs)
+                if escopo_setor == "acompanhando":
+                    qs = filtrar_demandas_acompanhando(qs, self.request.user)
+                elif escopo_setor == "encerrado" and (
+                    perfil == "SECRETARIA" or gestor_setorial
+                ):
+                    qs = filtrar_demandas_encerrado_setor(qs, self.request.user)
+                elif escopo_setor == "em_operacao" and perfil == "SECRETARIA":
+                    qs = aplicar_escopo_fila_operacional(qs, self.request.user)
+                    qs = filtrar_demandas_em_operacao_setor(qs, self.request.user)
+                elif escopo_setor == "em_operacao" and gestor_setorial:
+                    qs = aplicar_escopo_fila_operacional_gestor_setorial(
+                        qs, self.request.user
+                    )
+                    qs = filtrar_demandas_em_operacao_gestor_setorial(
+                        qs, self.request.user
+                    )
+                elif perfil == "GESTOR" and not painel_protocolo_central:
+                    qs = aplicar_escopo_fila_operacional(qs, self.request.user)
+                    unidade_id = self.request.query_params.get("unidade_administrativa")
+                    if unidade_id:
+                        try:
+                            qs = qs.filter(unidade_administrativa_id=int(unidade_id))
+                        except (TypeError, ValueError):
+                            pass
+                    elif self.request.query_params.get("minha_unidade") in (
+                        "1",
+                        "true",
+                        "True",
+                    ):
+                        qs = filtrar_demandas_minha_unidade(qs, self.request.user)
+            if self.action == "list":
+                qs = self._aplicar_filtros_cluster_listagem(qs)
+            from core.services.demanda_visibilidade import (
+                filtrar_demandas_por_unidades,
+                parse_unidades_administrativas_request,
+            )
+
+            parsed_uas = parse_unidades_administrativas_request(self.request)
+            if parsed_uas:
+                qs = filtrar_demandas_por_unidades(qs, parsed_uas)
             return qs
         qs = qs.order_by("-data_criacao")
-        if getattr(self.request.user, "perfil", None) == "SECRETARIA":
-            from core.services.cluster_service import ClusterService
-
-            qs = ClusterService().filtrar_listagem_apenas_lideres(qs)
+        if self.action == "list":
+            qs = self._aplicar_filtros_cluster_listagem(qs)
         return qs
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+        else:
+            serializer = self.get_serializer(queryset, many=True)
+            response = Response(serializer.data)
+
+        if request.query_params.get("include_resumo") in ("1", "true", "True"):
+            from core.services.consulta_hub_service import ConsultaHubService
+            from core.services.gestor_escopo import usuario_pode_painel_protocolo_central
+
+            perfil = getattr(request.user, "perfil", None)
+            if (
+                perfil in ("PROTOCOLO", "GESTOR")
+                and isinstance(response.data, dict)
+                and usuario_pode_painel_protocolo_central(request.user)
+            ):
+                response.data["resumo_filas"] = ConsultaHubService().resumo_painel_protocolo(
+                    request.user
+                )
+        return response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="resumo-filas",
+        permission_classes=[IsAuthenticated],
+    )
+    def resumo_filas(self, request):
+        """Contadores das filas do painel Protocolo/Gestor (sem carregar registros)."""
+        perfil = getattr(request.user, "perfil", None)
+        if perfil not in ("PROTOCOLO", "GESTOR"):
+            return Response(
+                {"detail": "Resumo de filas disponível apenas para Protocolo e Gestor."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from core.services.consulta_hub_service import ConsultaHubService
+        from core.services.gestor_escopo import usuario_pode_painel_protocolo_central
+
+        if not usuario_pode_painel_protocolo_central(request.user):
+            return Response(
+                {"detail": "Resumo de filas central disponível apenas para Protocolo e gestor central."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return Response(ConsultaHubService().resumo_painel_protocolo(request.user))
 
     @action(
         detail=False,
@@ -402,6 +683,7 @@ class DemandaViewSet(viewsets.ModelViewSet):
             return Response({'resultados': []}, status=status.HTTP_200_OK)
 
         qs = VectorService.find_similar_demanda(vetor, threshold=0.7)[:top]
+        qs = aplicar_escopo_demanda(qs, request.user)
 
         resultados = []
         max_len = self._DESC_SIMILARES_MAX
@@ -443,6 +725,91 @@ class DemandaViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["get"],
+        url_path="cluster-situacao-aderencia",
+        permission_classes=[IsAuthenticated],
+    )
+    def cluster_situacao_aderencia(self, request, pk=None):
+        """Situação para decisão do Protocolo: integrar ao líder ou despacho individual."""
+        if getattr(request.user, "perfil", None) != "PROTOCOLO":
+            return Response(
+                {"detail": "Apenas o Protocolo pode consultar aderência ao cluster."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from core.services.cluster_aderencia_service import ClusterAderenciaService
+
+        demanda = self.get_object()
+        return Response(ClusterAderenciaService().situacao_aderencia(demanda))
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="cluster-aderir-lider",
+        permission_classes=[IsAuthenticated],
+    )
+    def cluster_aderir_lider(self, request, pk=None):
+        """Integra demanda seguidora ao processo líder (espelho completo)."""
+        if getattr(request.user, "perfil", None) != "PROTOCOLO":
+            return Response(
+                {"detail": "Apenas o Protocolo pode integrar demandas ao cluster."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from core.services.cluster_aderencia_service import (
+            ClusterAderenciaError,
+            ClusterAderenciaService,
+        )
+
+        demanda = self.get_object()
+        from django.db import IntegrityError
+
+        from django.db import IntegrityError
+
+        try:
+            demanda = ClusterAderenciaService().aderir_ao_processo_lider(
+                demanda, usuario=request.user
+            )
+        except ClusterAderenciaError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError:
+            return Response(
+                {"detail": "Não foi possível integrar: conflito de dados do processo."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        except IntegrityError:
+            return Response(
+                {"detail": "Não foi possível integrar: conflito de dados do processo."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        demanda.refresh_from_db()
+        serializer = self.get_serializer(demanda)
+        return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="cluster-desvincular",
+        permission_classes=[IsAuthenticated],
+    )
+    def cluster_desvincular(self, request, pk=None):
+        """Remove demanda do cluster para despacho individual."""
+        if getattr(request.user, "perfil", None) != "PROTOCOLO":
+            return Response(
+                {"detail": "Apenas o Protocolo pode desvincular demandas do cluster."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from core.services.cluster_service import ClusterService
+
+        demanda = self.get_object()
+        try:
+            ClusterService().desvincular_demanda_manual(demanda, usuario=request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        demanda.refresh_from_db()
+        return Response(self.get_serializer(demanda).data)
+
+    @action(
+        detail=True,
+        methods=["get"],
         url_path="preview-envio-oficial",
         permission_classes=[IsAuthenticated],
     )
@@ -462,7 +829,10 @@ class DemandaViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_403_FORBIDDEN,
             )
         try:
+            from core.services.copiloto_duplicidade_service import alertas_duplicidade_para_demanda
+
             preview = AssinaturaEletronicaService().preparar_preview_envio(demanda)
+            preview.update(alertas_duplicidade_para_demanda(demanda, request.user))
         except Exception:
             logger.exception("Falha preview envio oficial demanda %s", pk)
             return Response(
@@ -512,6 +882,169 @@ class DemandaViewSet(viewsets.ModelViewSet):
             f'inline; filename="oficio_demanda_{demanda.pk}_preview.pdf"'
         )
         return response
+
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="gestores-protocolo",
+        permission_classes=[IsAuthenticated],
+    )
+    def gestores_protocolo(self, request):
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+        if getattr(request.user, "perfil", None) not in ("PROTOCOLO", "GESTOR") and not request.user.is_staff:
+            return Response(
+                {"detail": "Acesso restrito ao Protocolo."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return Response(AssinaturaEletronicaService().listar_gestores_protocolo())
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="preview-despacho",
+        permission_classes=[IsAuthenticated],
+    )
+    def preview_despacho(self, request, pk=None):
+        from core.models_assinatura_eletronica import AssinaturaEletronica
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+        from core.services.demanda_despacho_destinos import (
+            normalizar_destinos_multi_orgao,
+            resolve_destinos_despacho,
+        )
+        from core.services.demanda_despacho_service import proximo_protocolo_executivo
+        from integrations import sinapse_catalog
+
+        demanda = self.get_object()
+        if getattr(request.user, "perfil", None) != "PROTOCOLO":
+            return Response({"detail": "Apenas o Protocolo pode despachar."}, status=status.HTTP_403_FORBIDDEN)
+        if demanda.status != "AGUARDANDO_PROTOCOLO":
+            return Response(
+                {"detail": "Demanda não está aguardando protocolo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            destinos_raw = resolve_destinos_despacho(demanda, request.data)
+            plano = normalizar_destinos_multi_orgao(demanda, destinos_raw)
+            destinos = plano["destinos"]
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        primeira = destinos[0]
+        unidade_id = primeira.get("unidade_administrativa_id")
+        try:
+            preview = AssinaturaEletronicaService().preparar_assinatura_despacho_inicial(
+                demanda,
+                secretaria_id=int(primeira["secretaria_id"]),
+                unidade_administrativa_id=int(unidade_id) if unidade_id else None,
+                protocolo_executivo=proximo_protocolo_executivo(),
+                destinos=destinos,
+            )
+        except (TypeError, ValueError) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        preview["gestores_protocolo"] = AssinaturaEletronicaService().listar_gestores_protocolo()
+        preview["signatario_operador"] = AssinaturaEletronicaService().resumo_signatario(
+            request.user, AssinaturaEletronica.PAPEL_OPERADOR
+        )
+        preview["modo_assinatura"] = AssinaturaEletronicaService().modo_assinatura_protocolo(
+            request.user
+        )
+        if preview["modo_assinatura"] == "gestor_apenas":
+            preview["signatario_gestor"] = AssinaturaEletronicaService().resumo_signatario(
+                request.user, AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO
+            )
+        preview["destinos"] = destinos
+        preview["multi_secretaria"] = len(destinos) > 1
+        orgao_competente_id = plano.get("orgao_competente_id")
+        preview["orgao_competente_id"] = orgao_competente_id
+        preview["orgao_competente_nome"] = (
+            sinapse_catalog.get_orgao_nome(orgao_competente_id) if orgao_competente_id else None
+        )
+        integrados = plano.get("orgaos_integrados_ids") or []
+        preview["orgaos_integrados"] = [
+            {
+                "sinapse_orgao_id": oid,
+                "orgao_nome": sinapse_catalog.get_orgao_nome(oid) or str(oid),
+            }
+            for oid in integrados
+        ]
+        return Response(preview)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="preview-conclusao-secretaria",
+        permission_classes=[IsAuthenticated],
+    )
+    def preview_conclusao_secretaria(self, request, pk=None):
+        from core.models_assinatura_eletronica import AssinaturaEletronica
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+        demanda = self.get_object()
+        perfil = getattr(request.user, "perfil", None)
+        if perfil not in ("SECRETARIA", "GESTOR"):
+            return Response(
+                {"detail": "Apenas Secretaria ou Gestor setorial podem assinar a conclusão operacional."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        assinatura_svc = AssinaturaEletronicaService()
+        if not assinatura_svc.usuario_pode_assinar_conclusao(request.user, demanda):
+            return Response(
+                {
+                    "detail": (
+                        "Apenas a chefia responsável pelo setor da demanda "
+                        "pode assinar a conclusão operacional."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if demanda.status != "EM_EXECUCAO":
+            return Response(
+                {"detail": "A conclusão só pode ser assinada com a demanda em execução."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        parecer = str(request.data.get("parecer_operacional") or request.data.get("descricao") or "")
+        try:
+            preview = assinatura_svc.preparar_assinatura_conclusao_secretaria(
+                demanda, parecer_operacional=parecer
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        preview["signatario_chefia"] = assinatura_svc.resumo_signatario(
+            request.user, AssinaturaEletronica.PAPEL_CHEFIA_SETOR
+        )
+        return Response(preview)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="preview-despacho-devolutiva",
+        permission_classes=[IsAuthenticated],
+    )
+    def preview_despacho_devolutiva(self, request, pk=None):
+        from core.models_assinatura_eletronica import AssinaturaEletronica
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+        demanda = self.get_object()
+        negado = _resposta_acesso_protocolo_central(
+            request.user, "Apenas o Protocolo pode despachar devolutiva."
+        )
+        if negado:
+            return negado
+        parecer = str(request.data.get("parecer_resposta") or request.data.get("descricao") or "")
+        try:
+            preview = AssinaturaEletronicaService().preparar_assinatura_despacho_devolutiva(
+                demanda, parecer_resposta=parecer
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        preview["gestores_protocolo"] = AssinaturaEletronicaService().listar_gestores_protocolo()
+        preview["signatario_operador"] = AssinaturaEletronicaService().resumo_signatario(
+            request.user, AssinaturaEletronica.PAPEL_OPERADOR
+        )
+        preview["modo_assinatura"] = AssinaturaEletronicaService().modo_assinatura_protocolo(
+            request.user, contexto="devolutiva"
+        )
+        return Response(preview)
 
     def perform_create(self, serializer):
         """Associa o usuário logado como autor da nova demanda."""
@@ -631,7 +1164,12 @@ class DemandaViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Apenas rascunhos podem ser excluídos.")
         super().perform_destroy(instance)
     
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(
+        detail=True,
+        methods=['post'],
+        permission_classes=[IsAuthenticated],
+        parser_classes=[MultiPartParser, FormParser, JSONParser],
+    )
     def despachar(self, request, pk=None):
         try:
             demanda = self.get_object()
@@ -642,33 +1180,71 @@ class DemandaViewSet(viewsets.ModelViewSet):
             if demanda.status != 'AGUARDANDO_PROTOCOLO':
                 return Response({'detail': 'Apenas demandas aguardando protocolo podem ser despachadas.'}, status=status.HTTP_400_BAD_REQUEST)
 
-            secretaria_id = request.data.get('secretaria_id')
-            if not secretaria_id:
-                return Response({'detail': 'O ID da secretaria de destino é obrigatório.'}, status=status.HTTP_400_BAD_REQUEST)
-
-            unidade_id = request.data.get('unidade_administrativa_id')
+            from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+            from core.services.demanda_despacho_destinos import resolve_destinos_despacho
 
             try:
-                orgao_id = int(secretaria_id)
-            except (TypeError, ValueError):
-                return Response({'detail': 'ID de secretaria inválido.'}, status=status.HTTP_400_BAD_REQUEST)
+                destinos = resolve_destinos_despacho(demanda, request.data)
+            except ValueError as exc:
+                return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-            from core.services.demanda_despacho_service import DemandaDespachoService
+            texto_despacho = str(
+                request.data.get("descricao")
+                or request.data.get("texto_despacho")
+                or request.data.get("parecer")
+                or ""
+            )
 
+            arquivos = request.FILES.getlist("arquivos_anexos") or request.FILES.getlist("anexos")
+
+            assinatura_svc = AssinaturaEletronicaService()
             try:
-                DemandaDespachoService().despachar(
-                    demanda,
-                    secretaria_id=orgao_id,
-                    usuario=request.user,
-                    automatico=False,
-                    unidade_administrativa_id=unidade_id,
+                from django.db import transaction
+
+                pending = assinatura_svc._validar_hash_pending(
+                    int(demanda.pk),
+                    "DESPACHO_INICIAL",
+                    request.data.get("hash_documento"),
                 )
+                contexto = dict(pending.get("payload") or {})
+                contexto["destinos"] = destinos
+                contexto["texto_despacho"] = texto_despacho
+                contexto["protocolo_executivo"] = contexto.get("protocolo_executivo") or pending[
+                    "payload"
+                ].get("protocolo_executivo")
+                staging_id = assinatura_svc._criar_tramitacao_staging_anexos(
+                    demanda, request.user, arquivos or None
+                )
+                if staging_id:
+                    contexto["tramitacao_staging_id"] = staging_id
+
+                with transaction.atomic():
+                    assinaturas = assinatura_svc.registrar_assinaturas_despacho_inicial(
+                        demanda,
+                        request.user,
+                        hash_documento=pending["hash_documento"],
+                        declaracao_operador=request.data.get("declaracao")
+                        or request.data.get("declaracao_operador"),
+                        gestor_usuario_id=request.data.get("gestor_protocolo_id"),
+                        declaracao_gestor=request.data.get("declaracao_gestor"),
+                        contexto_operacao=contexto,
+                        request=request,
+                    )
             except ValueError as exc:
                 return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
             demanda.refresh_from_db()
             serializer = self.get_serializer(demanda)
-            return Response(serializer.data)
+            data = serializer.data
+            data["aguardando_validacao_gestor"] = True
+            data["assinaturas_registradas"] = [
+                {"codigo_validacao": a.codigo_validacao, "papel": a.papel} for a in assinaturas
+            ]
+            data["mensagem"] = (
+                "Assinatura registrada. O despacho só será executado após validação do gestor "
+                "do protocolo em Assinaturas pendentes."
+            )
+            return Response(data)
 
         except Exception:
             logger.exception("Falha inesperada ao despachar demanda %s.", pk)
@@ -756,39 +1332,147 @@ class DemandaViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='solicitar-devolutiva', permission_classes=[IsAuthenticated])
     def solicitar_devolutiva(self, request, pk=None):
         demanda = self.get_object()
-        from core.services.devolutiva_protocolo_service import DevolutivaProtocoloService
+        perfil = getattr(request.user, "perfil", None)
+        if perfil not in ("SECRETARIA", "GESTOR"):
+            return Response(
+                {"detail": "Apenas Secretaria ou Gestor setorial podem solicitar devolutiva."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+        from core.services.assinatura_etapa_executor_service import (
+            ACAO_CONCLUSAO_SECRETARIA_FLUXO_DIRETO,
+        )
 
+        assinatura_svc = AssinaturaEletronicaService()
+        if not assinatura_svc.usuario_pode_assinar_conclusao(request.user, demanda):
+            return Response(
+                {
+                    "detail": (
+                        "Apenas a chefia responsável pelo setor da demanda "
+                        "pode assinar a conclusão operacional."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        parecer = str(request.data.get('parecer_operacional') or request.data.get('descricao') or '')
         try:
-            DevolutivaProtocoloService().solicitar_devolutiva(
+            pending = assinatura_svc._validar_hash_pending(
+                int(demanda.pk),
+                "CONCLUSAO_SECRETARIA",
+                request.data.get("hash_documento"),
+            )
+            from core.services.estudo_viabilidade_service import EstudoViabilidadeService
+            from core.services.assinatura_etapa_executor_service import ACAO_CONCLUSAO_SECRETARIA
+
+            estudo_payload = EstudoViabilidadeService.parse_payload_request(
+                dict(request.data) if hasattr(request.data, "items") else {}
+            )
+            contexto = {"parecer_operacional": parecer, "acao_executiva": ACAO_CONCLUSAO_SECRETARIA}
+            if estudo_payload is not None:
+                contexto["resultado_operacional"] = estudo_payload
+
+            assinatura = assinatura_svc.registrar_assinatura_conclusao_secretaria(
                 demanda,
                 request.user,
-                parecer_operacional=str(request.data.get('parecer_operacional') or request.data.get('descricao') or ''),
+                hash_documento=pending["hash_documento"],
+                declaracao=request.data.get("declaracao"),
+                contexto_operacao=contexto,
+                request=request,
             )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         demanda.refresh_from_db()
-        return Response(self.get_serializer(demanda).data)
+        data = self.get_serializer(demanda).data
+        data["assinatura_registrada"] = {"codigo_validacao": assinatura.codigo_validacao}
+        data["aguardando_validacao_gestor"] = True
+        data["mensagem"] = (
+            "Assinatura registrada. A conclusão só será encaminhada após validação do gestor "
+            "do setor em Assinaturas pendentes."
+        )
+        return Response(data)
 
-    @action(detail=True, methods=['post'], url_path='despachar-devolutiva', permission_classes=[IsAuthenticated])
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='despachar-devolutiva',
+        permission_classes=[IsAuthenticated],
+        parser_classes=[MultiPartParser, FormParser, JSONParser],
+    )
     def despachar_devolutiva(self, request, pk=None):
         demanda = self.get_object()
-        if getattr(request.user, 'perfil', None) not in ('PROTOCOLO', 'GESTOR') and not request.user.is_staff:
-            return Response({'detail': 'Apenas o Protocolo pode despachar devolutiva.'}, status=status.HTTP_403_FORBIDDEN)
+        negado = _resposta_acesso_protocolo_central(
+            request.user, "Apenas o Protocolo pode despachar devolutiva."
+        )
+        if negado:
+            return negado
 
-        from core.services.devolutiva_protocolo_service import DevolutivaProtocoloService
+        from django.db import transaction
 
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+        from core.services.devolutiva_protocolo_service import (
+            DevolutivaProtocoloService,
+            _parse_destinos,
+            _parse_ids,
+        )
+
+        parecer = str(request.data.get('parecer_resposta') or request.data.get('descricao') or '')
+        arquivos = request.FILES.getlist("arquivos_anexos") or request.FILES.getlist("anexos")
+        anexos_ids = _parse_ids(request.data.get("anexos_tramitacao_ids"))
+        alerta_destinos = _parse_destinos(request.data.get("alerta_destinos"))
         try:
-            DevolutivaProtocoloService().despachar_devolutiva(
-                demanda,
-                request.user,
-                parecer_resposta=str(request.data.get('parecer_resposta') or request.data.get('descricao') or ''),
-            )
+            with transaction.atomic():
+                assinatura_svc = AssinaturaEletronicaService()
+                pending = assinatura_svc._validar_hash_pending(
+                    int(demanda.pk),
+                    "DESPACHO_DEVOLUTIVA",
+                    request.data.get("hash_documento"),
+                )
+                assinaturas = assinatura_svc.registrar_assinaturas_despacho_devolutiva(
+                    demanda,
+                    request.user,
+                    hash_documento=pending["hash_documento"],
+                    declaracao_operador=request.data.get("declaracao") or request.data.get("declaracao_operador"),
+                    gestor_usuario_id=request.data.get("gestor_protocolo_id"),
+                    declaracao_gestor=request.data.get("declaracao_gestor"),
+                    assinatura_apenas_gestor=bool(request.data.get("assinatura_apenas_gestor")),
+                    request=request,
+                )
+                DevolutivaProtocoloService().despachar_devolutiva(
+                    demanda,
+                    request.user,
+                    parecer_resposta=parecer,
+                    arquivos_anexos=arquivos or None,
+                    anexos_tramitacao_ids=anexos_ids or None,
+                    alerta_destinos=alerta_destinos or None,
+                )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         demanda.refresh_from_db()
-        return Response(self.get_serializer(demanda).data)
+        data = self.get_serializer(demanda).data
+        data["assinaturas_registradas"] = [
+            {"codigo_validacao": a.codigo_validacao, "papel": a.papel} for a in assinaturas
+        ]
+        return Response(data)
+
+    @action(
+        detail=True,
+        methods=['get'],
+        url_path='anexos-operacionais',
+        permission_classes=[IsAuthenticated],
+    )
+    def anexos_operacionais(self, request, pk=None):
+        demanda = self.get_object()
+        negado = _resposta_acesso_protocolo_central(
+            request.user, "Apenas o Protocolo pode listar anexos operacionais."
+        )
+        if negado:
+            return negado
+        from core.services.tramitacao_anexo_service import listar_anexos_operacionais_demanda
+
+        return Response(listar_anexos_operacionais_demanda(demanda))
 
     @action(detail=True, methods=['post'], url_path='encerrar-devolutiva', permission_classes=[IsAuthenticated])
     def encerrar_devolutiva(self, request, pk=None):
@@ -804,6 +1488,11 @@ class DemandaViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        negado = _resposta_acesso_protocolo_central(
+            request.user, "Apenas o Protocolo pode encerrar devolutiva."
+        )
+        if negado:
+            return negado
         from core.services.devolutiva_protocolo_service import DevolutivaProtocoloService
 
         try:
@@ -814,9 +1503,63 @@ class DemandaViewSet(viewsets.ModelViewSet):
         demanda.refresh_from_db()
         return Response(self.get_serializer(demanda).data)
 
+    @action(detail=True, methods=['post'], url_path='acompanhar', permission_classes=[IsAuthenticated])
+    def acompanhar(self, request, pk=None):
+        from core.services.acompanhamento_demanda_service import (
+            AcompanhamentoDemandaError,
+            AcompanhamentoDemandaService,
+        )
+        from core.models_acompanhamento import DemandaAcompanhamento
+
+        demanda = self.get_object()
+        svc = AcompanhamentoDemandaService()
+        origem = (request.data.get('origem') or DemandaAcompanhamento.ORIGEM_MANUAL).strip().upper()
+        if origem not in dict(DemandaAcompanhamento.ORIGEM_CHOICES):
+            origem = DemandaAcompanhamento.ORIGEM_MANUAL
+        no_id = request.data.get('no_operacional_id')
+        try:
+            no_operacional_id = int(no_id) if no_id not in (None, '') else None
+        except (TypeError, ValueError):
+            no_operacional_id = None
+        try:
+            svc.acompanhar(
+                request.user,
+                demanda,
+                origem=origem,
+                no_operacional_id=no_operacional_id,
+            )
+        except AcompanhamentoDemandaError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        demanda.refresh_from_db()
+        return Response(self.get_serializer(demanda).data)
+
+    @action(detail=True, methods=['post'], url_path='desacompanhar', permission_classes=[IsAuthenticated])
+    def desacompanhar(self, request, pk=None):
+        from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
+
+        demanda = self.get_object()
+        svc = AcompanhamentoDemandaService()
+        if not svc.desacompanhar(request.user, demanda):
+            return Response(
+                {'detail': 'Você não acompanha este processo.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        demanda.refresh_from_db()
+        return Response(self.get_serializer(demanda).data)
+
     @action(detail=True, methods=['get'], url_path='pacote-devolutiva', permission_classes=[IsAuthenticated])
     def pacote_devolutiva(self, request, pk=None):
+        from core.services.tramitacao_visibilidade_service import (
+            status_permite_pacote_devolutiva_vereador,
+        )
+
         demanda = self.get_object()
+        perfil = getattr(request.user, "perfil", None)
+        if perfil == "VEREADOR" and not status_permite_pacote_devolutiva_vereador(demanda.status):
+            return Response(
+                {'detail': 'Pacote disponível após devolutiva do Protocolo ao vereador.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if demanda.status not in ('DEVOLVIDO_VEREADOR', 'FINALIZADO', 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO'):
             return Response(
                 {'detail': 'Pacote disponível apenas após devolutiva operacional.'},
@@ -829,9 +1572,9 @@ class DemandaViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='preview-resposta-cidadao', permission_classes=[IsAuthenticated])
     def preview_resposta_cidadao(self, request, pk=None):
         demanda = self.get_object()
-        if demanda.status != 'DEVOLVIDO_VEREADOR':
+        if demanda.status not in ('DEVOLVIDO_VEREADOR', 'FINALIZADO'):
             return Response(
-                {'detail': 'Pré-visualização disponível com devolutiva pendente ao vereador.'},
+                {'detail': 'Pré-visualização disponível após devolutiva ao vereador.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if demanda.autor_id != request.user.pk and getattr(request.user, 'perfil', None) not in ('GESTOR', 'PROTOCOLO'):
@@ -1076,7 +1819,7 @@ class TramitacaoViewSet(viewsets.ModelViewSet):
     
 class DashboardStatsAPIView(APIView):
     def get(self, request, *args, **kwargs):
-        demandas_validas = Demanda.objects.exclude(status='RASCUNHO')
+        demandas_validas = aplicar_escopo_demanda(Demanda.objects.all(), request.user)
         status_aberto = [
             'AGUARDANDO_PROTOCOLO',
             'PROTOCOLADO',
@@ -1217,68 +1960,39 @@ class CopilotoRecusasListAPIView(APIView):
 
 
 class DemandaLocationsAPIView(APIView):
+    """Pontos georreferenciados para o mapa operacional (MapaCalorView)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request, *args, **kwargs):
-        queryset = Demanda.objects.exclude(status='RASCUNHO').filter(
-            latitude__isnull=False, 
-            longitude__isnull=False
-        )
+        from core.services.mapa_demanda_service import filtrar_demandas_mapa, serializar_locations
 
-        servico_id = request.query_params.get('servico_id')
-        if servico_id:
-            queryset = queryset.filter(sinapse_servico_id=servico_id)
-            
-        status_filter = request.query_params.get('status')
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
+        super_os_only = request.query_params.get('super_os') in ('1', 'true', 'True')
+        queryset = filtrar_demandas_mapa(request)
+        locations_data = serializar_locations(queryset, super_os_only=super_os_only)
 
-        data_inicio = request.query_params.get('data_inicio')
-        if data_inicio:
-            data_inicio_obj = datetime.strptime(data_inicio, '%Y-%m-%d')
-            queryset = queryset.filter(data_criacao__gte=data_inicio_obj)
-        
-        data_fim = request.query_params.get('data_fim')
-        if data_fim:
-            data_fim_obj = datetime.strptime(data_fim, '%Y-%m-%d') + timedelta(days=1)
-            queryset = queryset.filter(data_criacao__lt=data_fim_obj)
-        
-        if request.user.is_authenticated:
-            if request.user.perfil == 'VEREADOR':
-                queryset = queryset.filter(autor=request.user)
-            elif request.user.perfil == 'SECRETARIA' and request.user.sinapse_orgao_id:
-                queryset = queryset.filter(sinapse_orgao_id=request.user.sinapse_orgao_id)
+        return Response({
+            'count': len(locations_data),
+            'results': locations_data,
+            'resumo': {
+                'total': len(locations_data),
+                'atrasadas': sum(1 for x in locations_data if x['is_atrasada']),
+                'super_os': sum(1 for x in locations_data if x['super_os']['ativo']),
+            },
+        })
 
-        locations_data = []
-        agora = timezone.now()
-        status_aberto = [
-            'AGUARDANDO_PROTOCOLO',
-            'PROTOCOLADO',
-            'EM_EXECUCAO',
-            'AGUARDANDO_TRANSFERENCIA',
-            'AGUARDANDO_DEVOLUTIVA_PROTOCOLO',
-            'DEVOLVIDO_VEREADOR',
-        ]
 
-        for demanda in queryset:
-            is_atrasada = False
-            prazo = demanda.prazo_dias()
-            if (
-                demanda.status in status_aberto
-                and demanda.data_inicio_prazo
-                and prazo is not None
-            ):
-                is_atrasada = demanda.data_inicio_prazo + timedelta(days=prazo) < agora
+class DemandaMapAgregacaoAPIView(APIView):
+    """Agregação espacial/sazonal bairro × serviço × mês (E3.2)."""
 
-            locations_data.append({
-                'id': demanda.id,
-                'lat': demanda.latitude,
-                'lng': demanda.longitude,
-                'titulo': demanda.titulo,
-                'protocolo': demanda.protocolo_executivo or demanda.protocolo_legislativo,
-                'status': demanda.status,
-                'is_atrasada': is_atrasada
-            })
+    permission_classes = [permissions.IsAuthenticated]
 
-        return Response(locations_data)
+    def get(self, request, *args, **kwargs):
+        from core.services.mapa_demanda_service import agregar_espacial_sazonal, filtrar_demandas_mapa
+
+        queryset = filtrar_demandas_mapa(request)
+        return Response(agregar_espacial_sazonal(queryset))
+
     
 class CurrentUserAPIView(APIView):
     def get(self, request):

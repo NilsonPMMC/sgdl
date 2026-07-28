@@ -1,11 +1,12 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.urls import path
 from django.utils.html import format_html
 
 from integrations import sinapse_catalog
 
-from .forms import DemandaAdminForm, UsuarioAdminForm, UsuarioCreationAdminForm
-from .models import (
+from core.forms import DemandaAdminForm, UsuarioAdminForm, UsuarioCreationAdminForm
+from core.models import (
     Anexo,
     AnexoTramitacao,
     ChatSession,
@@ -20,14 +21,25 @@ from .models import (
     Tramitacao,
     Usuario,
 )
-from .models_config import ConfiguracaoOficio
-from .models_fluxo_protocolo import ServicoFluxoProtocolo
-from .models_assinatura_eletronica import AssinaturaEletronica
-from .models_unidade_administrativa import (
+from core.models_config import ConfiguracaoOficio
+from core.models_fluxo_protocolo import ServicoFluxoProtocolo
+from core.models_assinatura_eletronica import AssinaturaEletronica
+from core.models_unidade_administrativa import (
     UnidadeAdministrativa,
     UnidadeAdministrativaResponsavel,
 )
-from .models_carta_otimizada import ServicoOtimizado, LogOtimizacao, EstatisticasBaseOtimizada
+from core.models_carta_otimizada import ServicoOtimizado, LogOtimizacao, EstatisticasBaseOtimizada
+from core.models_estudo_viabilidade import RegistroEstudoViabilidade
+from core.admin.servico_otimizado_export import servico_otimizado_csv_response
+
+
+# =============================================================================
+# Operação · Demandas, tramitações, anexos, clusters, notificações
+# Copiloto · Chat, FAQ orientação, tendências
+# Carta · Base otimizada, fluxo protocolo, assinaturas eletrônicas
+# Usuários · Perfis SGDL, unidades administrativas
+# Configuração · Ofício institucional (singleton)
+# =============================================================================
 
 
 # --- Inlines -------------------------------------------------------------------
@@ -197,6 +209,33 @@ class DemandaAdmin(admin.ModelAdmin):
         return txt or "—"
 
 
+@admin.register(RegistroEstudoViabilidade)
+class RegistroEstudoViabilidadeAdmin(admin.ModelAdmin):
+    list_display = (
+        "demanda",
+        "resultado_operacional",
+        "motivo_nao_execucao",
+        "escopo_resumo",
+        "sinapse_orgao_id",
+        "pode_retomar",
+        "criado_em",
+    )
+    list_filter = ("resultado_operacional", "motivo_nao_execucao", "pode_retomar")
+    search_fields = (
+        "demanda__titulo",
+        "demanda__protocolo_executivo",
+        "demanda__protocolo_legislativo",
+        "escopo_geografico",
+    )
+    autocomplete_fields = ("demanda", "unidade_administrativa", "registrado_por")
+    readonly_fields = ("criado_em", "atualizado_em")
+    ordering = ("-criado_em",)
+
+    @admin.display(description="Escopo")
+    def escopo_resumo(self, obj: RegistroEstudoViabilidade) -> str:
+        return (obj.escopo_geografico or "")[:80] or "—"
+
+
 # --- Tramitação / Anexos ------------------------------------------------------
 
 
@@ -300,10 +339,14 @@ class ServicoFluxoProtocoloAdmin(admin.ModelAdmin):
 class AssinaturaEletronicaAdmin(admin.ModelAdmin):
     list_display = (
         "demanda",
+        "tramitacao",
+        "etapa",
+        "papel",
         "usuario",
         "codigo_validacao",
         "assinado_em",
     )
+    list_filter = ("etapa", "papel")
     search_fields = ("codigo_validacao", "hash_assinatura", "demanda__protocolo_legislativo")
     readonly_fields = (
         "hash_documento",
@@ -398,8 +441,60 @@ class ChatSessionAdmin(admin.ModelAdmin):
 # --- Clusters IA --------------------------------------------------------------
 
 
+class DemandaClusterInline(admin.TabularInline):
+    model = Demanda
+    fk_name = "cluster"
+    extra = 0
+    fields = (
+        "demanda_link",
+        "protocolo_executivo",
+        "protocolo_legislativo",
+        "status",
+        "orgao_rotulo",
+        "nos_ativos",
+        "autor_rotulo",
+    )
+    readonly_fields = fields
+    show_change_link = False
+    verbose_name = "Demanda"
+    verbose_name_plural = "Demandas do cluster"
+    ordering = ("pk",)
+    can_delete = False
+    max_num = 50
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("autor", "cluster").order_by("pk")
+
+    @admin.display(description="Demanda")
+    def demanda_link(self, obj: Demanda) -> str:
+        from django.urls import reverse
+        from django.utils.html import format_html
+
+        url = reverse("admin:core_demanda_change", args=[obj.pk])
+        return format_html('<a href="{}">#{}</a>', url, obj.pk)
+
+    @admin.display(description="Autor")
+    def autor_rotulo(self, obj: Demanda) -> str:
+        if not obj.autor:
+            return "—"
+        return obj.autor.get_full_name() or obj.autor.username
+
+    @admin.display(description="Órgão")
+    def orgao_rotulo(self, obj: Demanda) -> str:
+        if not obj.sinapse_orgao_id:
+            return "—"
+        return sinapse_catalog.get_orgao_nome(int(obj.sinapse_orgao_id)) or str(obj.sinapse_orgao_id)
+
+
 @admin.register(ClusterExecucao)
 class ClusterExecucaoAdmin(admin.ModelAdmin):
+    inlines = [DemandaClusterInline]
     list_display = (
         "titulo",
         "status",
@@ -410,7 +505,55 @@ class ClusterExecucaoAdmin(admin.ModelAdmin):
     )
     list_filter = ("status",)
     search_fields = ("titulo", "bairro_referencia")
-    readonly_fields = ("criado_em", "atualizado_em")
+    readonly_fields = ("criado_em", "atualizado_em", "demandas_vinculadas_resumo")
+    fieldsets = (
+        (
+            None,
+            {
+                "fields": (
+                    "titulo",
+                    "status",
+                    "secretaria_responsavel",
+                    "bairro_referencia",
+                    "sinapse_servico_id",
+                    "protocolo_super_os",
+                    "descricao_resumo",
+                )
+            },
+        ),
+        (
+            "Demandas vinculadas",
+            {"fields": ("demandas_vinculadas_resumo",), "classes": ("wide",)},
+        ),
+        (
+            "Auditoria",
+            {"fields": ("criado_em", "atualizado_em"), "classes": ("collapse",)},
+        ),
+    )
+
+    @admin.display(description="Demandas vinculadas")
+    def demandas_vinculadas_resumo(self, obj: ClusterExecucao) -> str:
+        if not obj.pk:
+            return "—"
+        from django.utils.html import escape
+        from django.utils.safestring import mark_safe
+
+        linhas = []
+        for d in obj.demandas.select_related("autor").order_by("pk"):
+            orgao = (
+                sinapse_catalog.get_orgao_nome(int(d.sinapse_orgao_id))
+                if d.sinapse_orgao_id
+                else "—"
+            )
+            linhas.append(
+                escape(
+                    f"#{d.pk} — exec: {d.protocolo_executivo or '—'} — "
+                    f"{d.get_status_display()} — {orgao} — nós: {d.nos_ativos}"
+                )
+            )
+        if not linhas:
+            return "Nenhuma demanda vinculada."
+        return mark_safe("<br>".join(linhas))
 
     @admin.display(description="Demandas")
     def qtd_demandas(self, obj: ClusterExecucao) -> int:
@@ -668,6 +811,8 @@ class LogOtimizacaoInline(admin.TabularInline):
 
 @admin.register(ServicoOtimizado)
 class ServicoOtimizadoAdmin(admin.ModelAdmin):
+    change_list_template = "admin/core/servicootimizado/change_list.html"
+    actions = ("exportar_csv_selecionados",)
     list_display = (
         "sinapse_servico_id",
         "titulo_otimizado",
@@ -865,7 +1010,50 @@ class ServicoOtimizadoAdmin(admin.ModelAdmin):
     status_dados.short_description = "📊 Status Dados"
     
     def get_queryset(self, request):
-        return super().get_queryset(request).select_related()
+        return super().get_queryset(request).select_related(
+            "unidade_administrativa",
+            "assunto",
+        )
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "export-csv/",
+                self.admin_site.admin_view(self.export_csv_view),
+                name="core_servicootimizado_export_csv",
+            ),
+        ]
+        return custom + urls
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        extra_context["has_export_csv_permission"] = self.has_export_csv_permission(
+            request
+        )
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def has_export_csv_permission(self, request) -> bool:
+        opts = self.model._meta
+        return request.user.has_perm(f"{opts.app_label}.view_{opts.model_name}")
+
+    @admin.action(description="Exportar selecionados para CSV")
+    def exportar_csv_selecionados(self, request, queryset):
+        if not self.has_export_csv_permission(request):
+            self.message_user(request, "Sem permissão para exportar.", level="error")
+            return None
+        return servico_otimizado_csv_response(
+            queryset,
+            filename="servicos_otimizados_selecionados.csv",
+        )
+
+    def export_csv_view(self, request):
+        if not self.has_export_csv_permission(request):
+            from django.core.exceptions import PermissionDenied
+
+            raise PermissionDenied
+        cl = self.get_changelist_instance(request)
+        return servico_otimizado_csv_response(cl.get_queryset(request))
 
 
 @admin.register(LogOtimizacao)

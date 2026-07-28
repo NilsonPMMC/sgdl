@@ -199,6 +199,57 @@ class Demanda(models.Model):
         related_name="demandas",
         help_text="Setor operacional responsável pela execução.",
     )
+    fluxo_roteamento = models.CharField(
+        max_length=24,
+        blank=True,
+        default="",
+        help_text="FLUXO_DIRETO ou FLUXO_TRANSVERSAL — definido na triagem do Protocolo.",
+    )
+    sinapse_orgao_lider_id = models.BigIntegerField(
+        null=True,
+        blank=True,
+        help_text="Órgão líder do processo (carta ou 1ª secretaria na triagem).",
+    )
+    modo_entrada_processo = models.CharField(
+        max_length=24,
+        blank=True,
+        default="",
+        help_text="OFICIO_UNICO ou CLUSTER_SUPER_OS — definido no despacho.",
+    )
+    orquestrador_conclusao = models.CharField(
+        max_length=24,
+        blank=True,
+        default="",
+        help_text="SECRETARIA_LIDER ou PROTOCOLO — quem conduz a operação até o gate.",
+    )
+    inicio_execucao_automatico = models.BooleanField(
+        default=False,
+        help_text="True quando o Protocolo inicia execução automaticamente (C3/C5).",
+    )
+    nos_ativos = models.PositiveIntegerField(
+        default=0,
+        help_text="Nós operacionais abertos (scatter-gather) — contagem denormalizada.",
+    )
+    resultado_operacional = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Resultado da conclusão operacional (executado, sem execução, etc.).",
+    )
+    motivo_nao_execucao = models.CharField(
+        max_length=32,
+        blank=True,
+        default="",
+        help_text="Motivo quando o pedido não foi executado materialmente.",
+    )
+    escopo_geografico = models.TextField(
+        blank=True,
+        help_text="Escopo geográfico declarado na conclusão (ex.: município inteiro, bairro).",
+    )
+    stand_by_estudo_viabilidade = models.BooleanField(
+        default=False,
+        help_text="Demanda registrada na base stand-by de estudo e viabilidade.",
+    )
 
     class Meta:
         constraints = [
@@ -262,12 +313,24 @@ class Tramitacao(models.Model):
         ('DEVOLUTIVA_PROTOCOLO', 'Devolutiva ao vereador'),
         ('ENCERRAMENTO_DEVOLUTIVA', 'Encerramento legislativo'),
         ('CIENCIA_VEREADOR', 'Ciência do vereador'),
+        ('TRIAGEM_PROTOCOLO', 'Triagem do Protocolo'),
+        ('RECUSA_PROTOCOLO', 'Recusa do Protocolo ao vereador'),
+        ('CONCLUSAO_TECNICA', 'Conclusão técnica (fluxo direto)'),
+        ('CONCLUSAO_PARCIAL', 'Conclusão parcial (fluxo transversal)'),
+        ('DEVOLUCAO', 'Devolução ao Protocolo'),
+        ('CONCLUSAO_FINAL', 'Conclusão final (Protocolo)'),
+        ('OPERACAO_NO', 'Operação scatter-gather (nó)'),
     ]
 
     demanda = models.ForeignKey(Demanda, on_delete=models.CASCADE, related_name='tramitacoes')
     responsavel = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     tipo = models.CharField(max_length=24, choices=TIPO_CHOICES)
     descricao = models.TextField(help_text="Descrição detalhada do passo, justificativa do atraso, etc.")
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Payload estruturado do evento (event sourcing operacional).",
+    )
     unidade_origem = models.ForeignKey(
         "UnidadeAdministrativa",
         on_delete=models.SET_NULL,
@@ -308,11 +371,12 @@ class Notificacao(models.Model):
         ('CONCLUSAO', 'Conclusão'),
         ('DEVOLUTIVA', 'Devolutiva'),
         ('ATRASO', 'Atraso'),
+        ('ASSINATURA_PENDENTE', 'Assinatura pendente'),
     ]
 
     destinatario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notificacoes')
     tipo = models.CharField(
-        max_length=20,
+        max_length=24,
         choices=TIPO_NOTIFICACAO_CHOICES,
         default='ATUALIZACAO'
     )
@@ -505,7 +569,7 @@ class ChatSessaoAnexo(models.Model):
 # Reexporta singleton de ofício para `from core.models import ConfiguracaoOficio`.
 from core.models_config import ConfiguracaoOficio  # noqa: E402,F401
 from core.models_fluxo_protocolo import ServicoFluxoProtocolo  # noqa: E402,F401
-from core.models_assinatura_eletronica import AssinaturaEletronica  # noqa: E402,F401
+from core.models_assinatura_eletronica import AssinaturaEletronica, AssinaturaPendingAcao  # noqa: E402,F401
 from core.models_copiloto_faq import (  # noqa: E402,F401
     CopilotoFaqOrientacao,
     CopilotoFaqPadraoRegex,
@@ -527,3 +591,9 @@ from core.models_unidade_administrativa import (  # noqa: E402,F401
     UnidadeAdministrativaResponsavel,
 )
 from core.models_encerramento_legislativo import EncerramentoLegislativo  # noqa: E402,F401
+from core.models_estudo_viabilidade import RegistroEstudoViabilidade  # noqa: E402,F401
+from core.models_acompanhamento import DemandaAcompanhamento  # noqa: E402,F401
+from core.models_perna_operacional import PernaOperacional  # noqa: E402,F401
+from core.models_no_operacional import NoOperacional  # noqa: E402,F401
+from core.models_perna_operacional import PernaOperacional  # noqa: E402,F401
+from core.models_no_operacional import NoOperacional  # noqa: E402,F401

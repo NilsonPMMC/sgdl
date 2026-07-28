@@ -97,8 +97,17 @@ const abrirAtalho = (atalho) => {
     router.push({ path: atalho.rota, query: { ...(atalho.query || {}) } });
 };
 
-const abrirDemanda = (id) => {
-    router.push({ name: 'demandas-detalhes', params: { id } });
+const abrirDemanda = (row) => {
+    if (row?.status === 'RASCUNHO' && userStore.currentUser?.perfil !== 'VEREADOR') {
+        toast.add({
+            severity: 'warn',
+            summary: 'Acesso restrito',
+            detail: 'Rascunhos só podem ser abertos pelo autor vereador.',
+            life: 4000
+        });
+        return;
+    }
+    router.push({ name: 'demandas-detalhes', params: { id: row.id } });
 };
 
 const abrirCarta = () => {
@@ -157,7 +166,7 @@ onMounted(carregarHub);
                         size="small"
                         stripedRows
                         class="sgdl-table-scroll"
-                        @row-click="(e) => abrirDemanda(e.data.id)"
+                        @row-click="(e) => abrirDemanda(e.data)"
                         rowHover
                     >
                         <Column field="titulo" header="Assunto">

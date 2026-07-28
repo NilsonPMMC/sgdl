@@ -227,8 +227,8 @@ class Command(BaseCommand):
             rel.registrar(
                 "5.3.5",
                 "PROTOCOLO",
-                "Despachar devolutiva → DEVOLVIDO_VEREADOR",
-                demanda.status == "DEVOLVIDO_VEREADOR",
+                "Despachar devolutiva → FINALIZADO",
+                demanda.status == "FINALIZADO",
                 f"status={demanda.status}",
             )
         except Exception as exc:

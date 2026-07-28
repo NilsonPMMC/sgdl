@@ -43,10 +43,13 @@ from .copiloto_faq_competencia import (
     faq_para_dict,
     faq_por_categoria,
     listar_categorias_para_prompt,
+    listar_faq_detalhada_para_prompt,
     montar_motivo_recusa,
+    montar_resposta_chat_fora_competencia,
     normalizar_categoria_orientacao,
     normalizar_competencia_llm,
 )
+from .copiloto_config import copiloto_faq_habilitada, copiloto_tendencias_habilitadas
 from .geocoding_service import GeocodingService
 from .tendencia_service import TendenciaService
 from .triagem_service import TriagemService
@@ -88,7 +91,9 @@ Responda com UM objeto JSON válido (sem markdown, sem texto fora do JSON):
        "anexos_indices": null,
        "competencia_municipal": "sim | nao | incerto",
        "categoria_orientacao": null,
-       "motivo_recusa": null
+       "motivo_recusa": null,
+       "teor_ouvidoria": false,
+       "subtipo_ouvidoria": null
      }
   ],
 
@@ -122,10 +127,10 @@ Competência municipal (obrigatório em cada item de `demandas_extraidas`):
 - `competencia_municipal`: `sim` se o pedido é serviço público municipal (zeladoria, obras, parques, saúde na via, etc.);
   `nao` se não compete à Prefeitura/gabinete (receitas, piadas, energia da concessionária, conta de água da SABESP,
   telefonia/Procon, etc.); `incerto` se faltar contexto.
-- `categoria_orientacao`: quando `nao`, use se aplicável: `ENERGIA_CONCESSIONARIA`, `AGUA_SANEAMENTO`,
-  `TELEFONIA_INTERNET`, `DEFESA_CONSUMIDOR`; senão `null`.
-- `motivo_recusa`: frase curta quando `competencia_municipal` for `nao`; senão `null`.
-- Se `nao`, `resposta_agente` deve explicar cordialmente que não gera ofício e orientar o órgão correto quando souber.
+- `categoria_orientacao`: quando `nao`, use **somente** uma categoria listada no system prompt (FAQ cadastrada);
+  se houver correspondência, reproduza a orientação oficial (`mensagem` + `orgao_hint`) na `resposta_agente`.
+- `motivo_recusa`: frase curta quando `competencia_municipal` for `nao`; combine com a orientação da FAQ quando aplicável; senão `null`.
+- Se `nao`, `resposta_agente` deve usar a orientação cadastrada na FAQ (não invente órgão ou procedimento).
 """.strip()
 
 COPILOT_SYSTEM_PROMPT = f"""
@@ -150,7 +155,8 @@ ignora ou pede nova busca — você não lista opções na `resposta_agente`.
 
 REGRA 3 — RELATO E TÍTULO (ofício e cadastro):
 - `descricao` e `pedido_integral` devem reproduzir **todo** o pedido do cidadão: números de linha (ex.: 209),
-  quantidades, objetivos, prazos, nomes próprios e contexto — **nunca** resuma para «Solicitação de transporte coletivo».
+  quantidades, objetivos, **datas e horários de eventos**, **estado atual do local** (ex.: «via interditada»,
+  «lâmpada queimada»), prazos, nomes próprios e contexto — **nunca** resuma para «Solicitação de transporte coletivo».
 - `titulo` é um **resumo curto do pedido** (ex.: «Aumento de veículos na linha 209»), não o nome do serviço da carta
 - `sinapse_servico_id_sugerido` e `servico_local_id`: **somente** inteiro ID Sinapse confirmado no painel — **nunca** nome
   do serviço (ex.: nunca `"Transporte Coletivo"`); deixe `null` até o cidadão/equipe escolher no painel.
@@ -162,6 +168,15 @@ REGRA DE COMPETÊNCIA (Prefeitura / gabinete):
 - Cadastro, inscrição, alvará ou permissão de **táxi / taxista** (Secretaria de Mobilidade) → `competencia_municipal: "sim"` — **não** é Procon nem consumidor privado.
 - Iluminação de via pública / poste na rua → `sim` (municipal). Conta de luz / medidor em casa → `nao` + `ENERGIA_CONCESSIONARIA`.
 - Com `nao`, não peça endereço para ofício; explique e oriente o canal adequado.
+
+Trilha Ouvidoria (A′ — serviço «Atendimento ao Cidadão»):
+- Quando o pedido for **manifestação institucional** (denúncia, reclamação sobre atendimento, sugestão ou elogio
+  à Prefeitura) — e **não** pedido operacional de zeladoria/obras — use `teor_ouvidoria: true` e
+  `subtipo_ouvidoria`: `denuncia` | `reclamacao` | `sugestao` | `elogio`.
+- Pedidos de buraco, lombada, iluminação, limpeza etc. → `teor_ouvidoria: false` (trilha carta A).
+- Com `teor_ouvidoria: true`, o sistema vincula ao serviço Ouvidoria; não invente outro serviço da carta.
+- Exemplos Ouvidoria: «registro uma sugestão para instalar totem no PAC» → sugestao; «elogio ao atendimento» → elogio;
+  «denúncia de irregularidade» → denuncia; «reclamação sobre demora/omissão no atendimento» → reclamacao.
 
 REGRA DE ESTADO (flexível — o backend ajusta etapas):
 - Falta relato do problema → `COLETA_DADOS`; peça o pedido com suas palavras.
@@ -272,6 +287,21 @@ _EIXOS_PEDIDO_COMPOSTO: tuple[dict[str, Any], ...] = (
         "gatilhos": ("buraco", "buracos", "tapa", "cratera", "esburacad", "afundamento"),
     },
     {
+        "id": "mobilidade_sinalizacao",
+        "titulo_padrao": "Placa ou sinalização de trânsito",
+        "descricao_verbo": "placa ou sinalização de trânsito",
+        "texto_embedding": "placa sinalização vertical horizontal semáforo trânsito mobilidade alteração",
+        "gatilhos": (
+            "placa de sinal",
+            "placa sinal",
+            "sinalização",
+            "sinalizacao",
+            "sinaliz",
+            "semáforo",
+            "semaforo",
+        ),
+    },
+    {
         "id": "mobilidade_lombada",
         "titulo_padrao": "Instalação de lombada",
         "descricao_verbo": "instalação de lombada",
@@ -291,6 +321,24 @@ _EIXOS_PEDIDO_COMPOSTO: tuple[dict[str, Any], ...] = (
         "descricao_verbo": "limpeza urbana",
         "texto_embedding": "limpeza varrição coleta entulho sujeira via",
         "gatilhos": ("limpeza urbana", "varrição", "varricao", "entulho", "capina"),
+    },
+    {
+        "id": "meio_ambiente_poda",
+        "titulo_padrao": "Poda ou corte de árvore",
+        "descricao_verbo": "poda ou corte de árvore",
+        "texto_embedding": "poda corte árvore galho poda arborização meio ambiente",
+        "gatilhos": (
+            "poda",
+            "podar",
+            "árvore",
+            "arvore",
+            "arvores",
+            "árvores",
+            "galho",
+            "galhos",
+            "corte de árvore",
+            "corte de arvore",
+        ),
     },
 )
 
@@ -402,6 +450,8 @@ _TEXTO_SEM_ENDERECO_RE = re.compile(
     r"^(?:segue(?:m)?\s+anexo(?:s)?(?:\s+para\s+an[aá]lise(?:\s+da\s+solicita[cç][aã]o)?)?\.?|"
     r"continuar\s+sem\s+anexos?\.?|"
     r"continuar\s+sem\s+local\.?|"
+    r"confirmar\s+(?:o\s+)?local(?:\s+(?:da\s+)?solicita[cç][aã]o\s+\d+)?\.?|"
+    r"confirmar\s+(?:os\s+)?(?:documentos|anexos)(?:\s+(?:da\s+)?solicita[cç][aã]o\s+\d+)?\.?|"
     r"sim|n[aã]o|nao|\d{1,2})\s*\.?$",
     re.IGNORECASE,
 )
@@ -413,8 +463,20 @@ _TEXTO_CONTINUAR_SEM_ANEXOS_RE = re.compile(
     r"^continuar\s+sem\s+anexos?\.?$",
     re.IGNORECASE,
 )
+_TEXTO_CONFIRMAR_LOCAL_RE = re.compile(
+    r"^confirmar\s+(?:o\s+)?local(?:\s+(?:da\s+)?solicita[cç][aã]o\s+(\d+))?\.?$",
+    re.IGNORECASE,
+)
+_TEXTO_CONFIRMAR_ANEXOS_RE = re.compile(
+    r"^confirmar\s+(?:os\s+)?(?:documentos|anexos)(?:\s+(?:da\s+)?solicita[cç][aã]o\s+(\d+))?\.?$",
+    re.IGNORECASE,
+)
 _TEXTO_FINALIZAR_RE = re.compile(
     r"^(?:finalizar|concluir|encerrar|gerar\s+(?:rascunhos?|of[ií]cios?))\.?$",
+    re.IGNORECASE,
+)
+_TEXTO_RECUSA_VALIDACAO_RE = re.compile(
+    r"^(?:n[aã]o|nao|cancelar|voltar|ajustar|corrigir)\.?$",
     re.IGNORECASE,
 )
 _VALOR_ENDERECO_INVALIDO_RE = re.compile(
@@ -448,6 +510,8 @@ class ChatbotService:
         anexos_upload: list | None = None,
         anexo_demanda_indices: list[int | None] | None = None,
         indices_aprovados: list[int] | None = None,
+        corpus_sinapse_servico_id: int | None = None,
+        corpus_atalho_id: str | None = None,
     ) -> dict[str, Any]:
         """Executa uma rodada completa (persistência + opcional 2º call Groq pós-Sinapse)."""
         texto = (mensagem or "").strip()
@@ -464,21 +528,13 @@ class ChatbotService:
             texto = "Segue(m) anexo(s) para análise da solicitação."
 
         session = self._obter_sessao(usuario, session_id)
+        arquivos_turno = list(arquivos)
         if arquivos and not self._rascunho_tem_problema_util(list(session.demandas_rascunho or [])):
             qtd = len(arquivos)
             texto = (
                 f"{texto} O cidadão enviou {qtd} arquivo(s) neste turno; "
                 "extraia o pedido na íntegra e preencha anexos_indices na demanda correspondente."
             )
-        if arquivos:
-            self._salvar_anexos_sessao(
-                session,
-                arquivos,
-                texto_contexto=texto,
-                rascunho=list(session.demandas_rascunho or []),
-                indices_demanda=anexo_demanda_indices,
-            )
-            self._propagar_anexos_indices_rascunho(session)
         estado_antes = session.estado_atual
         historico: list[dict[str, Any]] = list(session.historico_mensagens or [])
         historico.append({"role": "user", "content": texto})
@@ -502,6 +558,18 @@ class ChatbotService:
             return self._montar_resposta_http(session, resposta, criadas=[])
 
         texto_limpo = self._normalizar_comando_usuario(texto)
+        if (
+            not arquivos
+            and session.estado_atual == ChatSession.ESTADO_VALIDACAO_FINAL
+            and _TEXTO_RECUSA_VALIDACAO_RE.match(texto_limpo)
+        ):
+            parsed = self._processar_recusa_validacao_final(session)
+            historico.append(
+                {"role": "assistant", "content": json.dumps(parsed, ensure_ascii=False)}
+            )
+            self._persistir_apos_turno(session, historico, parsed)
+            return self._montar_resposta_http(session, parsed, criadas=[])
+
         confirm_curto = bool(_CONFIRM_RE.search(texto_limpo)) and len(texto_limpo) < 96
         quer_gerar_rascunhos = not arquivos and (
             _TEXTO_FINALIZAR_RE.match(texto_limpo)
@@ -520,9 +588,28 @@ class ChatbotService:
             self._persistir_apos_turno(session, historico, parsed)
             return self._montar_resposta_http(session, parsed, criadas=demandas_criadas)
 
+        if not arquivos:
+            rev_parsed = self._tentar_processar_revisao_conversacional(
+                session, texto_limpo
+            )
+            if rev_parsed:
+                historico.append(
+                    {"role": "assistant", "content": json.dumps(rev_parsed, ensure_ascii=False)}
+                )
+                self._persistir_apos_turno(session, historico, rev_parsed)
+                return self._montar_resposta_http(session, rev_parsed, criadas=[])
+
         if self._turno_pula_llm_groq(texto, arquivos, session=session):
             parsed = self._montar_resposta_sem_llm(
                 session, estado_antes, arquivos, texto_limpo
+            )
+            self._processar_anexos_turno(
+                session,
+                arquivos_turno,
+                texto=texto,
+                rascunho=list(session.demandas_rascunho or parsed.get("demandas_extraidas") or []),
+                indices_demanda=anexo_demanda_indices,
+                parsed=parsed,
             )
             historico.append(
                 {"role": "assistant", "content": json.dumps(parsed, ensure_ascii=False)}
@@ -530,15 +617,60 @@ class ChatbotService:
             self._persistir_apos_turno(session, historico, parsed)
             return self._montar_resposta_http(session, parsed, criadas=[])
 
-        parsed, historico_pos_llm = self._rodada_llm_com_triagem(historico, session=session)
+        faq_imediata = self._turno_resposta_faq_imediata(texto_limpo, session)
+        if faq_imediata:
+            parsed = faq_imediata
+            historico.append(
+                {"role": "assistant", "content": json.dumps(parsed, ensure_ascii=False)}
+            )
+            self._persistir_apos_turno(session, historico, parsed)
+            return self._montar_resposta_http(session, parsed, criadas=[])
+
+        corpus_servico_turno = (
+            int(corpus_sinapse_servico_id) if corpus_sinapse_servico_id else None
+        )
+        parsed, historico_pos_llm = self._rodada_llm_com_triagem(
+            historico,
+            session=session,
+            corpus_servico_id=corpus_servico_turno,
+        )
         parsed = self._tentar_aplicar_escolha_sinapse_numerica(historico, texto, parsed)
         merged = self._merge_demandas_rascunho(session.demandas_rascunho, parsed.get("demandas_extraidas"))
+        self._pre_classificar_faq_em_lista(merged, texto_sessao=texto)
+        self._aplicar_classificacao_competencia_rascunho(merged, texto_sessao=texto)
+        self._limpar_triagem_fora_competencia(merged)
+        bloqueados_pos = self._indices_fora_competencia(merged)
+        if bloqueados_pos and len(bloqueados_pos) == len(merged):
+            parsed["acionar_triagem_sinapse"] = False
+            msg_fc = self._mensagem_chat_fora_competencia(merged)
+            if msg_fc:
+                parsed["resposta_agente"] = msg_fc
+        if corpus_servico_turno:
+            self._aplicar_preselecao_corpus_atalho(
+                merged,
+                corpus_servico_turno,
+                parsed,
+                texto_sessao=texto,
+                eixo_id=(corpus_atalho_id or "").strip() or None,
+            )
+            parsed["acionar_triagem_sinapse"] = False
+        ChatbotService._limpar_servico_nao_confirmado(merged)
         if self._expandir_demandas_compostas_no_rascunho(merged, texto):
-            self._atualizar_triagem_demandas(session, merged, forcar=True)
+            if not corpus_servico_turno:
+                self._atualizar_triagem_demandas(session, merged, forcar=True)
         ChatbotService._normalizar_lista_demandas_compostas(merged)
         merged = self._preservar_relato_rascunho(session, merged)
-        self._retriagem_pendentes_se_necessario(session, merged, ultimo_texto=texto)
+        if not corpus_servico_turno:
+            self._retriagem_pendentes_se_necessario(session, merged, ultimo_texto=texto)
         parsed["demandas_extraidas"] = merged
+        self._processar_anexos_turno(
+            session,
+            arquivos_turno,
+            texto=texto,
+            rascunho=merged,
+            indices_demanda=anexo_demanda_indices,
+            parsed=parsed,
+        )
         self._refinar_apos_escolha_numerica(parsed, texto)
         self._fallback_endereco_e_resumo(parsed, texto)
         self._fallback_coleta_sem_resposta_llm(parsed, texto)
@@ -658,9 +790,28 @@ class ChatbotService:
             if not self._rascunho_tem_problema_util(rascunho):
                 return False
             return True
+        if (
+            session is not None
+            and session.estado_atual == ChatSession.ESTADO_VALIDACAO_FINAL
+            and _TEXTO_RECUSA_VALIDACAO_RE.match(t)
+        ):
+            return True
         if _TEXTOS_PULAR_ENDERECO_RE.search(t):
             return True
+        if _TEXTO_CONFIRMAR_LOCAL_RE.match(t):
+            return True
+        if _TEXTO_CONFIRMAR_ANEXOS_RE.match(t):
+            return True
         if _TEXTO_CONTINUAR_SEM_ANEXOS_RE.match(t):
+            return True
+        if (
+            session is not None
+            and session.estado_atual == ChatSession.ESTADO_VALIDACAO_FINAL
+            and t
+            and not _TEXTO_FINALIZAR_RE.match(t)
+            and not (_CONFIRM_RE.search(t) and len(t) < 96)
+            and ChatbotService._texto_parece_ter_referencia_local(t)
+        ):
             return True
         if (
             session is not None
@@ -699,11 +850,101 @@ class ChatbotService:
             session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
             return plano
 
+        if _TEXTO_RECUSA_VALIDACAO_RE.match(texto_limpo):
+            return self._processar_recusa_validacao_final(session)
+
         if _TEXTOS_PULAR_ENDERECO_RE.search(texto_limpo):
             self._processar_coleta_endereco_usuario(rascunho, texto_limpo)
             session.demandas_rascunho = rascunho
             plano = self._planejar_passo_fluxo(session, rascunho)
             session.estado_atual = plano["estado_atual"]
+            session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
+            return plano
+
+        m_conf_local = _TEXTO_CONFIRMAR_LOCAL_RE.match(texto_limpo)
+        if m_conf_local:
+            indice_raw = m_conf_local.group(1)
+            indice_alvo = int(indice_raw) - 1 if indice_raw else None
+            if indice_alvo is None:
+                indice_rev = self._indice_demanda_em_revisao(rascunho, "local")
+                if indice_rev is not None:
+                    indice_alvo = indice_rev
+            if self._confirmar_local_inferido_rascunho(
+                rascunho, indice_demanda=indice_alvo, session=session
+            ):
+                revisao_encerrada = False
+                if indice_alvo is not None and 0 <= indice_alvo < len(rascunho):
+                    item_rev = rascunho[indice_alvo]
+                    if isinstance(item_rev, dict) and item_rev.pop("_revisao_etapa", None):
+                        revisao_encerrada = True
+                session.demandas_rascunho = rascunho
+                plano = self._planejar_passo_fluxo(session, rascunho)
+                if revisao_encerrada:
+                    plano["revisao_encerrada"] = True
+                session.estado_atual = plano["estado_atual"]
+                session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
+                return plano
+            plano = {
+                "usuario_forneceu_endereco_real": False,
+                "resposta_agente": (
+                    "Ainda não identifiquei um local válido para confirmar. "
+                    "Informe rua e bairro, CEP, parque ou use o GPS."
+                ),
+                "estado_atual": ChatSession.ESTADO_COLETA_ENDERECO,
+                "demandas_extraidas": rascunho,
+                "acionar_triagem_sinapse": False,
+                "confirmar_criacao_demandas": False,
+            }
+            session.estado_atual = plano["estado_atual"]
+            session.save(update_fields=["estado_atual", "atualizado_em"])
+            return plano
+
+        m_conf_anexos = _TEXTO_CONFIRMAR_ANEXOS_RE.match(texto_limpo)
+        if m_conf_anexos:
+            indice_rev = self._indice_demanda_em_revisao(rascunho, "anexos")
+            if indice_rev is not None and isinstance(rascunho[indice_rev], dict):
+                rascunho[indice_rev].pop("_revisao_etapa", None)
+            session.demandas_rascunho = rascunho
+            plano = self._planejar_passo_fluxo(session, rascunho, apos_sem_anexos=True)
+            if indice_rev is not None:
+                qtd = session.anexos_sessao.filter(indice_demanda=indice_rev).count()
+                plano["revisao_encerrada"] = True
+                plano["resposta_agente"] = (
+                    f"Documentos da solicitação {indice_rev + 1} confirmados"
+                    + (f" ({qtd} arquivo(s))." if qtd else ".")
+                    + " "
+                    + (plano.get("resposta_agente") or "")
+                ).strip()
+            else:
+                qtd = session.anexos_sessao.count()
+                if qtd:
+                    plano["resposta_agente"] = (
+                        f"Documentos confirmados ({qtd} arquivo(s) na sessão). "
+                        + (plano.get("resposta_agente") or "")
+                    ).strip()
+            session.estado_atual = plano["estado_atual"]
+            session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
+            return plano
+
+        if _TEXTO_CONTINUAR_SEM_ANEXOS_RE.match(texto_limpo):
+            if not self._rascunho_tem_endereco_suficiente(rascunho):
+                session.estado_atual = ChatSession.ESTADO_COLETA_ENDERECO
+                plano = {
+                    "usuario_forneceu_endereco_real": False,
+                    "resposta_agente": (
+                        "Antes dos anexos, informe o local (rua e bairro, CEP ou parque) "
+                        "ou digite «continuar sem local»."
+                    ),
+                    "estado_atual": ChatSession.ESTADO_COLETA_ENDERECO,
+                    "demandas_extraidas": rascunho,
+                    "acionar_triagem_sinapse": False,
+                    "confirmar_criacao_demandas": False,
+                }
+                session.save(update_fields=["estado_atual", "atualizado_em"])
+                return plano
+            plano = self._planejar_passo_fluxo(session, rascunho, apos_sem_anexos=True)
+            session.estado_atual = plano["estado_atual"]
+            session.demandas_rascunho = rascunho
             session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
             return plano
 
@@ -729,25 +970,33 @@ class ChatbotService:
             session.save(update_fields=["estado_atual", "atualizado_em"])
             return plano
 
-        if _TEXTO_CONTINUAR_SEM_ANEXOS_RE.match(texto_limpo):
-            if not self._rascunho_tem_endereco_suficiente(rascunho):
-                session.estado_atual = ChatSession.ESTADO_COLETA_ENDERECO
-                plano = {
-                    "usuario_forneceu_endereco_real": False,
-                    "resposta_agente": (
-                        "Antes dos anexos, informe o local (rua e bairro, CEP ou parque) "
-                        "ou digite «continuar sem local»."
-                    ),
-                    "estado_atual": ChatSession.ESTADO_COLETA_ENDERECO,
-                    "demandas_extraidas": rascunho,
-                    "acionar_triagem_sinapse": False,
-                    "confirmar_criacao_demandas": False,
-                }
-                session.save(update_fields=["estado_atual", "atualizado_em"])
+        if (
+            estado_antes == ChatSession.ESTADO_VALIDACAO_FINAL
+            and texto_limpo
+            and self._texto_parece_ter_referencia_local(texto_limpo)
+            and not _TEXTO_FINALIZAR_RE.match(texto_limpo)
+        ):
+            for item in rascunho:
+                if isinstance(item, dict) and not item.get("descartada"):
+                    item["requer_localizacao"] = True
+            if self._processar_coleta_endereco_usuario(rascunho, texto_limpo):
+                session.demandas_rascunho = rascunho
+                plano = self._planejar_passo_fluxo(session, rascunho)
+                session.estado_atual = plano["estado_atual"]
+                session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
                 return plano
-            plano = self._planejar_passo_fluxo(session, rascunho, apos_sem_anexos=True)
+            plano = {
+                "usuario_forneceu_endereco_real": False,
+                "resposta_agente": (
+                    "Não reconheci o local com clareza. Informe rua e bairro, CEP completo "
+                    "ou referência do local (ex.: praça, esquina)."
+                ),
+                "estado_atual": ChatSession.ESTADO_COLETA_ENDERECO,
+                "demandas_extraidas": rascunho,
+                "acionar_triagem_sinapse": False,
+                "confirmar_criacao_demandas": False,
+            }
             session.estado_atual = plano["estado_atual"]
-            session.demandas_rascunho = rascunho
             session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
             return plano
 
@@ -770,7 +1019,11 @@ class ChatbotService:
         return ChatSession.objects.create(autor=usuario)
 
     def _rodada_llm_com_triagem(
-        self, historico: list[dict[str, Any]], *, session: ChatSession | None = None
+        self,
+        historico: list[dict[str, Any]],
+        *,
+        session: ChatSession | None = None,
+        corpus_servico_id: int | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         """Uma inferência Groq; triagem Sinapse vetorial aplicada no backend."""
         ultimo_usuario = ""
@@ -785,21 +1038,31 @@ class ChatbotService:
             hist_llm.append({"role": "system", "content": gestao_msg})
 
         parsed = self._chamar_groq_json(hist_llm)
+        if corpus_servico_id is not None:
+            parsed["acionar_triagem_sinapse"] = False
+        ChatbotService._limpar_servico_nao_confirmado(parsed.get("demandas_extraidas") or [])
         self._expandir_demandas_compostas(parsed, ultimo_usuario)
         ChatbotService._normalizar_lista_demandas_compostas(
             parsed.get("demandas_extraidas") or []
         )
         self._enriquecer_slot_e_triagem_por_contexto(ultimo_usuario, parsed)
-        if self._todas_demandas_competencia_negativa_llm(parsed):
-            dems_llm = parsed.get("demandas_extraidas")
-            if isinstance(dems_llm, list):
-                self._aplicar_classificacao_competencia_rascunho(
-                    dems_llm, texto_sessao=ultimo_usuario
-                )
+        self._pre_classificar_faq_nas_demandas(parsed, texto_sessao=ultimo_usuario)
+        dems_llm = parsed.get("demandas_extraidas")
+        if isinstance(dems_llm, list):
+            self._aplicar_classificacao_competencia_rascunho(
+                dems_llm, texto_sessao=ultimo_usuario
+            )
+            self._aplicar_trilha_ouvidoria_rascunho(
+                dems_llm, texto_sessao=ultimo_usuario
+            )
+            self._alinhar_resposta_agente_ouvidoria(parsed)
+            self._alinhar_resposta_agente_faq(parsed)
+        bloqueados = self._indices_fora_competencia(dems_llm if isinstance(dems_llm, list) else [])
+        if bloqueados and len(bloqueados) == len(dems_llm or []):
             parsed["acionar_triagem_sinapse"] = False
             if not (parsed.get("resposta_agente") or "").strip():
                 parsed["resposta_agente"] = self._mensagem_chat_fora_competencia(
-                    parsed.get("demandas_extraidas") or []
+                    dems_llm or []
                 )
         self._forcar_regras_estado_rigidas(parsed, pos_sinapse=False)
         if parsed.get("usuario_forneceu_endereco_real") is True:
@@ -807,6 +1070,16 @@ class ChatbotService:
         historico_out = list(historico)
         n_demandas_antes_sinapse = len(parsed.get("demandas_extraidas") or [])
 
+        if corpus_servico_id is not None:
+            parsed["acionar_triagem_sinapse"] = False
+
+        if parsed.get("acionar_triagem_sinapse"):
+            dems_pre = parsed.get("demandas_extraidas")
+            if isinstance(dems_pre, list) and all(
+                isinstance(x, dict) and self._item_trilha_ouvidoria(x) for x in dems_pre
+            ):
+                parsed["acionar_triagem_sinapse"] = False
+                self._alinhar_resposta_agente_ouvidoria(parsed)
         if parsed.get("acionar_triagem_sinapse"):
             marcador_sinapse = self._aplicar_triagem_sinapse_local(
                 parsed,
@@ -849,6 +1122,7 @@ class ChatbotService:
         dems_triagem = parsed.get("demandas_extraidas")
         if isinstance(dems_triagem, list):
             self._aplicar_classificacao_competencia_rascunho(dems_triagem)
+            self._alinhar_resposta_agente_faq(parsed)
         parsed["acionar_triagem_sinapse"] = False
         self._forcar_regras_estado_rigidas(parsed, pos_sinapse=True)
         self._montar_resposta_pos_triagem_sinapse(parsed, blocos_triagem, candidatos_ui)
@@ -966,8 +1240,20 @@ class ChatbotService:
 
     @staticmethod
     def _item_vinculo_catalogo_resolvido(item: dict[str, Any]) -> bool:
+        if item.get("corpus_preselecao_servico_id") or item.get("corpus_atalho_eixo_id"):
+            if ChatbotService._servico_confirmado_pelo_usuario(item):
+                return True
         if item.get("tendencia_id") or item.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA:
             return True
+        if item.get("trilha_ouvidoria"):
+            raw = item.get("sinapse_servico_id_sugerido") or item.get("servico_local_id")
+            if raw is not None:
+                try:
+                    return sinapse_catalog.servico_existe(int(raw))
+                except (TypeError, ValueError):
+                    pass
+        if not ChatbotService._servico_confirmado_pelo_usuario(item):
+            return False
         raw = item.get("sinapse_servico_id_sugerido") or item.get("servico_local_id")
         if raw is None:
             return False
@@ -1072,16 +1358,53 @@ class ChatbotService:
                 continue
             if not self._item_requer_localizacao_vinculada(item):
                 continue
-            if item.get("endereco_opcional_dispensado") is True:
-                continue
-            if item.get("endereco_informado_usuario") is True and self._endereco_real_do_usuario(
-                item
-            ):
-                continue
-            if item.get("latitude") is not None and item.get("longitude") is not None:
+            if self._item_local_confirmado_usuario(item):
                 continue
             return False
         return True
+
+    @classmethod
+    def _item_local_confirmado_usuario(cls, item: dict[str, Any]) -> bool:
+        if item.get("endereco_opcional_dispensado"):
+            return True
+        if item.get("local_confirmado_usuario"):
+            return True
+        if item.get("endereco_informado_usuario") and cls._endereco_real_do_usuario(item):
+            return True
+        return False
+
+    def _indice_demanda_em_revisao(
+        self, rascunho: list[Any], etapa: str | None = None
+    ) -> int | None:
+        for i, item in enumerate(rascunho or []):
+            if not isinstance(item, dict):
+                continue
+            rev = item.get("_revisao_etapa")
+            if rev and (etapa is None or rev == etapa):
+                return i
+        return None
+
+    def _itens_alvo_coleta_endereco(self, rascunho: list[Any]) -> list[dict[str, Any]]:
+        indice_rev = self._indice_demanda_em_revisao(rascunho, "local")
+        if indice_rev is not None:
+            item = rascunho[indice_rev]
+            return [item] if isinstance(item, dict) else []
+        alvos: list[dict[str, Any]] = []
+        for item in rascunho or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("fora_competencia") or item.get("descartada"):
+                continue
+            if not self._item_requer_localizacao_vinculada(item):
+                if not (
+                    item.get("corpus_aguarda_complemento")
+                    and not self._item_local_confirmado_usuario(item)
+                ):
+                    continue
+            if self._item_local_confirmado_usuario(item):
+                continue
+            alvos.append(item)
+        return alvos
 
     def _processar_coleta_endereco_usuario(self, rascunho: list[Any], texto: str) -> bool:
         """Interpreta mensagem na etapa COLETA_ENDERECO (sem Groq)."""
@@ -1089,11 +1412,19 @@ class ChatbotService:
         if not bruto:
             return False
         if _TEXTOS_PULAR_ENDERECO_RE.search(bruto):
-            for item in rascunho or []:
-                if isinstance(item, dict):
-                    item["endereco_opcional_dispensado"] = True
-                    item["endereco"] = dict(_ENDERECO_VAZIO)
-            return True
+            alvos = self._itens_alvo_coleta_endereco(rascunho)
+            for item in alvos:
+                item["endereco_opcional_dispensado"] = True
+                item["endereco"] = dict(_ENDERECO_VAZIO)
+                item.pop("latitude", None)
+                item.pop("longitude", None)
+                item.pop("coordenadas_fonte", None)
+                item.pop("_geo_chave", None)
+                item.pop("endereco_informado_usuario", None)
+                item.pop("local_confirmado_usuario", None)
+                if item.get("_revisao_etapa") == "local":
+                    item.pop("_revisao_etapa", None)
+            return bool(alvos)
         t = self._texto_util_para_extracao_endereco(bruto)
         if not t:
             return False
@@ -1103,12 +1434,14 @@ class ChatbotService:
             ext["logradouro"] = parque
         if not any(ext.get(k) for k in ("cep", "logradouro", "bairro", "numero")):
             return False
-        for item in rascunho or []:
-            if not isinstance(item, dict):
-                continue
+        alvos = self._itens_alvo_coleta_endereco(rascunho)
+        if not alvos:
+            return False
+        for item in alvos:
             cur = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
             item["endereco"] = self._merge_endereco_dicts(cur, ext)
             item["endereco_informado_usuario"] = True
+            item["local_confirmado_usuario"] = True
             self._sanitizar_endereco_demanda(item)
         return True
 
@@ -1140,6 +1473,14 @@ class ChatbotService:
         """Heurística: serviços de local físico costumam precisar de endereço/área."""
         if not item:
             return False
+        if item.get("trilha_ouvidoria"):
+            return False
+        if item.get("endereco_opcional_dispensado"):
+            return False
+        if item.get("corpus_atalho_eixo_id") or item.get("corpus_preselecao_servico_id"):
+            return True
+        if item.get("corpus_aguarda_complemento"):
+            return True
         partes = [
             (item.get("titulo") or ""),
             (item.get("descricao") or ""),
@@ -1174,6 +1515,26 @@ class ChatbotService:
             "alvara",
             "lote",
             "obra",
+            "ronda",
+            "gcm",
+            "patrulh",
+            "segurança",
+            "seguranca",
+            "estrada",
+            "manutenção",
+            "manutencao",
+            "nivelamento",
+            "cascalh",
+            "varri",
+            "roçag",
+            "rocag",
+            "sinaliza",
+            "semáforo",
+            "semaforo",
+            "via ",
+            "rua",
+            "avenida",
+            "bairro",
         )
         return any(k in blob for k in chaves)
 
@@ -1312,12 +1673,13 @@ class ChatbotService:
         rascunho = list(session.demandas_rascunho or [])
         anexos_sessao = list(session.anexos_sessao.order_by("criado_em"))
         if not anexos_sessao or not rascunho:
-            if len(rascunho) == 1 and anexos_sessao:
-                item = rascunho[0]
-                if isinstance(item, dict):
-                    item["anexos_indices"] = list(range(len(anexos_sessao)))
-                    session.demandas_rascunho = rascunho
-                    session.save(update_fields=["demandas_rascunho", "atualizado_em"])
+            return
+        if len(rascunho) == 1 and anexos_sessao:
+            item = rascunho[0]
+            if isinstance(item, dict) and not item.get("anexos_indices"):
+                item["anexos_indices"] = list(range(len(anexos_sessao)))
+                session.demandas_rascunho = rascunho
+                session.save(update_fields=["demandas_rascunho", "atualizado_em"])
             return
         mapa = self._mapa_anexos_por_demanda(
             anexos_sessao, rascunho, [None] * len(rascunho)
@@ -1327,7 +1689,7 @@ class ChatbotService:
             if not isinstance(item, dict):
                 continue
             idxs = sorted(mapa.get(dem_idx, set()))
-            if idxs and item.get("anexos_indices") != idxs:
+            if item.get("anexos_indices") != idxs:
                 item["anexos_indices"] = idxs
                 alterou = True
         if alterou:
@@ -1420,11 +1782,36 @@ class ChatbotService:
         )
         return parsed, demandas_criadas
 
+    def _processar_recusa_validacao_final(self, session: ChatSession) -> dict[str, Any]:
+        """H3-20 — «Não» na etapa final: volta ao fluxo editável sem materializar rascunhos."""
+        rascunho = list(session.demandas_rascunho or [])
+        session.estado_atual = ChatSession.ESTADO_COLETA_DADOS
+        session.demandas_rascunho = rascunho
+        session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
+        return {
+            "resposta_agente": (
+                "Sem problemas. Continue ajustando serviço, endereço ou anexos no painel. "
+                "Quando estiver pronto, envie anexos ou diga «continuar sem anexos» para revisar de novo."
+            ),
+            "estado_atual": ChatSession.ESTADO_COLETA_DADOS,
+            "demandas_extraidas": rascunho,
+            "recusou_geracao_rascunhos": True,
+            "usuario_forneceu_endereco_real": True,
+            "acionar_triagem_sinapse": False,
+            "confirmar_criacao_demandas": False,
+        }
+
     def _sincronizar_estado_pos_vinculo_catalogo(
         self, session: ChatSession, parsed: dict[str, Any]
     ) -> None:
         """Após confirmar serviço ou tendência: endereço → anexos → validação (sem pular etapas)."""
         rascunho = list(session.demandas_rascunho or [])
+        texto_sessao = self._texto_usuario_da_sessao(session)
+        for item in rascunho:
+            if isinstance(item, dict):
+                self._hidratar_endereco_inferivel_item(
+                    item, rascunho, texto_sessao=texto_sessao
+                )
         plano = self._planejar_passo_fluxo(session, rascunho)
         parsed.update(plano)
         session.estado_atual = plano["estado_atual"]
@@ -1573,42 +1960,54 @@ class ChatbotService:
 
     @classmethod
     def _titulo_menciona_multiplos_eixos(cls, titulo: str, *, eixo_id: str | None = None) -> bool:
-        """True quando o título parece agrupar mais de um tipo de pedido."""
+        """True quando o texto agrupa gatilhos de mais de um eixo operacional."""
+        del eixo_id  # legado: decisão só pelo texto, sem forçar eixo inferido errado
         t = (titulo or "").lower()
         if not t:
             return False
-        eixos = cls._eixos_pedido_no_texto(t)
-        if len(eixos) > 1:
-            return True
-        if eixo_id:
-            for eixo in _EIXOS_PEDIDO_COMPOSTO:
-                if eixo.get("id") == eixo_id:
-                    continue
-                if any(g in t for g in eixo.get("gatilhos") or ()):
-                    return True
-        return False
+        return len(cls._eixos_pedido_no_texto(t)) > 1
 
     @classmethod
-    def _meta_eixo_pedido(cls, eixo_id: str | None) -> dict[str, Any] | None:
-        if not eixo_id:
-            return None
+    def _inferir_eixo_do_texto_usuario(cls, item: dict[str, Any]) -> str | None:
+        """Infere eixo só pelo relato do cidadão (ignora candidatos Sinapse)."""
+        titulo = (item.get("titulo") or "").lower()
+        desc = (item.get("descricao") or "").lower()
+        ped = (item.get("pedido_integral") or "").lower()
+        te = (item.get("texto_para_embedding") or "").lower()
+        melhor_id: str | None = None
+        melhor_pts = 0
         for eixo in _EIXOS_PEDIDO_COMPOSTO:
-            if eixo.get("id") == eixo_id:
-                return eixo
-        return None
+            pts = 0
+            for g in eixo.get("gatilhos") or ():
+                if g in titulo:
+                    pts += 4
+                elif g in ped:
+                    pts += 3
+                elif g in desc:
+                    pts += 2
+                elif g in te:
+                    pts += 1
+            if pts > melhor_pts:
+                melhor_pts = pts
+                melhor_id = str(eixo["id"])
+        return melhor_id if melhor_pts > 0 else None
 
     @classmethod
     def _inferir_eixo_principal_item(cls, item: dict[str, Any]) -> str | None:
         """Infere o eixo operacional dominante de um item (título, descrição ou carta)."""
+        eixo_usuario = cls._inferir_eixo_do_texto_usuario(item)
+        if eixo_usuario:
+            return eixo_usuario
         titulo = (item.get("titulo") or "").lower()
         desc = (item.get("descricao") or "").lower()
         te = (item.get("texto_para_embedding") or "").lower()
-        cands = item.get("candidatos_sinapse")
-        if isinstance(cands, list) and cands and isinstance(cands[0], dict):
-            cand_tit = (cands[0].get("titulo") or "").lower()
-            eixos_c = cls._eixos_pedido_no_texto(cand_tit)
-            if len(eixos_c) == 1:
-                return str(eixos_c[0]["id"])
+        if not item.get("servico_confirmado_usuario"):
+            cands = item.get("candidatos_sinapse")
+            if isinstance(cands, list) and cands and isinstance(cands[0], dict):
+                cand_tit = (cands[0].get("titulo") or "").lower()
+                eixos_c = cls._eixos_pedido_no_texto(cand_tit)
+                if len(eixos_c) == 1:
+                    return str(eixos_c[0]["id"])
         melhor_id: str | None = None
         melhor_pts = 0
         for eixo in _EIXOS_PEDIDO_COMPOSTO:
@@ -1624,6 +2023,15 @@ class ChatbotService:
                 melhor_pts = pts
                 melhor_id = str(eixo["id"])
         return melhor_id if melhor_pts > 0 else None
+
+    @classmethod
+    def _meta_eixo_pedido(cls, eixo_id: str | None) -> dict[str, Any] | None:
+        if not eixo_id:
+            return None
+        for eixo in _EIXOS_PEDIDO_COMPOSTO:
+            if eixo.get("id") == eixo_id:
+                return eixo
+        return None
 
     @classmethod
     def _descricao_especifica_eixo(
@@ -1645,7 +2053,11 @@ class ChatbotService:
         endereco_ref: dict[str, Any] | None = None,
     ) -> None:
         """Garante título e relato específicos por eixo (ex.: buraco ≠ lombada)."""
-        eixo_id = item.get("_eixo_pedido") or cls._inferir_eixo_principal_item(item)
+        if cls._titulo_indica_sinalizacao(item):
+            item["_eixo_pedido"] = "mobilidade_sinalizacao"
+        eixo_id = cls._inferir_eixo_do_texto_usuario(item) or item.get("_eixo_pedido")
+        if not eixo_id:
+            eixo_id = cls._inferir_eixo_principal_item(item)
         if not eixo_id:
             return
         item["_eixo_pedido"] = str(eixo_id)
@@ -1655,10 +2067,16 @@ class ChatbotService:
         titulo_eixo = str(eixo.get("titulo_padrao") or "") or None
         blob = f"{item.get('titulo') or ''} {item.get('descricao') or ''}".strip()
         titulo_atual = (item.get("titulo") or "").strip()
-        if titulo_eixo and (
-            not titulo_atual
-            or cls._titulo_menciona_multiplos_eixos(blob, eixo_id=str(eixo_id))
-            or cls._titulo_menciona_multiplos_eixos(titulo_atual, eixo_id=str(eixo_id))
+        eixo_coerente = titulo_atual and any(
+            g in titulo_atual.lower() or g in blob.lower()
+            for g in (eixo.get("gatilhos") or ())
+        )
+        if titulo_eixo and not titulo_atual:
+            item["titulo"] = titulo_eixo
+        elif (
+            titulo_eixo
+            and not eixo_coerente
+            and cls._titulo_menciona_multiplos_eixos(blob)
         ):
             item["titulo"] = titulo_eixo
         endereco = (
@@ -1669,13 +2087,50 @@ class ChatbotService:
         desc = (item.get("descricao") or "").strip()
         if (
             not desc
-            or cls._titulo_menciona_multiplos_eixos(desc, eixo_id=str(eixo_id))
+            or cls._titulo_menciona_multiplos_eixos(desc)
             or len(cls._eixos_pedido_no_texto(desc)) > 1
         ):
             item["descricao"] = cls._descricao_especifica_eixo(
                 eixo, endereco=endereco if isinstance(endereco, dict) else None
             )
-        item["pedido_integral"] = (item.get("descricao") or "").strip()
+        ped_atual = (item.get("pedido_integral") or "").strip()
+        desc_atual = (item.get("descricao") or "").strip()
+        if not ped_atual or len(ped_atual) < len(desc_atual):
+            item["pedido_integral"] = desc_atual
+
+    _DETALHE_COMPLEMENTAR_RELATO_RE = re.compile(
+        r"\b("
+        r"\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?"
+        r"|(?:dia|em)\s+\d{1,2}\s+de\s+\w+"
+        r"|(?:janeiro|fevereiro|março|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)"
+        r"|(?:evento|festa|show|apresentação|apresentacao|realização|realizacao)"
+        r"|(?:interditad|bloquead|inundad|alagad|queimad|apagad|sem\s+iluminação|sem\s+iluminacao)"
+        r"|(?:desde|há|ha)\s+\d+\s+(?:dia|dias|semana|semanas|mês|mes|meses)"
+        r")\w*",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _extrair_detalhes_complementares_relato(
+        cls, relato: str, *, eixo: dict[str, Any] | None = None
+    ) -> str:
+        """Datas, estado do local e contexto de evento — preservados no ofício."""
+        t = (relato or "").strip()
+        if not t:
+            return ""
+        gatilhos_eixo = set(eixo.get("gatilhos") or ()) if eixo else set()
+        trechos: list[str] = []
+        for parte in re.split(r"[.;]\s+|\n+", t):
+            p = parte.strip()
+            if len(p) < 8:
+                continue
+            p_low = p.lower()
+            if gatilhos_eixo and any(g in p_low for g in gatilhos_eixo) and not cls._DETALHE_COMPLEMENTAR_RELATO_RE.search(p):
+                continue
+            if cls._DETALHE_COMPLEMENTAR_RELATO_RE.search(p):
+                if p not in trechos:
+                    trechos.append(p)
+        return ". ".join(trechos[:3])
 
     @classmethod
     def _normalizar_lista_demandas_compostas(cls, items: list[Any]) -> None:
@@ -1727,6 +2182,105 @@ class ChatbotService:
             return f" {partes[0]}" if partes[0].startswith("no ") else f" na {partes[0]}"
         return f" na {partes[0]}, {partes[1]}"
 
+    @staticmethod
+    def _servico_confirmado_pelo_usuario(item: dict[str, Any]) -> bool:
+        return bool(isinstance(item, dict) and item.get("servico_confirmado_usuario"))
+
+    @classmethod
+    def _escolha_carta_explicita_usuario(cls, item: dict[str, Any]) -> bool:
+        """Pedido frequente ou confirmação manual na carta — não revalidar coerência lexical."""
+        if not cls._servico_confirmado_pelo_usuario(item):
+            return False
+        if item.get("corpus_atalho_eixo_id") or item.get("corpus_preselecao_servico_id"):
+            return True
+        return item.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_CARTA
+
+    @classmethod
+    def _limpar_servico_nao_confirmado(cls, items: list[Any]) -> None:
+        """Remove vínculo automático da carta até o vereador confirmar no painel."""
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if cls._servico_confirmado_pelo_usuario(item):
+                continue
+            if item.get("tendencia_id") or item.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA:
+                continue
+            if item.get("trilha_ouvidoria"):
+                continue
+            item.pop("sinapse_servico_id_sugerido", None)
+            item.pop("servico_local_id", None)
+
+    @classmethod
+    def _resolver_sinapse_id_confirmado(cls, item: dict[str, Any]) -> int | None:
+        if not cls._servico_confirmado_pelo_usuario(item):
+            return None
+        return cls._resolver_sinapse_id(item)
+
+    @classmethod
+    def _deve_adiar_anexos_multiplos_servicos(
+        cls, rascunho: list[Any], texto: str = ""
+    ) -> bool:
+        ativos = [
+            x
+            for x in (rascunho or [])
+            if isinstance(x, dict)
+            and not x.get("descartada")
+            and not x.get("fora_competencia")
+        ]
+        if len(ativos) >= 2:
+            return any(not cls._item_vinculo_catalogo_resolvido(x) for x in ativos)
+        candidatos = [
+            (texto or "").strip(),
+            *[
+                " ".join(
+                    p
+                    for p in (
+                        (x.get("pedido_integral") or "").strip(),
+                        (x.get("descricao") or "").strip(),
+                        (x.get("titulo") or "").strip(),
+                    )
+                    if p
+                )
+                for x in ativos
+            ],
+        ]
+        candidatos = [c for c in candidatos if c]
+        relato = max(candidatos, key=len) if candidatos else ""
+        return len(cls._eixos_pedido_no_texto(relato)) >= 2
+
+    def _processar_anexos_turno(
+        self,
+        session: ChatSession,
+        arquivos: list,
+        *,
+        texto: str,
+        rascunho: list[Any],
+        indices_demanda: list[int | None] | None,
+        parsed: dict[str, Any],
+    ) -> None:
+        if not arquivos:
+            return
+        if self._deve_adiar_anexos_multiplos_servicos(rascunho, texto):
+            msg = (
+                "Identifiquei mais de um serviço neste pedido. "
+                "Confirme cada um na carta e anexe os documentos depois, "
+                "na etapa «Documentos», vinculando cada arquivo à solicitação correta."
+            )
+            parsed["anexos_adiados"] = True
+            atual = (parsed.get("resposta_agente") or "").strip()
+            parsed["resposta_agente"] = f"{atual}\n\n{msg}".strip() if atual else msg
+            return
+        self._salvar_anexos_sessao(
+            session,
+            arquivos,
+            texto_contexto=texto,
+            rascunho=rascunho,
+            indices_demanda=indices_demanda,
+        )
+        self._propagar_anexos_indices_rascunho(session)
+
     @classmethod
     def _expandir_demandas_compostas(
         cls, parsed: dict[str, Any], texto_usuario: str = ""
@@ -1747,29 +2301,31 @@ class ChatbotService:
             return False
         if ChatbotService._item_vinculo_catalogo_resolvido(item):
             return False
-        relato = " ".join(
-            p
-            for p in (
-                (item.get("pedido_integral") or "").strip(),
-                (item.get("descricao") or "").strip(),
-                (item.get("titulo") or "").strip(),
-                (texto_usuario or "").strip(),
-            )
-            if p
-        )
+        candidatos_relato = [
+            (item.get("pedido_integral") or "").strip(),
+            (item.get("descricao") or "").strip(),
+            (texto_usuario or "").strip(),
+            (item.get("titulo") or "").strip(),
+        ]
+        candidatos_relato = [c for c in candidatos_relato if c]
+        relato = max(candidatos_relato, key=len) if candidatos_relato else ""
         eixos = cls._eixos_pedido_no_texto(relato)
         if len(eixos) < 2:
             return False
 
         endereco = dict(item.get("endereco") if isinstance(item.get("endereco"), dict) else _ENDERECO_VAZIO)
         local = cls._formatar_sufixo_local_demanda({**item, "endereco": endereco})
+        relato_integral = relato.strip()
         novos: list[dict[str, Any]] = []
         for eixo in eixos:
             desc = f"Solicito {eixo['descricao_verbo']}{local}."
+            complemento = cls._extrair_detalhes_complementares_relato(relato_integral, eixo=eixo)
+            if complemento and complemento.lower() not in desc.lower():
+                desc = f"{desc.rstrip('.')}. {complemento.rstrip('.')}."
             novo: dict[str, Any] = {
                 "titulo": eixo["titulo_padrao"],
                 "descricao": desc,
-                "pedido_integral": desc,
+                "pedido_integral": relato_integral or desc,
                 "texto_para_embedding": f"{eixo['texto_embedding']}{local}".strip()[:500],
                 "endereco": dict(endereco),
                 "competencia_municipal": item.get("competencia_municipal") or "sim",
@@ -1781,7 +2337,6 @@ class ChatbotService:
                 "longitude",
                 "coordenadas_fonte",
                 "coordenadas_observacao",
-                "anexos_indices",
                 "endereco_informado_usuario",
             ):
                 if item.get(chave) is not None:
@@ -1822,6 +2377,8 @@ class ChatbotService:
             if item.get("fora_competencia") or item.get("descartada"):
                 continue
             if self._item_vinculo_catalogo_resolvido(item):
+                continue
+            if self._item_trilha_ouvidoria(item):
                 continue
             if not forcar and item.get("candidatos_sinapse"):
                 continue
@@ -1882,6 +2439,8 @@ class ChatbotService:
         blocos: list[dict[str, Any]] = []
 
         for idx, item in enumerate(itens):
+            if isinstance(item, dict) and self._item_trilha_ouvidoria(item):
+                continue
             candidatos = self._triagem_sinapse_consolidada(item)
             if not candidatos:
                 continue
@@ -1959,18 +2518,55 @@ class ChatbotService:
             ]
 
     @staticmethod
-    def _pontuacao_candidato_ajustada(c: dict[str, Any], item: dict[str, Any]) -> float:
-        """Score vetorial + regras de domínio/título (desempate e reranking no copiloto)."""
-        texto = " ".join(
-            (
+    def _texto_rerank_candidato(item: dict[str, Any]) -> str:
+        """Texto para desempate de candidatos — sem `texto_para_embedding` composto."""
+        return " ".join(
+            p
+            for p in (
                 (item.get("titulo") or ""),
                 (item.get("descricao") or ""),
-                (item.get("texto_para_embedding") or ""),
+                (item.get("pedido_integral") or ""),
             )
+            if p
         ).lower()
+
+    @classmethod
+    def _titulo_indica_sinalizacao(cls, item: dict[str, Any]) -> bool:
+        titulo = (item.get("titulo") or "").lower()
+        if not titulo:
+            return False
+        if not any(
+            g in titulo
+            for g in ("placa", "sinaliz", "semáforo", "semaforo", "horizontal", "vertical")
+        ):
+            return False
+        if any(
+            g in titulo
+            for g in (
+                "instalação de lombada",
+                "instalacao de lombada",
+                "implantação de lombada",
+                "implantacao de lombada",
+            )
+        ):
+            return "placa" in titulo or "sinaliz" in titulo
+        return True
+
+    @staticmethod
+    def _pontuacao_candidato_ajustada(c: dict[str, Any], item: dict[str, Any]) -> float:
+        """Score vetorial + regras de domínio/título (desempate e reranking no copiloto)."""
+        texto = ChatbotService._texto_rerank_candidato(item)
         st = (c.get("titulo") or "").lower()
         pts = float(c.get("score") or 0.0)
-        if any(w in texto for w in ("redutor", "lombad", "velocidade", "revitaliz", "manutenção", "manutencao")):
+        if ChatbotService._titulo_indica_sinalizacao(item):
+            if "sinaliz" in st:
+                pts += 0.58
+            elif "lombad" in st or "redutor" in st:
+                pts += 0.12
+        elif any(
+            w in texto
+            for w in ("redutor", "lombad", "velocidade", "revitaliz", "manutenção", "manutencao")
+        ):
             if "lombad" in st or "redutor" in st:
                 pts += 0.50
             elif "sinaliz" in st or "trânsito" in st or "transito" in st:
@@ -1992,6 +2588,11 @@ class ChatbotService:
                 pts -= 0.50
         if any(w in texto for w in ("tapa", "buraco")) and ("tapa" in st or "burac" in st):
             pts += 0.35
+        if any(w in texto for w in ("poda", "árvore", "arvore", "galho", "galhos")):
+            if any(w in st for w in ("poda", "árvore", "arvore", "galho", "corte", "arbor")):
+                pts += 0.62
+            elif any(w in st for w in ("tapa", "burac", "paviment")):
+                pts -= 0.58
         if any(w in texto for w in ("reserva", "espaço", "espaco", "evento", "ação", "acao")):
             if "reserva" in st and "parque" in st:
                 pts += 0.4
@@ -2166,7 +2767,6 @@ class ChatbotService:
                 continue
             cur = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
             item["endereco"] = self._merge_endereco_dicts(cur, ext)
-            item["endereco_informado_usuario"] = True
 
     @staticmethod
     def _resolver_sinapse_id(
@@ -2281,6 +2881,11 @@ class ChatbotService:
         if any(w in t for w in ("tapa", "buraco")) and "tapa" not in s and "burac" not in s and "paviment" not in s:
             if "ilumina" in s:
                 return False
+        if any(w in t for w in ("poda", "árvore", "arvore", "galho")) and not any(
+            w in s for w in ("poda", "árvore", "arvore", "galho", "corte", "arbor")
+        ):
+            if any(w in s for w in ("tapa", "burac", "paviment")):
+                return False
         if (
             any(w in t for w in ("transporte coletivo", "coletivo municipal"))
             or re.search(r"linha\s+\d", t)
@@ -2329,6 +2934,12 @@ class ChatbotService:
             for ts in fortes_s:
                 if len(td) >= 5 and len(ts) >= 5 and (td[:5] == ts[:5] or td in ts or ts in td):
                     return True
+        if any(w in t_dem for w in ("limpez", "roçag", "rocag", "capina", "varri", "entulho")):
+            if any(
+                w in t_srv
+                for w in ("limpez", "varri", "roçag", "rocag", "capina", "entulho", "coleta", "ruas")
+            ):
+                return True
         return False
 
     @staticmethod
@@ -2352,23 +2963,142 @@ class ChatbotService:
     @classmethod
     def _system_prompt_copiloto(cls) -> str:
         base = COPILOT_SYSTEM_PROMPT
+        if not copiloto_faq_habilitada():
+            base = (
+                base
+                + "\n\nMODO OPERACIONAL ATUAL: não recuse pedidos por competência municipal/FAQ. "
+                "Registre o relato na íntegra; se o serviço não existir na carta, o protocolo "
+                "tratará como tendência para análise humana."
+            )
+            return base
         try:
-            cats = listar_categorias_para_prompt()
+            faqs = listar_faq_detalhada_para_prompt()
         except Exception:
-            logger.exception("Copiloto: falha ao carregar categorias FAQ para o prompt.")
+            logger.exception("Copiloto: falha ao carregar FAQ para o prompt.")
             return base
-        if not cats:
+        if not faqs:
             return base
-        linhas = [
-            f"- {c['categoria_orientacao']}: {c['titulo']} → {c['orgao_hint']}"
-            for c in cats[:25]
-        ]
+        linhas = []
+        for f in faqs:
+            linhas.append(
+                f"- **{f['categoria_orientacao']}** ({f['titulo']}): "
+                f"{f['mensagem']} → {f['orgao_hint']}"
+            )
         extra = (
-            "\n\nCategorias de orientação já cadastradas para Mogi das Cruzes "
-            "(use em `categoria_orientacao` quando `competencia_municipal` for `nao`):\n"
+            "\n\nFAQ oficial — orientações fora da competência municipal "
+            "(use `categoria_orientacao` exata e reproduza a orientação na `resposta_agente` "
+            "quando `competencia_municipal` for `nao`):\n"
             + "\n".join(linhas)
         )
         return base + extra
+
+    @classmethod
+    def _pre_classificar_faq_em_lista(
+        cls, items: list[Any], *, texto_sessao: str = ""
+    ) -> None:
+        """Prioriza regex FAQ cadastrada sobre classificação genérica do LLM (A1)."""
+        if not copiloto_faq_habilitada():
+            return
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            if cls._resolver_sinapse_id(item) or cls._item_vinculo_catalogo_resolvido(item):
+                continue
+            texto = cls._texto_coerencia_demanda(item, texto_sessao)
+            if not texto.strip():
+                continue
+            faq = detectar_faq_por_texto(texto)
+            if not faq:
+                continue
+            if cls._texto_parece_demanda_municipal(texto):
+                continue
+            item["categoria_orientacao"] = faq.categoria_orientacao
+            item["competencia_municipal"] = "nao"
+            item["fora_competencia"] = True
+            item["faq_orientacao"] = faq_para_dict(faq)
+            item["motivo_recusa"] = montar_motivo_recusa(faq=faq)
+            item["candidatos_sinapse"] = []
+            item.pop("sinapse_servico_id_sugerido", None)
+            item.pop("servico_local_id", None)
+
+    @classmethod
+    def _pre_classificar_faq_nas_demandas(
+        cls, parsed: dict[str, Any], *, texto_sessao: str = ""
+    ) -> None:
+        dems = parsed.get("demandas_extraidas")
+        if isinstance(dems, list):
+            cls._pre_classificar_faq_em_lista(dems, texto_sessao=texto_sessao)
+
+    @classmethod
+    def _limpar_triagem_fora_competencia(cls, items: list[Any]) -> None:
+        for item in items or []:
+            if isinstance(item, dict) and item.get("fora_competencia"):
+                item["candidatos_sinapse"] = []
+                item.pop("sinapse_servico_id_sugerido", None)
+                item.pop("servico_local_id", None)
+
+    def _turno_resposta_faq_imediata(
+        self, texto: str, session: ChatSession
+    ) -> dict[str, Any] | None:
+        """
+        Atalho determinístico: pedido bate FAQ cadastrada → recusa sem Groq/carta.
+        Evita cair em «registre como tendência» quando o assunto é fora da competência.
+        """
+        if not copiloto_faq_habilitada():
+            return None
+        t = (texto or "").strip()
+        if len(t) < 8:
+            return None
+        rascunho = list(session.demandas_rascunho or [])
+        if rascunho and self._rascunho_tem_problema_util(rascunho):
+            return None
+        if self._texto_parece_demanda_municipal(t):
+            return None
+        faq = detectar_faq_por_texto(t)
+        if not faq:
+            return None
+        titulo = t[:120] if len(t) <= 120 else f"{t[:117]}…"
+        item: dict[str, Any] = {
+            "titulo": titulo,
+            "descricao": t,
+            "pedido_integral": t,
+            "texto_para_embedding": None,
+            "endereco": dict(_ENDERECO_VAZIO),
+            "competencia_municipal": "nao",
+            "categoria_orientacao": faq.categoria_orientacao,
+            "fora_competencia": True,
+            "motivo_recusa": montar_motivo_recusa(faq=faq),
+            "faq_orientacao": faq_para_dict(faq),
+            "candidatos_sinapse": [],
+        }
+        msg = montar_resposta_chat_fora_competencia([item])
+        return {
+            "usuario_forneceu_endereco_real": False,
+            "resposta_agente": msg,
+            "estado_atual": ChatSession.ESTADO_COLETA_DADOS,
+            "demandas_extraidas": [item],
+            "acionar_triagem_sinapse": False,
+            "confirmar_criacao_demandas": False,
+        }
+
+    @classmethod
+    def _alinhar_resposta_agente_faq(cls, parsed: dict[str, Any]) -> None:
+        if not copiloto_faq_habilitada():
+            return
+        dems = parsed.get("demandas_extraidas")
+        if not isinstance(dems, list):
+            return
+        msg_faq = montar_resposta_chat_fora_competencia(dems)
+        if not msg_faq:
+            return
+        indices = cls._indices_fora_competencia(dems)
+        if not indices:
+            return
+        if len(indices) == len(dems):
+            parsed["resposta_agente"] = msg_faq
+            return
+        atual = (parsed.get("resposta_agente") or "").strip()
+        parsed["resposta_agente"] = f"{atual}\n\n{msg_faq}".strip() if atual else msg_faq
 
     @staticmethod
     def _mensagem_gestao_operacional_rascunho(session: ChatSession | None) -> str | None:
@@ -2668,6 +3398,7 @@ class ChatbotService:
         sid = esc.get("servico_id")
         if sid is not None:
             dems[i0]["sinapse_servico_id_sugerido"] = sid
+        dems[i0]["servico_confirmado_usuario"] = True
         if not (dems[i0].get("titulo") or "").strip():
             tit = (esc.get("titulo") or "").strip()
             if tit:
@@ -2779,8 +3510,13 @@ class ChatbotService:
         if tl in genericos:
             return True
         svc = (servico_nome or "").strip().lower()
-        if svc and (tl == svc or (tl in svc and len(tl) <= len(svc) + 5)):
+        if svc and tl == svc:
             return True
+        # Tema da carta ("Iluminação Pública: Troca...") — prefixo antes de ":" é assunto válido.
+        if svc and ":" in svc:
+            prefix = svc.split(":", 1)[0].strip().lower()
+            if tl == prefix:
+                return False
         return False
 
     @staticmethod
@@ -2807,9 +3543,13 @@ class ChatbotService:
     ) -> str:
         """Relato completo para ofício/cadastro — prioriza pedido_integral e mensagens longas do cidadão."""
         if item.get("_eixo_pedido"):
-            desc = (item.get("descricao") or item.get("pedido_integral") or "").strip()
-            if desc:
-                return desc
+            candidatos_eixo = [
+                (item.get("pedido_integral") or "").strip(),
+                (item.get("descricao") or "").strip(),
+            ]
+            candidatos_eixo = [c for c in candidatos_eixo if c]
+            if candidatos_eixo:
+                return max(candidatos_eixo, key=len)
         candidatos: list[str] = []
         for key in ("pedido_integral", "descricao"):
             t = (item.get(key) or "").strip()
@@ -2833,14 +3573,22 @@ class ChatbotService:
         servico_nome: str = "",
     ) -> str:
         """Título = resumo do pedido do cidadão, nunca só categoria ou nome da carta."""
+        eixo_corpus = (item.get("corpus_atalho_eixo_id") or "").strip()
+        if eixo_corpus:
+            from core.services.corpus_legado_service import CorpusLegadoService
+
+            meta = CorpusLegadoService().meta_pedido_frequente(eixo_corpus)
+            rotulo = (meta or {}).get("rotulo") or ""
+            if rotulo:
+                return rotulo[:200]
+        titulo = (item.get("titulo") or "").strip()
+        if titulo and not cls._titulo_eh_generico(titulo, servico_nome=servico_nome):
+            return titulo[:200]
         eixo_id = item.get("_eixo_pedido") or cls._inferir_eixo_principal_item(item)
         if eixo_id:
             titulo_eixo = cls._titulo_padrao_eixo(str(eixo_id))
             if titulo_eixo:
                 return titulo_eixo[:200]
-        titulo = (item.get("titulo") or "").strip()
-        if titulo and not cls._titulo_eh_generico(titulo, servico_nome=servico_nome):
-            return titulo[:200]
         rel = (relato or "").strip()
         if not rel:
             return (titulo or "Solicitação")[:200]
@@ -2901,6 +3649,9 @@ class ChatbotService:
                 cat = sinapse_catalog.get_servico(sid)
                 svc_nome = (cat.titulo if cat else "") or ""
             titulo_atual = (row.get("titulo") or "").strip()
+            if row.get("corpus_atalho_eixo_id") and titulo_atual:
+                out.append(row)
+                continue
             if self._titulo_eh_generico(titulo_atual, servico_nome=svc_nome):
                 row["titulo"] = self._titulo_demanda_item(
                     row, relato, servico_nome=svc_nome
@@ -3164,7 +3915,7 @@ class ChatbotService:
         parts = [p.strip() for p in t.split(",") if p.strip()]
         for p in parts:
             pl = p.lower()
-            if pl.startswith("rua ") or pl.startswith("r. ") or " rua " in pl or pl.startswith("av ") or pl.startswith("avenida "):
+            if re.match(r"^(rua|r\.|av\.?|avenida)\s", pl, re.IGNORECASE) or " rua " in pl:
                 out["logradouro"] = re.sub(
                     r"\s*na\s+altura\s+do\s*",
                     " ",
@@ -3196,6 +3947,17 @@ class ChatbotService:
                     continue
                 out["numero"] = ps
                 break
+        if not out.get("bairro"):
+            for p in parts[1:]:
+                seg = p.strip()
+                if re.search(r"\b\d{5}-?\d{3}\b", seg):
+                    continue
+                m_bairro = re.search(r"[-–]\s*([^-–]+?)(?:\s*-\s*[A-Z]{2}\b|$)", seg)
+                if m_bairro:
+                    cand = m_bairro.group(1).strip(" .")
+                    if ChatbotService._valor_campo_endereco_valido("bairro", cand):
+                        out["bairro"] = cand[:120]
+                        break
         return out
 
     @staticmethod
@@ -3368,11 +4130,21 @@ class ChatbotService:
             session.demandas_rascunho,
             parsed.get("demandas_extraidas"),
         )
+        texto_sessao = self._texto_usuario_da_sessao(session)
+        self._pre_classificar_faq_em_lista(session.demandas_rascunho or [], texto_sessao=texto_sessao)
         self._sanitizar_enderecos_demandas(session.demandas_rascunho or [])
         self._aplicar_classificacao_competencia_rascunho(
             session.demandas_rascunho or [],
-            texto_sessao=self._texto_usuario_da_sessao(session),
+            texto_sessao=texto_sessao,
         )
+        self._limpar_triagem_fora_competencia(session.demandas_rascunho or [])
+        bloqueados = self._indices_fora_competencia(session.demandas_rascunho or [])
+        if bloqueados:
+            msg_fc = self._mensagem_chat_fora_competencia(session.demandas_rascunho or [])
+            if msg_fc and parsed.get("estado_atual") != ChatSession.ESTADO_VALIDACAO_FINAL:
+                parsed["resposta_agente"] = msg_fc
+                parsed["estado_atual"] = ChatSession.ESTADO_COLETA_DADOS
+                session.estado_atual = ChatSession.ESTADO_COLETA_DADOS
         session.save(
             update_fields=[
                 "historico_mensagens",
@@ -3462,7 +4234,6 @@ class ChatbotService:
             "reserva",
             "oficio",
             "ofício",
-            "solicit",
             "taxista",
             "taxi",
             "táxi",
@@ -3476,6 +4247,8 @@ class ChatbotService:
     def _texto_parece_demanda_municipal(cls, texto: str) -> bool:
         t = (texto or "").lower()
         if not t:
+            return False
+        if detectar_faq_por_texto(texto):
             return False
         return any(ind in t for ind in cls._DOMINIO_MUNICIPAL_INDICIOS)
 
@@ -3554,6 +4327,14 @@ class ChatbotService:
     ) -> tuple[bool, str | None]:
         """LLM (`competencia_municipal`) + FAQ + heurística determinística."""
         if not isinstance(item, dict):
+            return False, None
+        if not copiloto_faq_habilitada():
+            item.pop("fora_competencia", None)
+            item.pop("faq_orientacao", None)
+            item.pop("motivo_recusa", None)
+            item.pop("categoria_orientacao", None)
+            if not item.get("competencia_municipal"):
+                item["competencia_municipal"] = "sim"
             return False, None
         if self._resolver_sinapse_id(item) or self._item_vinculo_catalogo_resolvido(item):
             return False, None
@@ -3653,12 +4434,140 @@ class ChatbotService:
                 item["candidatos_sinapse"] = []
                 item.pop("sinapse_servico_id_sugerido", None)
                 item.pop("servico_local_id", None)
+                faq_dict = self._faq_para_item(item, self._texto_coerencia_demanda(item, texto_sessao))
+                if faq_dict:
+                    item["faq_orientacao"] = faq_dict
             else:
                 item.pop("motivo_recusa", None)
                 item.pop("faq_orientacao", None)
         return alterou
 
-    def _indices_fora_competencia(self, rascunho: list[Any]) -> list[int]:
+    def _alinhar_resposta_agente_ouvidoria(self, parsed: dict[str, Any]) -> None:
+        dems = parsed.get("demandas_extraidas")
+        if not isinstance(dems, list) or not dems:
+            return
+        ativos = [
+            x
+            for x in dems
+            if isinstance(x, dict) and not x.get("fora_competencia") and not x.get("descartada")
+        ]
+        if not ativos or not all(self._item_trilha_ouvidoria(x) for x in ativos):
+            return
+        parsed["acionar_triagem_sinapse"] = False
+        resposta_atual = (parsed.get("resposta_agente") or "").strip().lower()
+        deslocar_carta = any(
+            termo in resposta_atual
+            for termo in (
+                "carta de serviços",
+                "carta de servicos",
+                "tendência",
+                "tendencia",
+                "escolha no painel",
+            )
+        )
+        if resposta_atual and not deslocar_carta:
+            return
+        subtipos = {
+            str(x.get("subtipo_ouvidoria") or (x.get("trilha_ouvidoria") or {}).get("subtipo") or "")
+            for x in ativos
+        }
+        if subtipos == {"sugestao"}:
+            parsed["resposta_agente"] = (
+                "Identifiquei sua manifestação como sugestão à Ouvidoria Geral. "
+                "O serviço já está vinculado — revise o painel e confirme para gerar o ofício."
+            )
+            return
+        if subtipos == {"elogio"}:
+            parsed["resposta_agente"] = (
+                "Identifiquei seu elogio para registro na Ouvidoria Geral. "
+                "Revise o painel e confirme para gerar o ofício."
+            )
+            return
+        if subtipos == {"denuncia"}:
+            parsed["resposta_agente"] = (
+                "Identifiquei sua denúncia para protocolo na Ouvidoria Geral. "
+                "Revise o painel e confirme para gerar o ofício."
+            )
+            return
+        parsed["resposta_agente"] = (
+            "Registrei sua manifestação para a Ouvidoria Geral. "
+            "Revise o painel e confirme para gerar o ofício."
+        )
+
+    def _aplicar_trilha_ouvidoria_rascunho(
+        self, rascunho: list[Any], *, texto_sessao: str = ""
+    ) -> bool:
+        """Trilha A′ (O1): força serviço Ouvidoria quando o teor for manifestação institucional."""
+        from core.services.copiloto_ouvidoria import (
+            detectar_teoria_ouvidoria,
+            orientacao_ouvidoria,
+        )
+        from integrations import sinapse_catalog
+
+        alterou = False
+        for item in rascunho or []:
+            if not isinstance(item, dict) or item.get("fora_competencia"):
+                continue
+            if self._item_vinculo_catalogo_resolvido(item):
+                continue
+            texto = self._texto_coerencia_demanda(item, texto_sessao)
+            groq_teoria = item.get("teor_ouvidoria")
+            groq_subtipo = item.get("subtipo_ouvidoria")
+            det = detectar_teoria_ouvidoria(
+                texto,
+                llm_teoria=groq_teoria,
+                llm_subtipo=groq_subtipo,
+            )
+            if not det:
+                continue
+            sid = int(det["servico_sinapse_id"])
+            if not sinapse_catalog.servico_existe(sid):
+                continue
+            catalog = sinapse_catalog.get_servico(sid)
+            orgao_id = sinapse_catalog.get_orgao_id_for_servico(sid)
+            item["sinapse_servico_id_sugerido"] = sid
+            item["servico_local_id"] = sid
+            item["servico_confirmado_usuario"] = True
+            item["trilha_ouvidoria"] = {
+                "subtipo": det["subtipo"],
+                "motivo": det["motivo"],
+                "fonte_classificacao": det["fonte_classificacao"],
+                "detalhe_fonte": det["detalhe_fonte"],
+                "agente_teoria": det.get("agente_teoria", groq_teoria),
+                "agente_subtipo": det.get("agente_subtipo", groq_subtipo),
+                "orientacao": orientacao_ouvidoria(det["subtipo"]),
+            }
+            logger.info(
+                "Copiloto ouvidoria aplicada: titulo=%r subtipo=%s fonte=%s | %s | "
+                "agente_teoria=%r agente_subtipo=%r",
+                (item.get("titulo") or "")[:80],
+                det["subtipo"],
+                det["fonte_classificacao"],
+                det["detalhe_fonte"],
+                det.get("agente_teoria", groq_teoria),
+                det.get("agente_subtipo", groq_subtipo),
+            )
+            item["teor_ouvidoria"] = True
+            item["subtipo_ouvidoria"] = det["subtipo"]
+            item["endereco_opcional_dispensado"] = True
+            item["candidatos_sinapse"] = [
+                {
+                    "servico_id": sid,
+                    "titulo": (catalog.titulo if catalog else "Ouvidoria"),
+                    "orgao": sinapse_catalog.get_orgao_nome(orgao_id) or "Ouvidoria Geral",
+                    "score": 1.0,
+                }
+            ]
+            item.pop("candidatos_revisao", None)
+            alterou = True
+        return alterou
+
+    @staticmethod
+    def _item_trilha_ouvidoria(item: dict[str, Any]) -> bool:
+        return bool(isinstance(item, dict) and item.get("trilha_ouvidoria"))
+
+    @staticmethod
+    def _indices_fora_competencia(rascunho: list[Any]) -> list[int]:
         out: list[int] = []
         for i, item in enumerate(rascunho or []):
             if isinstance(item, dict) and item.get("fora_competencia"):
@@ -3666,6 +4575,9 @@ class ChatbotService:
         return out
 
     def _mensagem_chat_fora_competencia(self, rascunho: list[Any]) -> str:
+        msg = montar_resposta_chat_fora_competencia(rascunho)
+        if msg:
+            return msg
         indices = self._indices_fora_competencia(rascunho)
         if not indices:
             return ""
@@ -3695,6 +4607,10 @@ class ChatbotService:
                 continue
             if self._item_vinculo_catalogo_resolvido(item):
                 continue
+            if item.get("tendencia_id") or item.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA:
+                continue
+            if self._servico_confirmado_pelo_usuario(item) and self._resolver_sinapse_id(item):
+                continue
             out.append(i)
         return out
 
@@ -3705,12 +4621,17 @@ class ChatbotService:
                 continue
             if item.get("descartada"):
                 continue
+            if not self._servico_confirmado_pelo_usuario(item):
+                continue
+            if self._escolha_carta_explicita_usuario(item):
+                continue
             sid = self._resolver_sinapse_id(item)
             if not sid:
                 continue
             catalog = sinapse_catalog.get_servico(sid)
             nome = (catalog.titulo if catalog else "") or ""
-            if not self._coerencia_servico_demanda((item.get("titulo") or ""), nome):
+            texto_coh = self._texto_coerencia_demanda(item)
+            if not self._coerencia_texto_servico(texto_coh, nome):
                 out.append(i)
         return out
 
@@ -3749,6 +4670,657 @@ class ChatbotService:
                 continue
             out.append(item)
         return out
+
+    _ETAPAS_REVISAO_COPILOTO = frozenset({"pedido", "servico", "local", "anexos"})
+
+    @classmethod
+    def _desconfirmar_servico_item(cls, item: dict[str, Any]) -> None:
+        item.pop("servico_confirmado_usuario", None)
+        item.pop("sinapse_servico_id_sugerido", None)
+        item.pop("servico_local_id", None)
+        item.pop("tendencia_id", None)
+        item.pop("tendencia", None)
+        item.pop("origem_vinculo", None)
+        item.pop("vinculo_servico_ignorado", None)
+
+    @classmethod
+    def _resetar_local_demanda_item(cls, item: dict[str, Any]) -> None:
+        item["endereco"] = dict(_ENDERECO_VAZIO)
+        for k in (
+            "latitude",
+            "longitude",
+            "coordenadas_fonte",
+            "_geo_chave",
+            "endereco_informado_usuario",
+            "endereco_opcional_dispensado",
+            "local_confirmado_usuario",
+            "_eixo_pedido",
+        ):
+            item.pop(k, None)
+
+    @classmethod
+    def _vinculo_servico_snapshot(cls, item: dict[str, Any]) -> tuple[str, int] | None:
+        if item.get("tendencia_id"):
+            try:
+                return ("tendencia", int(item["tendencia_id"]))
+            except (TypeError, ValueError):
+                pass
+        sid = cls._resolver_sinapse_id_confirmado(item)
+        if sid is not None:
+            return ("carta", int(sid))
+        return None
+
+    def _resetar_anexos_demanda_sessao(
+        self,
+        session: ChatSession,
+        rascunho: list[Any],
+        indice_demanda: int,
+    ) -> None:
+        if 0 <= indice_demanda < len(rascunho):
+            item = rascunho[indice_demanda]
+            if isinstance(item, dict):
+                item["anexos_indices"] = []
+        ids_remover: list[int] = []
+        for anexo in session.anexos_sessao.all():
+            if getattr(anexo, "indice_demanda", None) == indice_demanda:
+                ids_remover.append(anexo.pk)
+        if ids_remover:
+            ChatSessaoAnexo.objects.filter(pk__in=ids_remover).delete()
+        self._propagar_anexos_indices_rascunho(session)
+
+    @classmethod
+    def _item_tem_local_inferido_pendente(cls, item: dict[str, Any]) -> bool:
+        if item.get("fora_competencia") or item.get("descartada"):
+            return False
+        if not cls._item_requer_localizacao(item):
+            return False
+        if item.get("endereco_opcional_dispensado"):
+            return False
+        em_revisao_local = item.get("_revisao_etapa") == "local"
+        if not em_revisao_local and cls._item_local_confirmado_usuario(item):
+            return False
+        if item.get("_revisao_etapa") == "local":
+            if item.get("latitude") is not None and item.get("longitude") is not None:
+                return True
+            end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+            logr = (end.get("logradouro") or "").strip()
+            bairro = (end.get("bairro") or "").strip()
+            cep = (end.get("cep") or "").strip()
+            if logr and (bairro or cep):
+                return True
+            return False
+        if item.get("latitude") is not None and item.get("longitude") is not None:
+            return True
+        end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+        logr = (end.get("logradouro") or "").strip()
+        bairro = (end.get("bairro") or "").strip()
+        cep = (end.get("cep") or "").strip()
+        if logr and (bairro or cep):
+            return True
+        return False
+
+    @classmethod
+    def _copiar_endereco_irmao_sessao(
+        cls,
+        item: dict[str, Any],
+        rascunho: list[Any],
+    ) -> bool:
+        """Copia endereço/coords de outra solicitação da mesma sessão quando o item está incompleto."""
+        end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+        tem_endereco = bool(
+            cls._campo_endereco_str(end.get("logradouro"))
+            and (
+                cls._campo_endereco_str(end.get("bairro"))
+                or cls._campo_endereco_str(end.get("cep"))
+            )
+        )
+        if tem_endereco and item.get("latitude") is not None:
+            return False
+        for outro in rascunho or []:
+            if outro is item or not isinstance(outro, dict):
+                continue
+            if outro.get("descartada") or outro.get("fora_competencia"):
+                continue
+            end_out = outro.get("endereco") if isinstance(outro.get("endereco"), dict) else {}
+            if not (
+                cls._campo_endereco_str(end_out.get("logradouro"))
+                and (
+                    cls._campo_endereco_str(end_out.get("bairro"))
+                    or cls._campo_endereco_str(end_out.get("cep"))
+                )
+            ):
+                continue
+            if not isinstance(item.get("endereco"), dict):
+                item["endereco"] = dict(_ENDERECO_VAZIO)
+            end = item["endereco"]
+            for chave in ("cep", "logradouro", "numero", "bairro", "complemento"):
+                if not cls._campo_endereco_str(end.get(chave)) and cls._campo_endereco_str(
+                    end_out.get(chave)
+                ):
+                    end[chave] = end_out[chave]
+            if item.get("latitude") is None and outro.get("latitude") is not None:
+                item["latitude"] = outro["latitude"]
+                item["longitude"] = outro["longitude"]
+                item["coordenadas_fonte"] = outro.get("coordenadas_fonte")
+                item["_geo_chave"] = outro.get("_geo_chave")
+            return True
+        return False
+
+    @staticmethod
+    def _texto_curto_demanda(item: dict[str, Any]) -> str:
+        end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+        partes = [
+            (item.get("titulo") or "").strip(),
+            (item.get("pedido_integral") or "").strip(),
+            (item.get("descricao") or "").strip(),
+            ChatbotService._campo_endereco_str(end.get("logradouro")),
+            ChatbotService._campo_endereco_str(end.get("bairro")),
+            ChatbotService._campo_endereco_str(end.get("cep")),
+        ]
+        return " ".join(p for p in partes if p)
+
+    def _campos_endereco_ui(
+        self,
+        item: dict[str, Any],
+        *,
+        texto_contexto: str | None = None,
+    ) -> dict[str, Any]:
+        end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+        logradouro = self._limpar_logradouro(
+            ChatbotService._campo_endereco_str(end.get("logradouro")) or None,
+            texto_contexto=texto_contexto,
+        )
+        bairro = ChatbotService._limpar_bairro(
+            ChatbotService._campo_endereco_str(end.get("bairro")) or None,
+            texto_contexto=texto_contexto,
+        )
+        cep_raw = ChatbotService._campo_endereco_str(end.get("cep")) or None
+        cep = (
+            cep_raw
+            if cep_raw and self._valor_campo_endereco_valido("cep", cep_raw)
+            else None
+        )
+        if logradouro and not self._valor_campo_endereco_valido("logradouro", logradouro):
+            logradouro = None
+        if bairro and not self._valor_campo_endereco_valido("bairro", bairro):
+            bairro = None
+        if not logradouro:
+            bairro = None
+        numero = end.get("numero") if logradouro else None
+        complemento = end.get("complemento") if logradouro else None
+        return {
+            "cep": cep,
+            "logradouro": logradouro,
+            "bairro": bairro,
+            "numero": numero,
+            "complemento": complemento,
+        }
+
+    def _persistir_endereco_validado_item(
+        self,
+        item: dict[str, Any],
+        *,
+        texto_contexto: str | None = None,
+        rascunho: list[Any] | None = None,
+    ) -> bool:
+        """Normaliza e grava endereço no rascunho; retorna se há local confirmável."""
+        if rascunho:
+            self._copiar_endereco_irmao_sessao(item, rascunho)
+        texto = texto_contexto or self._texto_curto_demanda(item)
+        self._aplicar_endereco_canonico(item, texto, preservar_existente=True)
+        campos = self._campos_endereco_ui(item, texto_contexto=texto)
+        if not isinstance(item.get("endereco"), dict):
+            item["endereco"] = dict(_ENDERECO_VAZIO)
+        end = item["endereco"]
+        for chave in ("cep", "logradouro", "numero", "bairro", "complemento"):
+            val = campos.get(chave)
+            end[chave] = val
+        tem_endereco = bool(
+            campos.get("logradouro") and (campos.get("bairro") or campos.get("cep"))
+        )
+        tem_coords = item.get("latitude") is not None and item.get("longitude") is not None
+        return tem_endereco or tem_coords
+
+    def _hidratar_endereco_inferivel_item(
+        self,
+        item: dict[str, Any],
+        rascunho: list[Any],
+        *,
+        texto_sessao: str,
+    ) -> bool:
+        """Reaproveita endereço já dito na sessão (ou de outra solicitação) sem confirmar."""
+        if self._item_local_confirmado_usuario(item):
+            return False
+        if item.get("fora_competencia") or item.get("descartada"):
+            return False
+        if not self._item_requer_localizacao_vinculada(item):
+            return False
+
+        texto_item = self._texto_contexto_demanda(item, texto_sessao)
+        self._copiar_endereco_irmao_sessao(item, rascunho)
+        self._aplicar_endereco_canonico(item, texto_item, preservar_existente=True)
+        campos = self._campos_endereco_ui(item, texto_contexto=texto_item)
+        if isinstance(item.get("endereco"), dict):
+            for chave in ("cep", "logradouro", "numero", "bairro", "complemento"):
+                item["endereco"][chave] = campos.get(chave)
+
+        if item.get("latitude") is None:
+            lat, lng, fonte = self._resolver_coordenadas_item(
+                item,
+                GeocodingService(),
+                logradouro=campos.get("logradouro"),
+                bairro=campos.get("bairro"),
+                cep=campos.get("cep"),
+            )
+            if lat is not None and lng is not None:
+                item["latitude"] = round(lat, 6)
+                item["longitude"] = round(lng, 6)
+                item["coordenadas_fonte"] = fonte
+                item["_geo_chave"] = GeocodingService.chave_endereco(
+                    campos.get("logradouro"), campos.get("bairro"), campos.get("cep")
+                )
+
+        return self._item_tem_local_inferido_pendente(item)
+
+    def _confirmar_local_inferido_rascunho(
+        self,
+        rascunho: list[Any],
+        *,
+        indice_demanda: int | None = None,
+        session: ChatSession | None = None,
+    ) -> bool:
+        geocoder = GeocodingService()
+        texto_sessao = self._texto_usuario_da_sessao(session) if session else ""
+        alterou = False
+        for i, item in enumerate(rascunho or []):
+            if not isinstance(item, dict):
+                continue
+            if indice_demanda is not None and i != indice_demanda:
+                continue
+            if session and texto_sessao:
+                self._hidratar_endereco_inferivel_item(
+                    item, rascunho, texto_sessao=texto_sessao
+                )
+            texto_item = self._texto_curto_demanda(item)
+            if not self._persistir_endereco_validado_item(
+                item, texto_contexto=texto_item, rascunho=rascunho
+            ):
+                continue
+            if not self._item_tem_local_inferido_pendente(item):
+                continue
+            item["endereco_informado_usuario"] = True
+            item["local_confirmado_usuario"] = True
+            campos = self._campos_endereco_ui(item, texto_contexto=texto_item)
+            if item.get("latitude") is None or item.get("longitude") is None:
+                lat, lng, fonte = self._resolver_coordenadas_item(
+                    item,
+                    geocoder,
+                    logradouro=campos.get("logradouro"),
+                    bairro=campos.get("bairro"),
+                    cep=campos.get("cep"),
+                )
+                if lat is not None and lng is not None:
+                    item["latitude"] = round(lat, 6)
+                    item["longitude"] = round(lng, 6)
+                    item["coordenadas_fonte"] = fonte
+                    item["_geo_chave"] = GeocodingService.chave_endereco(
+                        campos.get("logradouro"), campos.get("bairro"), campos.get("cep")
+                    )
+            alterou = True
+        return alterou
+
+    def _resetar_dependentes_servico(
+        self,
+        session: ChatSession,
+        rascunho: list[Any],
+        indice_demanda: int,
+    ) -> None:
+        if indice_demanda < 0 or indice_demanda >= len(rascunho):
+            return
+        item = rascunho[indice_demanda]
+        if not isinstance(item, dict):
+            return
+        self._resetar_local_demanda_item(item)
+        self._resetar_anexos_demanda_sessao(session, rascunho, indice_demanda)
+
+    def revisar_etapa_copiloto(
+        self,
+        *,
+        usuario,
+        session_id: str,
+        indice_demanda: int,
+        etapa: str,
+    ) -> dict[str, Any]:
+        etapa_norm = (etapa or "").strip().lower()
+        if etapa_norm not in self._ETAPAS_REVISAO_COPILOTO:
+            raise ValueError("Etapa de revisão inválida.")
+
+        session = self._obter_sessao(usuario, session_id)
+        rascunho = list(session.demandas_rascunho or [])
+        if indice_demanda < 0 or indice_demanda >= len(rascunho):
+            raise ValueError("Índice de demanda inválido.")
+
+        item = rascunho[indice_demanda]
+        if not isinstance(item, dict):
+            raise ValueError("Item de rascunho inválido.")
+        if item.get("descartada"):
+            raise ValueError("Não é possível revisar uma solicitação descartada.")
+        if item.get("fora_competencia"):
+            raise ValueError("Não é possível revisar solicitação fora da competência municipal.")
+
+        num = indice_demanda + 1
+        tinha_vinculo = self._vinculo_servico_snapshot(item) is not None
+
+        titulo_curto = (item.get("titulo") or f"Solicitação {num}").strip()
+
+        if etapa_norm == "pedido":
+            item["_revisao_etapa"] = "pedido"
+            item["_titulo_anterior_revisao"] = titulo_curto
+            session.estado_atual = ChatSession.ESTADO_COLETA_DADOS
+            msg = (
+                f"Vamos revisar o pedido de «{titulo_curto}». "
+                "Descreva na conversa o que deseja alterar. "
+                "Se for outro tipo de serviço (ex.: limpeza em vez de poda), diga o novo pedido "
+                "e escolha o serviço correto na carta."
+            )
+        elif etapa_norm == "servico":
+            if tinha_vinculo:
+                self._resetar_dependentes_servico(session, rascunho, indice_demanda)
+            self._desconfirmar_servico_item(item)
+            texto_sessao = self._texto_usuario_da_sessao(session)
+            if not item.get("candidatos_sinapse"):
+                item["candidatos_sinapse"] = self._buscar_candidatos_sinapse_item(
+                    item, texto_sessao=texto_sessao
+                )
+            plano = self._planejar_passo_fluxo(session, rascunho)
+            msg = (
+                f"Vamos escolher outro serviço para «{titulo_curto}». "
+                "Use o bloco da carta abaixo para selecionar a opção correta ou registrar tendência. "
+                "O local e os anexos desta solicitação foram removidos e precisarão ser informados de novo."
+                if tinha_vinculo
+                else f"Escolha o serviço da carta para «{titulo_curto}» no bloco abaixo."
+            )
+            session.estado_atual = plano["estado_atual"]
+        elif etapa_norm == "local":
+            if not self._item_vinculo_catalogo_resolvido(item):
+                raise ValueError("Confirme o serviço antes de revisar o local.")
+            item.pop("endereco_informado_usuario", None)
+            item.pop("endereco_opcional_dispensado", None)
+            item.pop("local_confirmado_usuario", None)
+            item["_revisao_etapa"] = "local"
+            session.estado_atual = ChatSession.ESTADO_COLETA_ENDERECO
+            local_atual = self._formatar_sufixo_local_demanda(item).strip()
+            if local_atual:
+                msg = (
+                    f"O local atual de «{titulo_curto}»{local_atual}. "
+                    "Informe na conversa o endereço correto (rua, bairro, CEP ou parque), "
+                    "use o GPS ou digite «confirmar local» se o ponto no mapa estiver certo."
+                )
+            else:
+                msg = (
+                    f"Onde deve ser executado «{titulo_curto}»? "
+                    "Informe na conversa o endereço, bairro, CEP ou use o botão de localização."
+                )
+        else:  # anexos
+            if not self._item_vinculo_catalogo_resolvido(item):
+                raise ValueError("Confirme o serviço antes de revisar os anexos.")
+            item["_revisao_etapa"] = "anexos"
+            session.estado_atual = ChatSession.ESTADO_VALIDACAO_FINAL
+            msg = (
+                f"Sobre os documentos de «{titulo_curto}»: envie novos arquivos no bloco abaixo, "
+                "diga na conversa o que deseja remover ou use «confirmar documentos» / "
+                "«continuar sem anexos» quando estiver satisfeito."
+            )
+
+        session.demandas_rascunho = rascunho
+        session.save(update_fields=["demandas_rascunho", "estado_atual", "atualizado_em"])
+        parsed: dict[str, Any] = {
+            "resposta_agente": msg,
+            "estado_atual": session.estado_atual,
+            "demandas_extraidas": rascunho,
+            "revisao_etapa": etapa_norm,
+            "revisao_indice_demanda": indice_demanda,
+        }
+        if etapa_norm == "anexos":
+            parsed["reabrir_anexos"] = True
+        return self._montar_resposta_http(session, parsed, criadas=[])
+
+    @staticmethod
+    def _texto_indica_novo_assunto(item: dict[str, Any], texto: str) -> bool:
+        antigo = f"{item.get('titulo') or ''} {item.get('descricao') or ''}".lower()
+        novo = (texto or "").strip().lower()
+        if not novo or len(novo) > 200:
+            return False
+        if novo in antigo or antigo in novo:
+            return False
+        tokens_ant = set(re.findall(r"\w{4,}", antigo))
+        tokens_nov = set(re.findall(r"\w{4,}", novo))
+        return not bool(tokens_ant & tokens_nov)
+
+    def _tentar_processar_revisao_conversacional(
+        self,
+        session: ChatSession,
+        texto_limpo: str,
+    ) -> dict[str, Any] | None:
+        texto = (texto_limpo or "").strip()
+        if not texto:
+            return None
+        if _TEXTO_CONFIRMAR_LOCAL_RE.match(texto) or _TEXTO_CONFIRMAR_ANEXOS_RE.match(texto):
+            return None
+        if _TEXTO_CONTINUAR_SEM_ANEXOS_RE.match(texto) or _TEXTOS_PULAR_ENDERECO_RE.search(texto):
+            return None
+        rascunho = list(session.demandas_rascunho or [])
+        indice = self._indice_demanda_em_revisao(rascunho, "pedido")
+        if indice is None:
+            return None
+        item = rascunho[indice]
+        if not isinstance(item, dict):
+            return None
+        return self._processar_revisao_pedido(session, rascunho, indice, item, texto)
+
+    def _processar_revisao_pedido(
+        self,
+        session: ChatSession,
+        rascunho: list[Any],
+        indice: int,
+        item: dict[str, Any],
+        texto: str,
+    ) -> dict[str, Any]:
+        texto_limpo = (texto or "").strip()
+        item_antigo = {
+            "titulo": item.get("_titulo_anterior_revisao") or item.get("titulo"),
+            "descricao": item.get("descricao"),
+        }
+        titulo_linha = texto_limpo.split("\n", 1)[0].strip()
+        titulo = (titulo_linha[:200] if titulo_linha else f"Solicitação {indice + 1}").strip()
+        item["pedido_integral"] = texto_limpo
+        item["descricao"] = texto_limpo
+        item["titulo"] = titulo
+        item["texto_para_embedding"] = texto_limpo[:500]
+        item.pop("_eixo_pedido", None)
+        novo_eixo = ChatbotService._inferir_eixo_do_texto_usuario(item)
+        if novo_eixo:
+            item["_eixo_pedido"] = novo_eixo
+        item.pop("_revisao_etapa", None)
+        item.pop("_titulo_anterior_revisao", None)
+
+        mudou_assunto = self._texto_indica_novo_assunto(item_antigo, texto_limpo)
+        tinha_vinculo = self._vinculo_servico_snapshot(item) is not None
+        if mudou_assunto and tinha_vinculo:
+            self._resetar_dependentes_servico(session, rascunho, indice)
+            self._desconfirmar_servico_item(item)
+            texto_sessao = self._texto_usuario_da_sessao(session)
+            item["candidatos_sinapse"] = self._buscar_candidatos_sinapse_item(
+                item, texto_sessao=texto_sessao
+            )
+            plano = self._planejar_passo_fluxo(session, rascunho)
+            session.estado_atual = plano["estado_atual"]
+            session.demandas_rascunho = rascunho
+            session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
+            parsed = dict(plano)
+            parsed["resposta_agente"] = (
+                f"Atualizei o pedido para «{titulo}». Como o assunto mudou, "
+                "escolha o serviço correto na carta abaixo."
+            )
+            parsed["revisao_encerrada"] = True
+            parsed["demandas_extraidas"] = rascunho
+            return parsed
+
+        plano = self._planejar_passo_fluxo(session, rascunho)
+        session.estado_atual = plano["estado_atual"]
+        session.demandas_rascunho = rascunho
+        session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
+        parsed = dict(plano)
+        parsed["resposta_agente"] = (
+            f"Pedido da solicitação {indice + 1} atualizado: «{titulo}». "
+            "O serviço confirmado permanece; use «Revisar» em Serviço se precisar trocar."
+        )
+        parsed["revisao_encerrada"] = True
+        parsed["demandas_extraidas"] = rascunho
+        return parsed
+
+    def editar_pedido_demanda(
+        self,
+        *,
+        usuario,
+        session_id: str,
+        indice_demanda: int,
+        titulo: str | None = None,
+        descricao: str | None = None,
+        pedido_integral: str | None = None,
+    ) -> dict[str, Any]:
+        session = self._obter_sessao(usuario, session_id)
+        rascunho = list(session.demandas_rascunho or [])
+        if indice_demanda < 0 or indice_demanda >= len(rascunho):
+            raise ValueError("Índice de demanda inválido.")
+        item = rascunho[indice_demanda]
+        if not isinstance(item, dict):
+            raise ValueError("Item de rascunho inválido.")
+
+        alterou = False
+        if titulo is not None:
+            t = str(titulo).strip()
+            if t:
+                item["titulo"] = t[:200]
+                alterou = True
+        if descricao is not None:
+            d = str(descricao).strip()
+            if d:
+                item["descricao"] = d
+                alterou = True
+        if pedido_integral is not None:
+            p = str(pedido_integral).strip()
+            if p:
+                item["pedido_integral"] = p
+                item["descricao"] = p
+                alterou = True
+        if not alterou:
+            raise ValueError("Informe título, descrição ou pedido integral.")
+
+        texto_emb = (item.get("pedido_integral") or item.get("descricao") or "").strip()
+        if texto_emb:
+            item["texto_para_embedding"] = texto_emb[:500]
+
+        session.demandas_rascunho = rascunho
+        session.save(update_fields=["demandas_rascunho", "atualizado_em"])
+        parsed = {
+            "resposta_agente": "Pedido atualizado para esta solicitação.",
+            "estado_atual": session.estado_atual,
+            "demandas_extraidas": rascunho,
+        }
+        return self._montar_resposta_http(session, parsed, criadas=[])
+
+    def editar_local_demanda(
+        self,
+        *,
+        usuario,
+        session_id: str,
+        indice_demanda: int,
+        endereco: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        session = self._obter_sessao(usuario, session_id)
+        rascunho = list(session.demandas_rascunho or [])
+        if indice_demanda < 0 or indice_demanda >= len(rascunho):
+            raise ValueError("Índice de demanda inválido.")
+        item = rascunho[indice_demanda]
+        if not isinstance(item, dict):
+            raise ValueError("Item de rascunho inválido.")
+        if not self._item_vinculo_catalogo_resolvido(item):
+            raise ValueError("Confirme o serviço antes de editar o local.")
+
+        end_in = endereco if isinstance(endereco, dict) else {}
+        end_atual = (
+            item.get("endereco") if isinstance(item.get("endereco"), dict) else dict(_ENDERECO_VAZIO)
+        )
+        merged = dict(end_atual)
+        for k in ("cep", "logradouro", "numero", "bairro", "complemento"):
+            if k in end_in and end_in[k] not in (None, ""):
+                merged[k] = end_in[k]
+        item["endereco"] = merged
+        item["endereco_informado_usuario"] = True
+        item["local_confirmado_usuario"] = True
+        item.pop("endereco_opcional_dispensado", None)
+
+        texto_sessao = self._texto_usuario_da_sessao(session)
+        texto_item = self._texto_contexto_demanda(item, texto_sessao)
+        self._aplicar_endereco_canonico(item, texto_item)
+
+        logradouro = self._limpar_logradouro(
+            (merged.get("logradouro") or "").strip() or None,
+            texto_contexto=texto_item,
+        )
+        bairro = ChatbotService._limpar_bairro(
+            (merged.get("bairro") or "").strip() or None,
+            texto_contexto=texto_item,
+        )
+        cep = (merged.get("cep") or "").strip() or None
+        geocoder = GeocodingService()
+        lat, lng, fonte = self._resolver_coordenadas_item(
+            item,
+            geocoder,
+            logradouro=logradouro,
+            bairro=bairro,
+            cep=cep,
+        )
+        if lat is not None and lng is not None:
+            item["latitude"] = round(lat, 6)
+            item["longitude"] = round(lng, 6)
+            item["coordenadas_fonte"] = fonte
+            if fonte == "gps_dispositivo":
+                item["_geo_chave"] = f"gps:{item['latitude']},{item['longitude']}"
+            else:
+                item["_geo_chave"] = GeocodingService.chave_endereco(logradouro, bairro, cep)
+
+        session.demandas_rascunho = rascunho
+        session.save(update_fields=["demandas_rascunho", "atualizado_em"])
+        parsed = {
+            "resposta_agente": "Local atualizado para esta solicitação.",
+            "estado_atual": session.estado_atual,
+            "demandas_extraidas": rascunho,
+        }
+        self._sincronizar_estado_pos_vinculo_catalogo(session, parsed)
+        return self._montar_resposta_http(session, parsed, criadas=[])
+
+    def remover_anexo_sessao_copiloto(
+        self,
+        *,
+        usuario,
+        session_id: str,
+        indice_sessao: int,
+    ) -> dict[str, Any]:
+        session = self._obter_sessao(usuario, session_id)
+        anexos = list(session.anexos_sessao.order_by("criado_em"))
+        if indice_sessao < 0 or indice_sessao >= len(anexos):
+            raise ValueError("Índice de anexo inválido.")
+        anexos[indice_sessao].delete()
+        self._propagar_anexos_indices_rascunho(session)
+        rascunho = list(session.demandas_rascunho or [])
+        parsed = {
+            "resposta_agente": "Anexo removido da sessão.",
+            "estado_atual": session.estado_atual,
+            "demandas_extraidas": rascunho,
+        }
+        return self._montar_resposta_http(session, parsed, criadas=[])
 
     def retriagem_carta_demanda(
         self,
@@ -3835,6 +5407,7 @@ class ChatbotService:
         item["coordenadas_fonte"] = "gps_dispositivo"
         item["_geo_chave"] = f"gps:{lat},{lng}"
         item["endereco_informado_usuario"] = True
+        item["local_confirmado_usuario"] = True
         msg_gps = self._preencher_endereco_reverso_gps(item, GeocodingService())
         session.demandas_rascunho = rascunho
         session.save(update_fields=["demandas_rascunho", "atualizado_em"])
@@ -3909,12 +5482,17 @@ class ChatbotService:
         if not isinstance(item, dict):
             item = {}
             rascunho[indice_demanda] = item
+        vinculo_anterior = self._vinculo_servico_snapshot(item)
         item["sinapse_servico_id_sugerido"] = int(sinapse_servico_id)
         item["servico_local_id"] = int(sinapse_servico_id)
+        item["servico_confirmado_usuario"] = True
         item["origem_vinculo"] = Demanda.ORIGEM_VINCULO_CARTA
         item.pop("vinculo_servico_ignorado", None)
         item.pop("tendencia_id", None)
         item.pop("tendencia", None)
+        vinculo_novo = ("carta", int(sinapse_servico_id))
+        if vinculo_anterior and vinculo_anterior != vinculo_novo:
+            self._resetar_dependentes_servico(session, rascunho, indice_demanda)
         session.demandas_rascunho = rascunho
         session.save(update_fields=["demandas_rascunho", "atualizado_em"])
         parsed: dict[str, Any] = {
@@ -3945,6 +5523,8 @@ class ChatbotService:
         if not isinstance(item, dict):
             item = {}
             rascunho[indice_demanda] = item
+
+        vinculo_anterior = self._vinculo_servico_snapshot(item)
 
         svc = TendenciaService()
         if tendencia_id is not None:
@@ -3981,6 +5561,9 @@ class ChatbotService:
             "volume_total": tendencia.volume_total,
             "sinapse_orgao_id": tendencia.sinapse_orgao_id,
         }
+        vinculo_novo = ("tendencia", int(tendencia.id))
+        if vinculo_anterior and vinculo_anterior != vinculo_novo:
+            self._resetar_dependentes_servico(session, rascunho, indice_demanda)
         session.demandas_rascunho = rascunho
         session.save(update_fields=["demandas_rascunho", "atualizado_em"])
 
@@ -4006,7 +5589,8 @@ class ChatbotService:
         ]
         return max(scores) if scores else None
 
-    def _texto_coerencia_demanda(self, item: dict[str, Any], texto_sessao: str = "") -> str:
+    @staticmethod
+    def _texto_coerencia_demanda(item: dict[str, Any], texto_sessao: str = "") -> str:
         partes = [
             (item.get("titulo") or "").strip(),
             (item.get("descricao") or "").strip(),
@@ -4025,7 +5609,7 @@ class ChatbotService:
             item["dominio_operacional"] = dominio
         if modo in ("carta_forte", "carta_dominio"):
             return False
-        if not getattr(settings, "COPILOTO_TENDENCIAS_ENABLED", False):
+        if not copiloto_tendencias_habilitadas():
             return False
         return True
 
@@ -4037,6 +5621,9 @@ class ChatbotService:
         titulo = (item.get("titulo") or "").strip()
         desc = (item.get("descricao") or "").strip()
         te = (item.get("texto_para_embedding") or "").strip()
+        eixo = ChatbotService._meta_eixo_pedido(item.get("_eixo_pedido"))
+        if eixo and eixo.get("texto_embedding"):
+            te = str(eixo["texto_embedding"])
         end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
         loc = " ".join(
             x
@@ -4105,7 +5692,15 @@ class ChatbotService:
         por_id: dict[int, dict[str, Any]] = {}
 
         for texto_emb in variantes:
-            vetor = vector_svc.generate_embedding(texto_emb)
+            try:
+                vetor = vector_svc.generate_embedding(texto_emb)
+            except Exception:
+                logger.warning(
+                    "Copiloto triagem: falha ao gerar embedding para variante=%s",
+                    texto_emb[:80],
+                    exc_info=True,
+                )
+                continue
             if not vetor or len(vetor) != 1024:
                 logger.warning(
                     "Copiloto triagem: embedding vazio para variante=%s", texto_emb[:80]
@@ -4246,7 +5841,11 @@ class ChatbotService:
                 continue
             if item.get("fora_competencia"):
                 continue
-            if self._item_vinculo_catalogo_resolvido(item):
+            if (
+                self._item_vinculo_catalogo_resolvido(item)
+                or item.get("servico_confirmado_usuario")
+                or item.get("corpus_preselecao_servico_id")
+            ):
                 continue
             cands = self._buscar_candidatos_sinapse_item(item, texto_sessao=texto_sessao)
             if cands:
@@ -4296,7 +5895,7 @@ class ChatbotService:
             sid = self._resolver_sinapse_id(item)
             catalog = sinapse_catalog.get_servico(sid) if sid else None
             servico_nome = (catalog.titulo if catalog else "") or ""
-            if sid and catalog:
+            if sid and catalog and self._servico_confirmado_pelo_usuario(item):
                 orgao_id = sinapse_catalog.get_orgao_id_for_servico(sid)
                 gestao = gestao_operacional_para_copiloto(sid)
                 row["servico"] = {
@@ -4306,9 +5905,12 @@ class ChatbotService:
                     "confirmado": True,
                     "gestao_operacional": gestao,
                 }
-                row["servico_alerta"] = not self._coerencia_servico_demanda(
-                    (item.get("titulo") or ""), servico_nome
-                )
+                if self._escolha_carta_explicita_usuario(item):
+                    row["servico_alerta"] = False
+                else:
+                    row["servico_alerta"] = not self._coerencia_texto_servico(
+                        self._texto_coerencia_demanda(item, texto_sessao), servico_nome
+                    )
             else:
                 row["servico"] = None
                 row["servico_alerta"] = False
@@ -4387,6 +5989,13 @@ class ChatbotService:
                     row["servico_sugerido_ui_id"] = sugerido_ui.get("servico_id")
                 else:
                     row["servico_sugerido_ui_id"] = None
+                trilha_ouv = item.get("trilha_ouvidoria")
+                if isinstance(trilha_ouv, dict):
+                    row["trilha_ouvidoria"] = trilha_ouv
+                    row["teor_ouvidoria"] = True
+                    row["subtipo_ouvidoria"] = trilha_ouv.get("subtipo")
+                    if sid:
+                        row["requer_escolha_servico"] = False
                 row["fora_carta"] = self._item_sugere_trilha_tendencia(
                     item, texto_sessao=texto_sessao
                 )
@@ -4429,15 +6038,51 @@ class ChatbotService:
                 and not ChatbotService._endereco_real_do_usuario(item)
             ):
                 self._preencher_endereco_reverso_gps(item, geocoder)
-            if item.get("endereco_informado_usuario") is True:
-                texto_item = self._texto_contexto_demanda(item_geo, texto_sessao)
-                self._aplicar_endereco_canonico(item_geo, texto_item)
-                end_geo = (
-                    item_geo.get("endereco") if isinstance(item_geo.get("endereco"), dict) else {}
+            if not self._item_local_confirmado_usuario(item):
+                self._hidratar_endereco_inferivel_item(item, items, texto_sessao=texto_sessao)
+                item_geo = dict(item)
+                if isinstance(item_geo.get("endereco"), dict):
+                    item_geo["endereco"] = dict(item_geo["endereco"])
+            texto_item = (
+                self._texto_curto_demanda(item)
+                if self._item_local_confirmado_usuario(item)
+                else self._texto_contexto_demanda(item_geo, texto_sessao)
+            )
+            if self._item_local_confirmado_usuario(item):
+                campos_end = self._campos_endereco_ui(item, texto_contexto=texto_item)
+                row["endereco"] = campos_end
+                logradouro = campos_end.get("logradouro")
+                bairro = campos_end.get("bairro")
+                cep = campos_end.get("cep")
+                logr_final = logradouro
+                latitude = item.get("latitude")
+                longitude = item.get("longitude")
+                fonte_coord = item.get("coordenadas_fonte") or ""
+                if latitude is None or longitude is None:
+                    latitude, longitude, fonte_coord = self._resolver_coordenadas_item(
+                        item,
+                        geocoder,
+                        logradouro=logradouro,
+                        bairro=bairro,
+                        cep=cep,
+                    )
+                    if latitude is not None and longitude is not None:
+                        item["latitude"] = round(latitude, 6)
+                        item["longitude"] = round(longitude, 6)
+                        item["coordenadas_fonte"] = fonte_coord
+                        item["_geo_chave"] = GeocodingService.chave_endereco(
+                            logradouro, bairro, cep
+                        )
+                        geo_persistido_no_rascunho = True
+                geo_chave = item.get("_geo_chave") or GeocodingService.chave_endereco(
+                    logradouro, bairro, cep
                 )
+            else:
+                self._aplicar_endereco_canonico(item_geo, texto_item, preservar_existente=True)
+                end_geo = item_geo.get("endereco") if isinstance(item_geo.get("endereco"), dict) else {}
                 logradouro = self._limpar_logradouro(
                     (end_geo.get("logradouro") or "").strip() or None,
-                    texto_contexto=None,
+                    texto_contexto=texto_item,
                 )
                 bairro = ChatbotService._limpar_bairro(
                     (end_geo.get("bairro") or "").strip() or None,
@@ -4451,36 +6096,37 @@ class ChatbotService:
                     bairro = None
                 if not logr_final:
                     bairro = None
-                row["endereco"] = {
-                    "cep": cep if cep and self._valor_campo_endereco_valido("cep", cep) else None,
-                    "logradouro": logr_final,
-                    "bairro": bairro,
-                    "numero": end_geo.get("numero") if logr_final else None,
-                    "complemento": end_geo.get("complemento") if logr_final else None,
-                }
-            else:
-                row["endereco"] = dict(_ENDERECO_VAZIO)
-                logradouro = None
-                bairro = None
-                cep = None
-                logr_final = None
-            geo_chave = GeocodingService.chave_endereco(logradouro, bairro, cep)
-            latitude, longitude, fonte_coord = self._resolver_coordenadas_item(
-                item,
-                geocoder,
-                logradouro=logradouro,
-                bairro=bairro,
-                cep=cep,
-            )
-            if latitude is not None and longitude is not None:
-                item["latitude"] = round(latitude, 6)
-                item["longitude"] = round(longitude, 6)
-                item["coordenadas_fonte"] = fonte_coord
-                if fonte_coord == "gps_dispositivo":
-                    item["_geo_chave"] = f"gps:{item['latitude']},{item['longitude']}"
+                if logr_final or self._item_tem_local_inferido_pendente(item):
+                    row["endereco"] = {
+                        "cep": cep if cep and self._valor_campo_endereco_valido("cep", cep) else None,
+                        "logradouro": logr_final,
+                        "bairro": bairro,
+                        "numero": end_geo.get("numero") if logr_final else None,
+                        "complemento": end_geo.get("complemento") if logr_final else None,
+                    }
                 else:
-                    item["_geo_chave"] = geo_chave
-                geo_persistido_no_rascunho = True
+                    row["endereco"] = dict(_ENDERECO_VAZIO)
+                    logradouro = None
+                    bairro = None
+                    cep = None
+                    logr_final = None
+                geo_chave = GeocodingService.chave_endereco(logradouro, bairro, cep)
+                latitude, longitude, fonte_coord = self._resolver_coordenadas_item(
+                    item,
+                    geocoder,
+                    logradouro=logradouro,
+                    bairro=bairro,
+                    cep=cep,
+                )
+                if latitude is not None and longitude is not None:
+                    item["latitude"] = round(latitude, 6)
+                    item["longitude"] = round(longitude, 6)
+                    item["coordenadas_fonte"] = fonte_coord
+                    if fonte_coord == "gps_dispositivo":
+                        item["_geo_chave"] = f"gps:{item['latitude']},{item['longitude']}"
+                    else:
+                        item["_geo_chave"] = geo_chave
+                    geo_persistido_no_rascunho = True
             row["latitude"] = round(latitude, 6) if latitude is not None else None
             row["longitude"] = round(longitude, 6) if longitude is not None else None
             row["coordenadas_fonte"] = fonte_coord
@@ -4513,6 +6159,7 @@ class ChatbotService:
                 vinculados.append(entrada)
             row["anexos"] = vinculados
             row["requer_localizacao"] = self._item_requer_localizacao_vinculada(item)
+            row["local_pendente_confirmacao"] = self._item_tem_local_inferido_pendente(item)
             row["limiar_carta"] = self._limiar_carta_copiloto()
             row["aprovado_final"] = item.get("aprovado_final")
             row["descartada"] = bool(item.get("descartada"))
@@ -4536,7 +6183,13 @@ class ChatbotService:
     ) -> dict[str, Any]:
         rascunho = list(session.demandas_rascunho or [])
         if rascunho:
-            self._popular_candidatos_sinapse_rascunho(session, rascunho)
+            texto_sessao = self._texto_usuario_da_sessao(session)
+            self._pre_classificar_faq_em_lista(rascunho, texto_sessao=texto_sessao)
+            self._aplicar_classificacao_competencia_rascunho(rascunho, texto_sessao=texto_sessao)
+            self._limpar_triagem_fora_competencia(rascunho)
+            session.demandas_rascunho = rascunho
+            if not any(item.get("fora_competencia") for item in rascunho if isinstance(item, dict)):
+                self._popular_candidatos_sinapse_rascunho(session, rascunho)
             rascunho = list(session.demandas_rascunho or rascunho)
         body: dict[str, Any] = {
             "session_id": str(session.id),
@@ -4546,8 +6199,280 @@ class ChatbotService:
         }
         if criadas:
             body["demandas_criadas"] = criadas
+            alertas: list[dict[str, Any]] = []
+            for c in criadas:
+                for a in c.get("alertas_duplicidade") or []:
+                    if a not in alertas:
+                        alertas.append(a)
+            if alertas:
+                from .copiloto_duplicidade_service import resumir_alertas_duplicidade
+
+                body["alertas_duplicidade"] = alertas[:8]
+                body["duplicidade_resumo"] = resumir_alertas_duplicidade(alertas[:8])
+        if parsed.get("recusou_geracao_rascunhos"):
+            body["recusou_geracao_rascunhos"] = True
+        if parsed.get("anexos_adiados"):
+            body["anexos_adiados"] = True
+        if parsed.get("revisao_etapa"):
+            body["revisao_etapa"] = parsed["revisao_etapa"]
+        if parsed.get("revisao_indice_demanda") is not None:
+            body["revisao_indice_demanda"] = parsed["revisao_indice_demanda"]
+        if parsed.get("reabrir_anexos"):
+            body["reabrir_anexos"] = True
+        if parsed.get("revisao_encerrada"):
+            body["revisao_encerrada"] = True
         body["anexos_na_sessao"] = session.anexos_sessao.count()
+        self._anexar_corpus_legado_opcional(
+            body,
+            texto=self._texto_usuario_da_sessao(session),
+            demandas=body.get("demandas_extraidas"),
+        )
         return body
+
+    def _aplicar_preselecao_corpus_atalho(
+        self,
+        dems: list[Any],
+        servico_id: int,
+        parsed: dict[str, Any],
+        *,
+        texto_sessao: str = "",
+        eixo_id: str | None = None,
+        auto_confirmar: bool = True,
+    ) -> None:
+        """Injeta e confirma serviço da carta quando o usuário escolhe pedido frequente."""
+        from integrations import sinapse_catalog
+
+        if not isinstance(dems, list) or not dems:
+            return
+
+        catalog = sinapse_catalog.get_servico(int(servico_id))
+        if not catalog:
+            return
+
+        from core.services.corpus_legado_service import CorpusLegadoService
+
+        opcoes: list[dict[str, Any]] = []
+        if eixo_id:
+            det = CorpusLegadoService().detalhe_atalho_copiloto(eixo_id)
+            if det:
+                opcoes = list(det.get("opcoes_carta") or [])
+        if not opcoes:
+            opcoes = [
+                {
+                    "servico_id": int(servico_id),
+                    "titulo": (catalog.titulo or "").strip(),
+                    "orgao": sinapse_catalog.get_orgao_nome(catalog.id_orgao_id),
+                    "score": 0.95,
+                    "padrao": True,
+                }
+            ]
+
+        candidatos: list[dict[str, Any]] = []
+        for op in opcoes:
+            sid = op.get("servico_id")
+            if sid is None:
+                continue
+            candidatos.append(
+                {
+                    "servico_id": int(sid),
+                    "titulo": (op.get("titulo") or "").strip(),
+                    "orgao": op.get("orgao"),
+                    "score": float(
+                        op.get("score") or (0.95 if int(sid) == int(servico_id) else 0.85)
+                    ),
+                    "fonte": "corpus_atalho",
+                }
+            )
+        candidatos.sort(key=lambda c: 0 if c.get("servico_id") == servico_id else 1)
+        filtrados = self._enriquecer_candidatos_utilizacao(candidatos[:6])
+
+        titulo_serv = (catalog.titulo or "").strip() or "serviço da carta"
+        rotulo_eixo = ""
+        if eixo_id:
+            meta_eixo = CorpusLegadoService().meta_pedido_frequente(eixo_id)
+            if meta_eixo:
+                rotulo_eixo = (meta_eixo.get("rotulo") or "").strip()
+        for dem in dems:
+            if not isinstance(dem, dict) or dem.get("fora_competencia") or dem.get("descartada"):
+                continue
+            if dem.get("servico_confirmado_usuario"):
+                continue
+            if rotulo_eixo:
+                dem["titulo"] = rotulo_eixo[:200]
+            dem["requer_localizacao"] = True
+            dem["corpus_aguarda_complemento"] = True
+            dem.pop("endereco_opcional_dispensado", None)
+            dem.pop("local_confirmado_usuario", None)
+            dem.pop("endereco_informado_usuario", None)
+            dem["endereco"] = dict(_ENDERECO_VAZIO)
+            dem.pop("latitude", None)
+            dem.pop("longitude", None)
+            dem.pop("coordenadas_fonte", None)
+            dem.pop("_geo_chave", None)
+            dem["candidatos_sinapse"] = filtrados
+            dem["servico_sugerido_ui_id"] = servico_id
+            dem["corpus_preselecao_servico_id"] = servico_id
+            if eixo_id:
+                dem["corpus_atalho_eixo_id"] = eixo_id
+            dem["modo_vinculo_servico"] = "carta_forte"
+            dem["fora_carta"] = False
+            dem["servico_alerta"] = False
+            if auto_confirmar:
+                dem["sinapse_servico_id_sugerido"] = int(servico_id)
+                dem["servico_local_id"] = int(servico_id)
+                dem["servico_confirmado_usuario"] = True
+                dem["origem_vinculo"] = Demanda.ORIGEM_VINCULO_CARTA
+                dem["corpus_aguarda_complemento"] = True
+                dem["requer_escolha_servico"] = False
+                dem.pop("vinculo_servico_ignorado", None)
+                dem.pop("tendencia_id", None)
+                dem.pop("tendencia", None)
+            else:
+                dem["requer_escolha_servico"] = len(filtrados) > 1
+
+        parsed["acionar_triagem_sinapse"] = False
+        if auto_confirmar and filtrados:
+            parsed["resposta_agente"] = (
+                f"Registrei **{titulo_serv}** na carta. "
+                "Complemente com rua, número, bairro ou referência do local "
+                "(pode descrever no campo abaixo)."
+            )
+
+    def _turno_corpus_atalho_direto(
+        self,
+        session: ChatSession,
+        texto: str,
+        servico_id: int,
+        eixo_id: str | None,
+    ) -> dict[str, Any]:
+        """Pedido frequente: confirma serviço na carta sem Groq nem triagem vetorial."""
+        texto_limpo = (texto or "").strip() or "Solicitação"
+        rascunho = list(session.demandas_rascunho or [])
+        alvos = [
+            x
+            for x in rascunho
+            if isinstance(x, dict)
+            and not x.get("descartada")
+            and not x.get("fora_competencia")
+        ]
+        if not alvos:
+            slot: dict[str, Any] = {
+                "titulo": "Solicitação",
+                "descricao": texto_limpo,
+                "pedido_integral": texto_limpo,
+                "texto_para_embedding": texto_limpo[:500],
+            }
+            rascunho = [slot]
+        else:
+            pendente = next(
+                (d for d in alvos if not d.get("servico_confirmado_usuario")),
+                None,
+            )
+            if pendente is None:
+                slot = {
+                    "titulo": "Solicitação",
+                    "descricao": texto_limpo,
+                    "pedido_integral": texto_limpo,
+                    "texto_para_embedding": texto_limpo[:500],
+                }
+                rascunho = list(rascunho) + [slot]
+
+        parsed: dict[str, Any] = {
+            "demandas_extraidas": rascunho,
+            "estado_atual": session.estado_atual,
+            "acionar_triagem_sinapse": False,
+            "confirmar_criacao_demandas": False,
+            "usuario_forneceu_endereco_real": False,
+        }
+        self._aplicar_preselecao_corpus_atalho(
+            rascunho,
+            servico_id,
+            parsed,
+            texto_sessao=texto_limpo,
+            eixo_id=eixo_id,
+        )
+        parsed["demandas_extraidas"] = rascunho
+        self._forcar_regras_estado_rigidas(parsed, pos_sinapse=False)
+        return parsed
+
+    def _demanda_elegivel_hint_corpus(self, dem: dict[str, Any]) -> bool:
+        """Hints só quando a carta não oferece match forte — não altera triagem."""
+        if dem.get("fora_competencia"):
+            return False
+        if dem.get("descartada"):
+            return False
+        if dem.get("servico_confirmado_usuario"):
+            return False
+        serv = dem.get("servico")
+        if isinstance(serv, dict) and serv.get("confirmado"):
+            return False
+        if dem.get("tendencia_id") or dem.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA:
+            return False
+        if dem.get("fora_carta"):
+            return True
+        cands = dem.get("candidatos_sinapse")
+        if not isinstance(cands, list) or not cands:
+            return True
+        best = self._score_max_candidatos(dem) or 0.0
+        return best < self._limiar_carta_copiloto()
+
+    def _anexar_corpus_legado_opcional(
+        self,
+        body: dict[str, Any],
+        *,
+        texto: str = "",
+        demandas: list[Any] | None = None,
+    ) -> None:
+        """Camada assistiva opcional — não altera triagem, tendências nem confirmação de serviço."""
+        from core.services.copiloto_config import (
+            corpus_legado_habilitado,
+            corpus_legado_hints_copiloto_habilitados,
+        )
+        from core.services.corpus_legado_service import CorpusLegadoService
+
+        if not corpus_legado_habilitado():
+            return
+        svc = CorpusLegadoService()
+        atalhos = svc.atalhos_copiloto(limite=12)
+        if atalhos:
+            body["corpus_atalhos_top_trends"] = atalhos
+        if not corpus_legado_hints_copiloto_habilitados():
+            return
+
+        demandas_alvo = demandas if isinstance(demandas, list) else body.get("demandas_extraidas")
+        if not isinstance(demandas_alvo, list):
+            demandas_alvo = []
+
+        hints_globais: list[dict[str, Any]] = []
+        for dem in demandas_alvo:
+            if not isinstance(dem, dict):
+                continue
+            if not self._demanda_elegivel_hint_corpus(dem):
+                continue
+            texto_dem = self._texto_coerencia_demanda(dem, texto)
+            if len((texto_dem or "").strip()) < 12:
+                continue
+            serv_prior = (dem.get("servico_legado_hint") or "").strip() or None
+            sugestoes = svc.hints_pos_triagem(
+                texto_dem,
+                limite=3,
+                servico_legado_prioritario=serv_prior,
+            )
+            if not sugestoes:
+                continue
+            dem["corpus_hints_historico"] = sugestoes
+            hints_globais.extend(sugestoes)
+
+        if hints_globais:
+            vistos: set[str] = set()
+            dedup: list[dict[str, Any]] = []
+            for h in hints_globais:
+                chave = (h.get("servico_legado") or h.get("id") or "").strip()
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                dedup.append(h)
+            body["corpus_sugestoes_historico"] = dedup[:3]
 
     @staticmethod
     def _texto_usuario_da_sessao(session: ChatSession | None) -> str:
@@ -4733,35 +6658,17 @@ class ChatbotService:
         return t[:255]
 
     def _aplicar_triagem_sinapse_no_item(self, item: dict[str, Any]) -> bool:
-        """Busca carta Sinapse por item e preenche servico_local_id + sinapse_servico_id_sugerido."""
+        """Busca carta Sinapse por item; preenche candidatos (sem confirmar serviço automaticamente)."""
         if item.get("tendencia_id") or item.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA:
             return False
-        if item.get("servico_local_id") is not None:
+        if self._servico_confirmado_pelo_usuario(item):
             return True
 
         candidatos = self._triagem_sinapse_consolidada(item)
         if not candidatos:
             return False
         item["candidatos_sinapse"] = candidatos
-
-        escolhido = ChatbotService._escolher_melhor_candidato_sinapse(candidatos, item)
-        if not escolhido:
-            return False
-        sid_sin = escolhido.get("servico_id")
-        if sid_sin is not None:
-            item["sinapse_servico_id_sugerido"] = sid_sin
-
-        lid = ChatbotService._sinapse_id_from_candidato(
-            sid_sin,
-            (escolhido.get("titulo") or item.get("titulo") or "").strip() or None,
-        )
-        if lid is not None:
-            item["sinapse_servico_id_sugerido"] = int(lid)
-            item["servico_local_id"] = int(lid)
-            if not (item.get("titulo") or "").strip() and escolhido.get("titulo"):
-                item["titulo"] = str(escolhido["titulo"])[:200]
-            return True
-        return False
+        return True
 
     @staticmethod
     def _resolver_sinapse_servico_id(item: dict[str, Any]) -> int | None:
@@ -4943,6 +6850,7 @@ class ChatbotService:
         demandas_objs: list[Demanda] = []
         autor_nome = usuario.get_full_name() or usuario.username
         autor_cargo = getattr(usuario, "cargo", None) or ""
+        from .copiloto_duplicidade_service import buscar_alertas_duplicidade
 
         for item in rascunhos:
             if not isinstance(item, dict):
@@ -4961,10 +6869,120 @@ class ChatbotService:
             if preservado:
                 item.update(preservado[0])
 
-            if getattr(settings, "COPILOTO_TENDENCIAS_ENABLED", False) and (
+            trilha_tendencia = (
                 item.get("tendencia_id")
                 or item.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA
-            ):
+                or (
+                    copiloto_tendencias_habilitadas()
+                    and (
+                        item.get("vinculo_servico_ignorado")
+                        or self._item_sugere_trilha_tendencia(item, texto_sessao=texto_sessao)
+                    )
+                )
+            )
+
+            sinapse_id = self._resolver_sinapse_id_confirmado(item)
+            if sinapse_id is not None:
+                catalog = sinapse_catalog.get_servico(sinapse_id)
+                if not catalog:
+                    logger.warning("Serviço Sinapse inválido no rascunho: %s", sinapse_id)
+                    continue
+
+                from core.services.carta_utilizacao_service import CartaUtilizacaoService
+
+                try:
+                    CartaUtilizacaoService().validar_protocolo(
+                        sinapse_id,
+                        contexto="materializar_demanda_copiloto",
+                    )
+                except ValueError as exc:
+                    logger.info(
+                        "Materialização bloqueada (serviço informativo): %s — %s",
+                        sinapse_id,
+                        exc,
+                    )
+                    continue
+
+                orgao_id = sinapse_catalog.get_orgao_id_for_servico(sinapse_id)
+                orgao_nome = sinapse_catalog.get_orgao_nome(orgao_id) or ""
+                servico_nome = catalog.titulo if catalog else ""
+
+                relato_usuario = self._relato_integral_item(item, session=session).strip()
+                titulo = self._titulo_demanda_item(
+                    item, relato_usuario, servico_nome=servico_nome
+                )[:200]
+                if not relato_usuario:
+                    relato_usuario = titulo
+                end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+
+                logradouro = self._limpar_logradouro(
+                    (end.get("logradouro") or "").strip() or None,
+                    texto_contexto=texto_item,
+                )
+                bairro = (end.get("bairro") or "").strip() or None
+                if bairro and not self._valor_campo_endereco_valido("bairro", bairro):
+                    bairro = None
+                cep = (end.get("cep") or "").strip() or None
+                numero = ChatbotService._campo_endereco_str(end.get("numero")) or None
+                complemento = (end.get("complemento") or "").strip() or None
+
+                partes_end: list[str] = []
+                if logradouro:
+                    trecho = logradouro
+                    if numero:
+                        trecho = f"{trecho}, {numero}"
+                    partes_end.append(trecho)
+                if bairro:
+                    partes_end.append(f"Bairro {bairro}")
+                if cep:
+                    partes_end.append(f"CEP {cep}")
+                if complemento:
+                    partes_end.append(complemento)
+                endereco_fmt = " — ".join(partes_end)
+
+                if oficio_svc:
+                    descricao = oficio_svc.montar_descricao_oficio(
+                        titulo=titulo,
+                        relato=relato_usuario,
+                        endereco_formatado=endereco_fmt,
+                        servico_nome=servico_nome,
+                        orgao_nome=orgao_nome,
+                        autor_nome=autor_nome,
+                        autor_cargo=autor_cargo,
+                    )
+                else:
+                    descricao = relato_usuario
+
+                latitude, longitude, _fonte_geo = self._resolver_coordenadas_item(
+                    item,
+                    geocoder,
+                    logradouro=logradouro,
+                    bairro=bairro,
+                    cep=cep,
+                )
+                campos_demanda: dict[str, Any] = {
+                    "titulo": titulo,
+                    "descricao": descricao,
+                    "autor": usuario,
+                    "cep": cep,
+                    "logradouro": logradouro,
+                    "numero": numero,
+                    "complemento": complemento,
+                    "bairro": bairro,
+                    "status": "RASCUNHO",
+                    "sinapse_servico_id": sinapse_id,
+                    "sinapse_orgao_id": orgao_id,
+                }
+                if latitude is not None and longitude is not None:
+                    campos_demanda["latitude"] = Decimal(str(round(latitude, 6)))
+                    campos_demanda["longitude"] = Decimal(str(round(longitude, 6)))
+
+                with transaction.atomic():
+                    d = Demanda.objects.create(**campos_demanda)
+                demandas_objs.append(d)
+                continue
+
+            if trilha_tendencia:
                 criada = self._materializar_demanda_tendencia(
                     usuario,
                     item,
@@ -4978,113 +6996,11 @@ class ChatbotService:
                     demandas_objs.append(criada["demanda"])
                 continue
 
-            if not self._resolver_sinapse_id(item):
-                self._aplicar_triagem_sinapse_no_item(item)
-
-            sinapse_id = self._resolver_sinapse_id(item)
-            if sinapse_id is None:
-                logger.warning(
-                    "Rascunho ignorado (sem serviço Sinapse): %s",
-                    (item.get("titulo") or "")[:80],
-                )
-                continue
-            catalog = sinapse_catalog.get_servico(sinapse_id)
-            if not catalog:
-                logger.warning("Serviço Sinapse inválido no rascunho: %s", sinapse_id)
-                continue
-
-            from core.services.carta_utilizacao_service import CartaUtilizacaoService
-
-            try:
-                CartaUtilizacaoService().validar_protocolo(
-                    sinapse_id,
-                    contexto="materializar_demanda_copiloto",
-                )
-            except ValueError as exc:
-                logger.info(
-                    "Materialização bloqueada (serviço informativo): %s — %s",
-                    sinapse_id,
-                    exc,
-                )
-                continue
-
-            orgao_id = sinapse_catalog.get_orgao_id_for_servico(sinapse_id)
-            orgao_nome = sinapse_catalog.get_orgao_nome(orgao_id) or ""
-            servico_nome = catalog.titulo if catalog else ""
-
-            relato_usuario = self._relato_integral_item(item, session=session).strip()
-            titulo = self._titulo_demanda_item(
-                item, relato_usuario, servico_nome=servico_nome
-            )[:200]
-            if not relato_usuario:
-                relato_usuario = titulo
-            end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
-
-            logradouro = self._limpar_logradouro(
-                (end.get("logradouro") or "").strip() or None,
-                texto_contexto=texto_item,
+            logger.warning(
+                "Rascunho ignorado (serviço da carta não confirmado): %s",
+                (item.get("titulo") or "")[:80],
             )
-            bairro = (end.get("bairro") or "").strip() or None
-            if bairro and not self._valor_campo_endereco_valido("bairro", bairro):
-                bairro = None
-            cep = (end.get("cep") or "").strip() or None
-            numero = ChatbotService._campo_endereco_str(end.get("numero")) or None
-            complemento = (end.get("complemento") or "").strip() or None
-
-            partes_end: list[str] = []
-            if logradouro:
-                trecho = logradouro
-                if numero:
-                    trecho = f"{trecho}, {numero}"
-                partes_end.append(trecho)
-            if bairro:
-                partes_end.append(f"Bairro {bairro}")
-            if cep:
-                partes_end.append(f"CEP {cep}")
-            if complemento:
-                partes_end.append(complemento)
-            endereco_fmt = " — ".join(partes_end)
-
-            if oficio_svc:
-                descricao = oficio_svc.montar_descricao_oficio(
-                    titulo=titulo,
-                    relato=relato_usuario,
-                    endereco_formatado=endereco_fmt,
-                    servico_nome=servico_nome,
-                    orgao_nome=orgao_nome,
-                    autor_nome=autor_nome,
-                    autor_cargo=autor_cargo,
-                )
-            else:
-                descricao = relato_usuario
-
-            latitude, longitude, _fonte_geo = self._resolver_coordenadas_item(
-                item,
-                geocoder,
-                logradouro=logradouro,
-                bairro=bairro,
-                cep=cep,
-            )
-            campos_demanda: dict[str, Any] = {
-                "titulo": titulo,
-                "descricao": descricao,
-                "autor": usuario,
-                "cep": cep,
-                "logradouro": logradouro,
-                "numero": numero,
-                "complemento": complemento,
-                "bairro": bairro,
-                "status": "RASCUNHO",
-                "sinapse_servico_id": sinapse_id,
-                "sinapse_orgao_id": orgao_id,
-            }
-            if latitude is not None and longitude is not None:
-                campos_demanda["latitude"] = Decimal(str(round(latitude, 6)))
-                campos_demanda["longitude"] = Decimal(str(round(longitude, 6)))
-
-            with transaction.atomic():
-                d = Demanda.objects.create(**campos_demanda)
-            demandas_objs.append(d)
+            continue
 
         if not demandas_objs:
             return criadas
@@ -5096,6 +7012,17 @@ class ChatbotService:
 
         for d in demandas_objs:
             oficio_url: str | None = None
+            alertas_dup = buscar_alertas_duplicidade(
+                usuario,
+                titulo=d.titulo,
+                descricao=d.descricao,
+                logradouro=d.logradouro,
+                bairro=d.bairro,
+                latitude=float(d.latitude) if d.latitude is not None else None,
+                longitude=float(d.longitude) if d.longitude is not None else None,
+                sinapse_servico_id=d.sinapse_servico_id,
+                excluir_demanda_id=d.id,
+            )
 
             if d.origem_vinculo == Demanda.ORIGEM_VINCULO_TENDENCIA:
                 tend = d.tendencia
@@ -5127,6 +7054,11 @@ class ChatbotService:
                     "oficio_pdf": None,
                     "oficio_url": oficio_url,
                 }
+            if alertas_dup:
+                from .copiloto_duplicidade_service import resumir_alertas_duplicidade
+
+                resumo["alertas_duplicidade"] = alertas_dup
+                resumo["duplicidade_resumo"] = resumir_alertas_duplicidade(alertas_dup)
             criadas.append(resumo)
         return criadas
 
@@ -5183,6 +7115,17 @@ class ChatbotService:
         n_dem = len(demandas)
         mapa: dict[int, set[int]] = {i: set() for i in range(n_dem)}
 
+        vinculos_explicitos: dict[int, int] = {}
+        for ai, chat_anexo in enumerate(anexos_sessao):
+            ind = getattr(chat_anexo, "indice_demanda", None)
+            if ind is not None and 0 <= ind < n_dem:
+                vinculos_explicitos[ai] = ind
+
+        if n_dem > 1 and vinculos_explicitos:
+            for ai, dem_idx in vinculos_explicitos.items():
+                mapa[dem_idx].add(ai)
+            return mapa
+
         for dem_idx, item in enumerate(rascunho_items):
             if dem_idx >= n_dem or not isinstance(item, dict):
                 continue
@@ -5190,10 +7133,9 @@ class ChatbotService:
                 if 0 <= ai < n_anexos:
                     mapa[dem_idx].add(ai)
 
-        for ai, chat_anexo in enumerate(anexos_sessao):
-            ind = getattr(chat_anexo, "indice_demanda", None)
-            if ind is not None and 0 <= ind < n_dem:
-                mapa[ind].add(ai)
+        if not any(mapa.values()):
+            for ai, dem_idx in vinculos_explicitos.items():
+                mapa[dem_idx].add(ai)
 
         if n_dem == 1 and n_anexos and not any(mapa.values()):
             mapa[0] = set(range(n_anexos))
@@ -5211,9 +7153,19 @@ class ChatbotService:
     ) -> int:
         rasc = rascunho if rascunho is not None else list(session.demandas_rascunho or [])
         indice_inferido = self._inferir_indice_demanda_pelo_texto(texto_contexto, rasc)
+        from core.services.anexo_validacao_service import (
+            coletar_nomes_anexos_sessao,
+            normalizar_nome_arquivo,
+            validar_lote_nomes_arquivo,
+        )
+
+        nomes_sessao = coletar_nomes_anexos_sessao(session)
+        nomes_novos = [getattr(arq, "name", None) or "anexo" for arq in arquivos]
+        validar_lote_nomes_arquivo(nomes_sessao, nomes_novos)
         salvos = 0
         for i, arq in enumerate(arquivos):
             nome = getattr(arq, "name", None) or "anexo"
+            nomes_sessao.add(normalizar_nome_arquivo(nome))
             indice: int | None = indice_inferido
             if indices_demanda and i < len(indices_demanda):
                 expl = indices_demanda[i]
@@ -5243,7 +7195,27 @@ class ChatbotService:
             return
 
         rascunho = rascunho_items if rascunho_items is not None else list(session.demandas_rascunho or [])
-        mapa = cls._mapa_anexos_por_demanda(anexos_sessao, rascunho, demandas)
+        rascunho_completo = list(session.demandas_rascunho or rascunho)
+
+        indice_origem_para_demanda: dict[int, int] = {}
+        for dem_idx, item in enumerate(rascunho):
+            if not isinstance(item, dict):
+                continue
+            for orig_idx, orig in enumerate(rascunho_completo):
+                if orig is item:
+                    indice_origem_para_demanda[orig_idx] = dem_idx
+                    break
+
+        mapa: dict[int, set[int]] = {i: set() for i in range(len(demandas))}
+        vinculos_explicitos = 0
+        for ai, chat_anexo in enumerate(anexos_sessao):
+            ind = getattr(chat_anexo, "indice_demanda", None)
+            if ind is not None and ind in indice_origem_para_demanda:
+                mapa[indice_origem_para_demanda[ind]].add(ai)
+                vinculos_explicitos += 1
+
+        if not vinculos_explicitos:
+            mapa = cls._mapa_anexos_por_demanda(anexos_sessao, rascunho, demandas)
 
         if not any(mapa.values()):
             logger.warning(

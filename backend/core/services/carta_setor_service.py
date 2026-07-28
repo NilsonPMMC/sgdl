@@ -77,6 +77,38 @@ class CartaSetorService:
             return explicita
         return self.fallback_orgao(sinapse_servico_id)
 
+    def resolver_unidade_para_orgao(
+        self,
+        demanda,
+        orgao_id: int,
+        unidade_administrativa_id: int | None = None,
+    ) -> UnidadeAdministrativa | None:
+        """Resolve setor de uma perna/nó: payload → demanda → carta do serviço."""
+        orgao_id = int(orgao_id)
+        if unidade_administrativa_id not in (None, ""):
+            try:
+                unidade = UnidadeAdministrativa.objects.get(
+                    pk=int(unidade_administrativa_id), ativo=True
+                )
+            except (UnidadeAdministrativa.DoesNotExist, TypeError, ValueError):
+                return None
+            if int(unidade.sinapse_orgao_id) == orgao_id:
+                return unidade
+            return None
+
+        ua_dem = getattr(demanda, "unidade_administrativa", None)
+        if ua_dem and ua_dem.ativo and int(ua_dem.sinapse_orgao_id) == orgao_id:
+            return ua_dem
+
+        sid = getattr(demanda, "sinapse_servico_id", None)
+        if sid:
+            orgao_servico = sinapse_catalog.get_orgao_id_for_servico(int(sid))
+            if orgao_servico and int(orgao_servico) == orgao_id:
+                unidade = self.resolver_unidade(int(sid))
+                if unidade and int(unidade.sinapse_orgao_id) == orgao_id:
+                    return unidade
+        return None
+
     def resolver_unidade_demanda(self, demanda) -> UnidadeAdministrativa | None:
         return self.resolver_unidade(getattr(demanda, "sinapse_servico_id", None))
 

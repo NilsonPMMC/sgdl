@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from core.models_fluxo_protocolo import ServicoFluxoProtocolo
 from core.serializers import ServicoFluxoProtocoloSerializer
 from core.services.fluxo_protocolo_service import FluxoProtocoloService
+from core.services.gestor_escopo import gestor_pode_crud_admin
 
 _PERFIS = frozenset({"GESTOR", "PROTOCOLO"})
 
@@ -16,7 +17,10 @@ def _pode_gerir_fluxo(user) -> bool:
     return bool(
         user
         and user.is_authenticated
-        and (getattr(user, "perfil", None) in _PERFIS or user.is_staff)
+        and (
+            getattr(user, "perfil", None) == "PROTOCOLO"
+            or gestor_pode_crud_admin(user)
+        )
     )
 
 
@@ -93,14 +97,25 @@ class ServicoFluxoProtocoloViewSet(viewsets.ModelViewSet):
             )
         q = (request.query_params.get("q") or "").strip()
         orgao_id = request.query_params.get("orgao_id")
-        try:
-            limit = min(int(request.query_params.get("limit", 200)), 500)
-        except (TypeError, ValueError):
-            limit = 200
-        try:
-            offset = max(int(request.query_params.get("offset", 0)), 0)
-        except (TypeError, ValueError):
-            offset = 0
+        page_param = request.query_params.get("page")
+        page_size_param = request.query_params.get("page_size")
+        if page_param is not None or page_size_param is not None:
+            try:
+                page_size = min(int(page_size_param or 25), 100)
+                page = max(int(page_param or 1), 1)
+            except (TypeError, ValueError):
+                page_size, page = 25, 1
+            offset = (page - 1) * page_size
+            limit = page_size
+        else:
+            try:
+                limit = min(int(request.query_params.get("limit", 200)), 500)
+            except (TypeError, ValueError):
+                limit = 200
+            try:
+                offset = max(int(request.query_params.get("offset", 0)), 0)
+            except (TypeError, ValueError):
+                offset = 0
         orgao_int = None
         if orgao_id:
             try:
@@ -122,6 +137,8 @@ class ServicoFluxoProtocoloViewSet(viewsets.ModelViewSet):
         payload["results"] = [
             svc.enriquecer_item_carta(item) for item in (payload.get("results") or [])
         ]
+        total = int(payload.get("total") or len(payload.get("results") or []))
+        payload["count"] = total
         return Response(payload)
 
     @action(detail=False, methods=["post"], url_path="upsert")

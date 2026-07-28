@@ -87,6 +87,28 @@ SEED_ENTRADAS = (
     },
 )
 
+# Padrões extras aplicados a entradas já existentes (ex.: cadastradas no admin).
+PADROES_EXTRAS_POR_CATEGORIA = {
+    "JUSTICA_ESTADUAL": (
+        r"\bjusti[cç]a\s+estadual\b",
+        r"\bprocesso\s+judicial\b",
+        r"\b(?:ju[ií]z|promotor)\b",
+        r"\b(?:furto|roubo|assalto|delegacia)\b",
+        r"\bboletim\s+de\s+ocorr[eê]ncia\b",
+    ),
+    "MADATO_DE_PRISAO": (
+        r"\b(?:mandato|madato)\s+de\s+pris[aã]o\b",
+        r"\bpris[aã]o\s+(?:preventiva|tempor[aá]ria)\b",
+        r"\b(?:solicit(?:o|a|ar)|ped(?:ido|ir))\s+pris[aã]o\b",
+        r"\bpris[aã]o\s+de\s+(?:um\s+)?cidad[aã]o\b",
+        r"\bpris[aã]o\b",
+    ),
+    "MANDATO_DE_PRISAO": (
+        r"\b(?:mandato|madato)\s+de\s+pris[aã]o\b",
+        r"\bpris[aã]o\b",
+    ),
+}
+
 
 class Command(BaseCommand):
     help = "Popula a base FAQ do Copiloto (orientações fora da competência municipal)."
@@ -139,6 +161,25 @@ class Command(BaseCommand):
                         faq=faq,
                         expressao=expr,
                         ordem=10 + i,
+                        fonte=CopilotoFaqOrientacao.FONTE_MIGRACAO,
+                    )
+                    padroes_novos += 1
+
+        for cat, padroes in PADROES_EXTRAS_POR_CATEGORIA.items():
+            if dry:
+                self.stdout.write(f"[dry-run] padrões extras {cat}: {len(padroes)}")
+                continue
+            faq = CopilotoFaqOrientacao.objects.filter(
+                categoria_orientacao=cat, ativo=True
+            ).first()
+            if not faq:
+                continue
+            for i, expr in enumerate(padroes):
+                if not faq.padroes.filter(expressao=expr).exists():
+                    CopilotoFaqPadraoRegex.objects.create(
+                        faq=faq,
+                        expressao=expr,
+                        ordem=200 + i,
                         fonte=CopilotoFaqOrientacao.FONTE_MIGRACAO,
                     )
                     padroes_novos += 1

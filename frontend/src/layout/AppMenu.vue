@@ -1,124 +1,84 @@
 <script setup>
 import { computed } from 'vue';
 import { useUserStore } from '@/stores/userStore';
-
-import AppMenuItem from './AppMenuItem.vue';
 import { PERFIS_COPILOTO } from '@/constants';
+import AppMenuItem from './AppMenuItem.vue';
 
 const userStore = useUserStore();
 const perfil = computed(() => userStore.currentUser?.perfil);
-const podeCopiloto = computed(() => PERFIS_COPILOTO.includes(perfil.value));
 
-const model = computed(() => [
-    {
-        label: 'Home',
-        items: [
-            {
-                label: 'Copiloto',
-                icon: 'pi pi-fw pi-comments',
-                to: '/copiloto',
-                visible: podeCopiloto.value
-            },
-            {
-                label: 'Consulta rápida',
-                icon: 'pi pi-fw pi-search',
-                to: '/consulta',
-                visible: ['VEREADOR', 'PROTOCOLO', 'SECRETARIA', 'GESTOR'].includes(perfil.value)
-            },
-            { label: 'Dashboard', icon: 'pi pi-fw pi-home', to: '/' },
-            { label: 'Demandas', icon: 'pi pi-fw pi-book', to: '/demandas' },
-            { label: 'Mapa de Calor', icon: 'pi pi-fw pi-map', to: '/mapa-calor' },
-            {
-                label: 'Relatórios',
-                icon: 'pi pi-fw pi-chart-bar',
-                to: '/relatorios',
-                visible: perfil.value === 'GESTOR'
-            },
-            {
-                label: 'Carta de Serviços',
-                icon: 'pi pi-fw pi-bookmark',
-                to: '/carta-servicos',
-                visible: ['VEREADOR', 'GESTOR', 'PROTOCOLO', 'SECRETARIA'].includes(perfil.value)
-            },
-            {
-                label: 'Gestão de Tendências',
-                icon: 'pi pi-fw pi-chart-line',
-                to: '/gestao-tendencias',
-                visible: ['GESTOR', 'PROTOCOLO'].includes(perfil.value)
-            },
-            {
-                label: 'Recusas Copiloto',
-                icon: 'pi pi-fw pi-ban',
-                to: '/gestao-recusas-copiloto',
-                visible: ['GESTOR', 'PROTOCOLO'].includes(perfil.value)
-            },
-            {
-                label: 'Fluxo por serviço',
-                icon: 'pi pi-fw pi-directions',
-                to: '/gestao-fluxo-servicos',
-                visible: ['GESTOR', 'PROTOCOLO'].includes(perfil.value)
-            },
-            {
-                label: 'Setores (UA)',
-                icon: 'pi pi-fw pi-sitemap',
-                to: '/gestao-setores',
-                visible: ['GESTOR', 'PROTOCOLO', 'SECRETARIA'].includes(perfil.value)
-            },
-            {
-                label: 'Gestão de usuários',
-                icon: 'pi pi-fw pi-users',
-                to: '/gestao-usuarios',
-                visible: ['GESTOR', 'PROTOCOLO'].includes(perfil.value)
-            },
-            {
-                label: 'Super Ordens (clusters)',
-                icon: 'pi pi-fw pi-objects-column',
-                to: '/clusters',
-                visible: ['GESTOR', 'PROTOCOLO'].includes(perfil.value)
-            },
-            {
-                label: 'Reconciliação Sinapse',
-                icon: 'pi pi-fw pi-link',
-                to: '/integracoes/sinapse/reconciliacao',
-                visible: perfil.value === 'GESTOR'
-            },
-            {
-                label: 'FAQ Copiloto',
-                icon: 'pi pi-fw pi-sparkles',
-                to: '/admin/faq-copiloto',
-                visible: perfil.value === 'GESTOR'
-            },
-            {
-                label: 'Modelo de ofício',
-                icon: 'pi pi-fw pi-file-edit',
-                to: '/admin/configuracao-oficio',
-                visible: perfil.value === 'GESTOR'
-            },
-            {
-                label: 'SLA da carta',
-                icon: 'pi pi-fw pi-clock',
-                to: '/admin/configuracao-carta',
-                visible: perfil.value === 'GESTOR'
-            },
-            {
-                label: 'Assuntos da carta',
-                icon: 'pi pi-fw pi-tags',
-                to: '/admin/assuntos-carta',
-                visible: perfil.value === 'GESTOR'
-            },
-            { label: 'Notificações', icon: 'pi pi-fw pi-bell', to: '/notificacoes' }
-        ]
-    }
-]);
+const temPerfil = (...perfis) => {
+    if (!perfis.length) return true;
+    return perfis.includes(perfil.value);
+};
+
+const link = (label, icon, to, ...perfisVisiveis) => ({
+    label,
+    icon: `pi pi-fw ${icon}`,
+    to,
+    visible: temPerfil(...perfisVisiveis)
+});
+
+const linkOperacaoAvancada = (label, icon, to) => ({
+    label,
+    icon: `pi pi-fw ${icon}`,
+    to,
+    visible: temPerfil('PROTOCOLO') || userStore.isGestorGeral
+});
+
+/** Rotas de CRUD administrativo — apenas Gestor Geral (U7). */
+const linkGestorAdmin = (label, icon, to) => ({
+    label,
+    icon: `pi pi-fw ${icon}`,
+    to,
+    visible: userStore.isGestorGeral
+});
+
+const secao = (label, items) => {
+    const visiveis = items.filter((item) => item.visible !== false);
+    if (!visiveis.length) return null;
+    return { label, items: visiveis };
+};
+
+const model = computed(() =>
+    [
+        secao('Principal', [
+            link('Copiloto', 'pi-comments', '/copiloto', ...PERFIS_COPILOTO),
+            link('Consulta rápida', 'pi-search', '/consulta', 'VEREADOR', 'PROTOCOLO', 'SECRETARIA', 'GESTOR'),
+            link('Dashboard', 'pi-home', '/'),
+            link('Demandas', 'pi-book', '/demandas'),
+            link('Mapa operacional', 'pi-map', '/mapa-calor'),
+            link('Notificações', 'pi-bell', '/notificacoes'),
+            link('Assinaturas pendentes', 'pi-verified', '/assinaturas-pendentes', 'GESTOR', 'PROTOCOLO')
+        ]),
+        secao('Análise', [link('Relatórios', 'pi-chart-bar', '/relatorios', 'GESTOR')]),
+        secao('Carta e triagem', [
+            link('Carta de Serviços', 'pi-bookmark', '/carta-servicos', 'VEREADOR', 'GESTOR', 'PROTOCOLO', 'SECRETARIA'),
+            link('Gestão de Tendências', 'pi-chart-line', '/gestao-tendencias', 'GESTOR', 'PROTOCOLO'),
+            link('Recusas Copiloto', 'pi-ban', '/gestao-recusas-copiloto', 'GESTOR', 'PROTOCOLO')
+        ]),
+        secao('Operação', [
+            link('Super Ordens', 'pi-objects-column', '/clusters', 'GESTOR', 'PROTOCOLO'),
+            linkOperacaoAvancada('Fluxo por serviço', 'pi-directions', '/gestao-fluxo-servicos'),
+            link('Setores (UA)', 'pi-sitemap', '/gestao-setores', 'GESTOR', 'PROTOCOLO', 'SECRETARIA')
+        ]),
+        secao('Administração', [
+            linkGestorAdmin('Gestão de usuários', 'pi-users', '/gestao-usuarios'),
+            linkGestorAdmin('Reconciliação Sinapse', 'pi-link', '/integracoes/sinapse/reconciliacao'),
+            linkGestorAdmin('FAQ Copiloto', 'pi-sparkles', '/faq-copiloto'),
+            linkGestorAdmin('Modelo de ofício', 'pi-file-edit', '/configuracao-oficio'),
+            linkGestorAdmin('SLA da carta', 'pi-clock', '/configuracao-carta'),
+            linkGestorAdmin('Assuntos da carta', 'pi-tags', '/assuntos-carta')
+        ])
+    ].filter(Boolean)
+);
 </script>
 
 <template>
     <ul class="layout-menu">
-        <template v-for="(item, i) in model" :key="item">
-            <app-menu-item v-if="!item.separator" :item="item" :index="i"></app-menu-item>
-            <li v-if="item.separator" class="menu-separator"></li>
+        <template v-for="(item, i) in model" :key="item.label">
+            <app-menu-item v-if="!item.separator" :item="item" :index="i" />
+            <li v-if="item.separator" class="menu-separator" />
         </template>
     </ul>
 </template>
-
-<style lang="scss" scoped></style>

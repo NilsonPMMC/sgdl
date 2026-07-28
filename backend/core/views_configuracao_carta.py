@@ -9,16 +9,11 @@ from rest_framework.views import APIView
 
 from core.models_config import ConfiguracaoCarta
 from core.serializers import ConfiguracaoCartaSerializer
-
-_PERFIS_GESTAO = frozenset({"GESTOR"})
+from core.services.gestor_escopo import gestor_pode_crud_admin
 
 
 def _pode_gestao_carta(user) -> bool:
-    return bool(
-        user
-        and user.is_authenticated
-        and (getattr(user, "perfil", None) in _PERFIS_GESTAO or user.is_staff)
-    )
+    return gestor_pode_crud_admin(user)
 
 
 class ConfiguracaoCartaAPIView(APIView):

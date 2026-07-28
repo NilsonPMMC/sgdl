@@ -41,6 +41,15 @@ const router = createRouter({
                     meta: { requiresAuth: true }
                 },
                 {
+                    path: '/assinaturas-pendentes',
+                    name: 'assinaturas-pendentes',
+                    component: () => import('@/views/AssinaturasPendentesView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO']
+                    }
+                },
+                {
                     path: '/mapa-calor',
                     name: 'mapa-calor',
                     component: () => import('@/views/MapaCalorView.vue')
@@ -91,7 +100,8 @@ const router = createRouter({
                     component: () => import('@/views/SinapseReconciliacaoView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR']
+                        perfis: ['GESTOR'],
+                        gestorAdmin: true
                     }
                 },
                 {
@@ -127,7 +137,8 @@ const router = createRouter({
                     component: () => import('@/views/FluxoServicosView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR', 'PROTOCOLO']
+                        perfis: ['GESTOR', 'PROTOCOLO'],
+                        gestorAdmin: true
                     }
                 },
                 {
@@ -145,7 +156,8 @@ const router = createRouter({
                     component: () => import('@/views/GestaoUsuariosView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR', 'PROTOCOLO']
+                        perfis: ['GESTOR'],
+                        gestorAdmin: true
                     }
                 },
                 {
@@ -166,39 +178,43 @@ const router = createRouter({
                     }
                 },
                 {
-                    path: '/admin/faq-copiloto',
+                    path: '/faq-copiloto',
                     name: 'admin-faq-copiloto',
                     component: () => import('@/views/AdminFaqView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR']
+                        perfis: ['GESTOR'],
+                        gestorAdmin: true
                     }
                 },
                 {
-                    path: '/admin/configuracao-oficio',
+                    path: '/configuracao-oficio',
                     name: 'configuracao-oficio',
                     component: () => import('@/views/ConfiguracaoOficioView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR']
+                        perfis: ['GESTOR'],
+                        gestorAdmin: true
                     }
                 },
                 {
-                    path: '/admin/configuracao-carta',
+                    path: '/configuracao-carta',
                     name: 'configuracao-carta',
                     component: () => import('@/views/ConfiguracaoCartaView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR']
+                        perfis: ['GESTOR'],
+                        gestorAdmin: true
                     }
                 },
                 {
-                    path: '/admin/assuntos-carta',
+                    path: '/assuntos-carta',
                     name: 'assuntos-carta',
                     component: () => import('@/views/AssuntosCartaView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR']
+                        perfis: ['GESTOR'],
+                        gestorAdmin: true
                     }
                 }
             ]
@@ -217,7 +233,16 @@ const router = createRouter({
         {
             path: '/login',
             name: 'login',
-            component: () => import('@/views/pages/Login.vue')
+            component: () => import('@/views/pages/LoginPrefeitura.vue')
+        },
+        {
+            path: '/login/vereador',
+            name: 'login-vereador',
+            component: () => import('@/views/pages/LoginVereador.vue')
+        },
+        {
+            path: '/auth/login',
+            redirect: { name: 'login-vereador' }
         },
         {
             path: '/resetar-senha/:uidb64/:token',
@@ -245,17 +270,18 @@ router.beforeEach((to, from, next) => {
 
     // --- INÍCIO DA CORREÇÃO ---
     // 1. Define uma lista de rotas públicas
-    const publicPages = ['login', 'resetar-senha', 'validar-assinatura'];
+    const publicPages = ['login', 'login-vereador', 'resetar-senha', 'validar-assinatura'];
     const authRequired = !publicPages.includes(to.name);
     // --- FIM DA CORREÇÃO ---
 
     // 2. Modifica a condição
     if (authRequired && !isAuthenticated) {
-        // Se a rota exige login e o usuário não está logado, vai para /login
         next({ name: 'login' });
     } else if (to.meta?.perfis && Array.isArray(to.meta.perfis) && !to.meta.perfis.includes(perfil)) {
         next({ name: 'accessDenied' });
-    } else if (isAuthenticated && to.name === 'login') {
+    } else if (to.meta?.gestorAdmin && perfil === 'GESTOR' && !userStore.isGestorGeral) {
+        next({ name: 'accessDenied' });
+    } else if (isAuthenticated && (to.name === 'login' || to.name === 'login-vereador')) {
         next(rotaHomePorPerfil(perfil));
     } else {
         // Em todos os outros casos (logado, ou indo para uma página pública), permite o acesso

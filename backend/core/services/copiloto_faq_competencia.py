@@ -16,7 +16,9 @@ from .copiloto_faq_service import (
     faq_por_categoria,
     invalidar_cache_faq,
     listar_categorias_para_prompt,
+    listar_faq_detalhada_para_prompt,
     montar_motivo_recusa,
+    montar_resposta_chat_fora_competencia,
 )
 
 # Alias histórico usado em testes e type hints

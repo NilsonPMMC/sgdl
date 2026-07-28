@@ -1,10 +1,44 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useToast } from 'primevue/usetoast';
 import { useConfirm } from 'primevue/useconfirm';
 import { useUserStore } from '@/stores/userStore';
 import ApiService from '@/service/ApiService.js';
+import {
+    DECLARACAO_DESPACHO,
+    DECLARACAO_GESTOR_PROTOCOLO,
+    DECLARACAO_DEVOLUTIVA,
+    DECLARACAO_CONCLUSAO_FINAL,
+    CONTEXTO_ASSINATURA,
+    badgeAssinaturaProtocolo,
+    despachoInicialPendenteGestor,
+    gestorPorId,
+    modoPainelAssinaturaProtocolo,
+    MODO_PAINEL_ASSINATURA,
+    usuarioPodePainelProtocoloCentral,
+    validarAssinaturaFormulario,
+    payloadAssinaturaProtocolo,
+    mensagemErroAssinatura
+} from '@/constants/assinaturaEletronica';
+import { payloadDespachoDestinos, buildDevolutivaPayload, estadoFormularioDevolutiva } from '@/utils/protocoloFormData';
+import { filtrarArquivosDuplicados, mensagemAnexosRejeitados } from '@/utils/anexoValidacao';
+import FormularioTramitacao from '@/components/tramitacao/FormularioTramitacao.vue';
+import FormularioDevolutivaProtocolo from '@/components/devolutiva/FormularioDevolutivaProtocolo.vue';
+import DialogAssinaturaEletronica from '@/components/tramitacao/DialogAssinaturaEletronica.vue';
+import DialogClusterAderencia from '@/components/demanda/DialogClusterAderencia.vue';
+import {
+    estadoFormularioTramitacao,
+    inicializarDestinosDespacho,
+    contarPernasDestinos,
+    despachoEhTransversal,
+    MAX_PERNAS_DESPACHO,
+    MODO_DESPACHO,
+    resumoDestinosTexto
+} from '@/constants/tramitacaoFormulario';
+import {
+    rotuloFluxo
+} from '@/constants/operacionalEstado';
 
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -13,13 +47,13 @@ import Toolbar from 'primevue/toolbar';
 import Tag from 'primevue/tag';
 import Dialog from 'primevue/dialog';
 import Select from 'primevue/select';
+import MultiSelect from 'primevue/multiselect';
 import SelectButton from 'primevue/selectbutton';
 import InputText from 'primevue/inputtext';
 import Panel from 'primevue/panel';
 import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import Message from 'primevue/message';
-import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
 
 const DECLARACAO_ENVIO = 'ASSINO E ENVIO';
@@ -30,24 +64,44 @@ const route = useRoute();
 const toast = useToast();
 const confirm = useConfirm();
 const userStore = useUserStore();
-const loading = ref(true);
+const loading = ref(false);
 const erroCarregamento = ref(null);
+const sincronizandoDemandasRota = ref(true);
 
 const filtroMinhaUnidade = ref(true);
 const filtroUnidadeId = ref(null);
+const filtroUnidadesIds = ref([]);
 const unidadesSetor = ref([]);
 
 const despachoDialog = ref(false);
+const assinaturaDespachoDialogVisible = ref(false);
+const assinaturaDevolutivaDialogVisible = ref(false);
+const executandoAssinatura = ref(false);
 const superOsDialog = ref(false);
+const clusterAderenciaDialog = ref(false);
+const clusterAderenciaSituacao = ref(null);
+const clusterAderenciaLoading = ref(false);
 const demandaParaDespacho = ref(null);
 const clusterParaDespacho = ref(null);
+const despachoPreview = ref(null);
+const despachoAssinatura = ref({ declaracaoOperador: false, declaracaoGestor: false, gestor_protocolo_id: null });
+const gestoresProtocolo = ref([]);
+const carregandoDespachoPreview = ref(false);
 const todasSecretarias = ref([]);
 const clustersFiltro = ref([]);
 
 const aprovacaoDialog = ref(false);
 const devolutivaDialog = ref(false);
 const demandaParaDevolutiva = ref(null);
-const devolutivaParecer = ref('');
+const formDevolutiva = ref(estadoFormularioDevolutiva());
+const formDevolutivaRef = ref(null);
+const devolutivaPreview = ref(null);
+const devolutivaAssinatura = ref({
+    declaracaoOperador: false,
+    declaracaoGestor: false,
+    gestor_protocolo_id: null
+});
+const carregandoDevolutivaPreview = ref(false);
 const demandaParaAprovacao = ref(null);
 const novaSecretariaId = ref(null);
 const todosVereadores = ref([]);
@@ -69,12 +123,39 @@ let clockInterval = null;
 const opcoesPainel = [
     { label: 'Protocolados', value: 'protocolados', icon: 'pi pi-inbox' },
     { label: 'Operacionais', value: 'operacionais', icon: 'pi pi-cog' },
-    { label: 'Devolutivas', value: 'devolutivas', icon: 'pi pi-reply' }
+    { label: 'Devolutivas', value: 'devolutivas', icon: 'pi pi-reply' },
+    { label: 'Stand-by (estudo)', value: 'stand_by', icon: 'pi pi-pause-circle' },
+    { label: 'Finalizados', value: 'finalizados', icon: 'pi pi-check-circle' }
 ];
 
-const isPainelProtocolo = computed(() =>
-    ['PROTOCOLO', 'GESTOR'].includes(userStore.currentUser?.perfil)
+const FILAS_GESTOR_SETORIAL = ['operacionais', 'stand_by', 'finalizados'];
+
+const podePainelProtocoloCentral = computed(() =>
+    usuarioPodePainelProtocoloCentral(userStore.currentUser, userStore)
 );
+
+const isPainelProtocolo = computed(
+    () =>
+        userStore.currentUser?.perfil === 'PROTOCOLO' || podePainelProtocoloCentral.value
+);
+
+const isPainelGestorSetorial = computed(
+    () => userStore.currentUser?.perfil === 'GESTOR' && !podePainelProtocoloCentral.value
+);
+
+const exibirPainelFilas = computed(
+    () => isPainelProtocolo.value || isPainelGestorSetorial.value
+);
+
+const opcoesPainelVisiveis = computed(() => {
+    if (isPainelGestorSetorial.value) {
+        return opcoesPainel.filter((o) => FILAS_GESTOR_SETORIAL.includes(o.value));
+    }
+    if (isPainelProtocolo.value) {
+        return opcoesPainel;
+    }
+    return [];
+});
 
 const isSecretaria = computed(() => userStore.currentUser?.perfil === 'SECRETARIA');
 const vinculoSecretaria = computed(() => userStore.currentUser?.vinculo_secretaria || null);
@@ -82,13 +163,79 @@ const vinculoSecretariaIncompleto = computed(
     () => vinculoSecretaria.value?.aplicavel && !vinculoSecretaria.value?.completo
 );
 
-const usaPainelFila = computed(() => isPainelProtocolo.value || isSecretaria.value);
+const usaPainelFila = computed(
+    () => isPainelProtocolo.value || isSecretaria.value || isPainelGestorSetorial.value
+);
 
-const opcoesEscopoSecretaria = [
-    { label: 'Meu setor', value: 'meu_setor' },
-    { label: 'Toda secretaria', value: 'toda' }
-];
-const escopoSecretaria = ref('meu_setor');
+const opcoesEscopoOperacional = computed(() => {
+    const opcoes = [
+        { label: 'Em operação', value: 'em_operacao' },
+        { label: 'Acompanhando', value: 'acompanhando' }
+    ];
+    if (isSecretaria.value) {
+        opcoes.push({ label: 'Encerrado', value: 'encerrado' });
+    }
+    return opcoes;
+});
+const escopoSecretaria = ref('em_operacao');
+const filtroStandByEstudo = ref(false);
+
+const exibirEscopoOperacional = computed(() => {
+    if (isSecretaria.value) return true;
+    if (isPainelGestorSetorial.value) return painelFila.value === 'operacionais';
+    return isPainelProtocolo.value && painelFila.value === 'operacionais';
+});
+
+const exibirFiltroSetores = computed(
+    () => isSecretaria.value || isPainelGestorSetorial.value || isPainelProtocolo.value
+);
+
+const statusFinalizadoLista = ['FINALIZADO'];
+
+const podeGerenciarAcompanhamentoLista = computed(
+    () => ['SECRETARIA', 'GESTOR'].includes(userStore.currentUser?.perfil)
+);
+
+function podeAcaoAcompanhamentoRapida(demanda) {
+    if (!podeGerenciarAcompanhamentoLista.value) return false;
+    if (statusFinalizadoLista.includes(demanda?.status)) return false;
+    return Boolean(demanda?.acompanhando || demanda?.pode_acompanhar);
+}
+
+async function alternarAcompanhamentoLista(demanda) {
+    if (!demanda?.id || !podeAcaoAcompanhamentoRapida(demanda)) return;
+    try {
+        if (demanda.acompanhando) {
+            await ApiService.desacompanharDemanda(demanda.id);
+            toast.add({
+                severity: 'info',
+                summary: 'Acompanhamento',
+                detail: 'Processo desfixado.',
+                life: 3500
+            });
+        } else {
+            await ApiService.acompanharDemanda(demanda.id, { origem: 'MANUAL' });
+            toast.add({
+                severity: 'success',
+                summary: 'Acompanhamento',
+                detail: 'Processo fixado. Veja em «Acompanhando».',
+                life: 3500
+            });
+            if (escopoSecretaria.value === 'encerrado') {
+                escopoSecretaria.value = 'acompanhando';
+                return;
+            }
+        }
+        await carregarDemandas();
+    } catch (err) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Acompanhamento',
+            detail: err?.response?.data?.detail || 'Não foi possível atualizar o acompanhamento.',
+            life: 4000
+        });
+    }
+}
 
 const selectedDemandas = ref([]);
 const envioLoteDialog = ref(false);
@@ -97,6 +244,21 @@ const carregandoPreviewLote = ref(false);
 const enviandoLote = ref(false);
 const declaracaoLoteAceita = ref(false);
 const envioLotePendenteIds = ref([]);
+
+const alertasDuplicidadeLote = computed(() => {
+    const itens = previewLote.value?.itens || [];
+    const alertas = [];
+    for (const item of itens) {
+        for (const a of item.alertas_duplicidade || []) {
+            alertas.push({ ...a, demanda_envio_id: item.demanda_id, demanda_envio_titulo: item.titulo });
+        }
+    }
+    return alertas;
+});
+
+const duplicidadeLoteSugerirNaoEnviar = computed(() =>
+    (previewLote.value?.itens || []).some((item) => item.duplicidade_resumo?.sugerir_nao_enviar)
+);
 
 const isVereadorOuGestor = computed(() =>
     ['VEREADOR', 'GESTOR'].includes(userStore.currentUser?.perfil)
@@ -150,13 +312,11 @@ const statusAbertos = [
     'DEVOLVIDO_VEREADOR'
 ];
 
-const formatTempoParado = (demanda) => {
-    void clockTick.value;
-    let segundos = demanda?.tempo_parado_segundos;
-    if (segundos == null && demanda?.data_entrada_etapa) {
-        const ref = new Date(demanda.data_entrada_etapa).getTime();
-        segundos = Math.max(0, Math.floor((Date.now() - ref) / 1000));
-    }
+const exibirTempoExecucaoTotal = computed(
+    () => exibirPainelFilas.value && painelFila.value === 'finalizados'
+);
+
+const formatDuracaoSegundos = (segundos) => {
     if (segundos == null) return '—';
     const dias = Math.floor(segundos / 86400);
     const horas = Math.floor((segundos % 86400) / 3600);
@@ -164,6 +324,16 @@ const formatTempoParado = (demanda) => {
     if (dias > 0) return `${dias}d ${horas}h`;
     if (horas > 0) return `${horas}h ${minutos}min`;
     return `${minutos}min`;
+};
+
+const formatTempoParado = (demanda) => {
+    void clockTick.value;
+    let segundos = demanda?.tempo_parado_segundos;
+    if (segundos == null && demanda?.data_entrada_etapa) {
+        const ref = new Date(demanda.data_entrada_etapa).getTime();
+        segundos = Math.max(0, Math.floor((Date.now() - ref) / 1000));
+    }
+    return formatDuracaoSegundos(segundos);
 };
 
 const severidadeTempoParado = (demanda) => {
@@ -179,46 +349,223 @@ const severidadeTempoParado = (demanda) => {
     return 'info';
 };
 
-const contagemPainelAtivo = computed(() => demandas.value.length);
+const resolverTempoExecucaoSegundos = (demanda) => {
+    let segundos = demanda?.tempo_execucao_segundos;
+    if (segundos != null) return segundos;
+    if (!demanda?.data_finalizacao) return null;
+    const fim = new Date(demanda.data_finalizacao).getTime();
+    const inicioRef = demanda.data_inicio_prazo || demanda.data_criacao;
+    if (!inicioRef) return null;
+    const inicio = new Date(inicioRef).getTime();
+    return Math.max(0, Math.floor((fim - inicio) / 1000));
+};
+
+const formatTempoExecucaoTotal = (demanda) => {
+    const segundos = resolverTempoExecucaoSegundos(demanda);
+    if (segundos == null) return '—';
+    return `Total ${formatDuracaoSegundos(segundos)}`;
+};
+
+const severidadeTempoExecucao = (demanda) => {
+    const segundos = resolverTempoExecucaoSegundos(demanda);
+    if (segundos == null) return 'secondary';
+    const prazoDias = demanda?.prazo_efetivo_dias ?? demanda?.servico?.prazo;
+    if (prazoDias && segundos > prazoDias * 86400) return 'warn';
+    return 'success';
+};
+
+const tooltipTempoColuna = (demanda) => {
+    if (exibirTempoExecucaoTotal.value) {
+        const inicioRef = demanda?.data_inicio_prazo || demanda?.data_criacao;
+        if (inicioRef && demanda?.data_finalizacao) {
+            const inicio = new Date(inicioRef).toLocaleString('pt-BR');
+            const fim = new Date(demanda.data_finalizacao).toLocaleString('pt-BR');
+            return `Total: ${inicio} → ${fim}`;
+        }
+        return 'Tempo total de execução do processo';
+    }
+    if (demanda?.data_entrada_etapa) {
+        return `Desde ${new Date(demanda.data_entrada_etapa).toLocaleString('pt-BR')}`;
+    }
+    return 'Tempo na etapa atual';
+};
+
+function rotuloLocalizacaoItem(item) {
+    if (!item) return '—';
+    const base = rotuloCompactoLocalizacao(item);
+    if (item.quantidade > 1) return `${base}×${item.quantidade}`;
+    return base;
+}
+
+function rotuloCompactoLocalizacao(item) {
+    if (!item) return '—';
+    let base = item.setor_sigla || item.setor_nome || item.orgao_nome || '—';
+    if (base.startsWith('MCRUZ-')) base = base.slice(6);
+    if (base.length > 14) base = `${base.slice(0, 12)}…`;
+    return base;
+}
+
+function escapeHtml(texto) {
+    return String(texto ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function rotuloStatusLocalizacao(item) {
+    if (item.tipo === 'no') {
+        return item.aberto === false ? 'Concluído' : 'Aberto';
+    }
+    if (item.tipo === 'perna') {
+        return item.aberto === false ? 'Perna concluída' : 'Perna em execução';
+    }
+    if (item.tipo === 'direto') {
+        return 'Fluxo direto';
+    }
+    return item.aberto === false ? 'Concluído' : 'Em operação';
+}
+
+function htmlTooltipLocalizacao(demanda) {
+    const itens = localizacaoOperacionalLinha(demanda);
+    if (!itens.length) return '';
+
+    const linhas = itens
+        .map((item) => {
+            const sigla = item.setor_sigla || item.setor_nome || item.orgao_nome || '—';
+            const orgao = item.orgao_nome || '';
+            const status = rotuloStatusLocalizacao(item);
+            const badgeClass =
+                item.aberto === false
+                    ? 'sgdl-loc-tip__badge--fechado'
+                    : 'sgdl-loc-tip__badge--aberto';
+            const qtd =
+                item.quantidade > 1
+                    ? `<span class="sgdl-loc-tip__qtd">${item.quantidade}×</span>`
+                    : '';
+
+            return `<div class="sgdl-loc-tip__item">
+                <div class="sgdl-loc-tip__row">
+                    <span class="sgdl-loc-tip__sigla">${escapeHtml(sigla)}</span>
+                    ${qtd}
+                    <span class="sgdl-loc-tip__badge ${badgeClass}">${escapeHtml(status)}</span>
+                </div>
+                ${orgao ? `<div class="sgdl-loc-tip__orgao">${escapeHtml(orgao)}</div>` : ''}
+            </div>`;
+        })
+        .join('');
+
+    return `<div class="sgdl-loc-tip">${linhas}</div>`;
+}
+
+function tooltipLocalizacaoConfig(demanda) {
+    const html = htmlTooltipLocalizacao(demanda);
+    if (!html) return null;
+    return {
+        value: html,
+        escape: false,
+        class: 'sgdl-tooltip-localizacao',
+        fitContent: false,
+        showDelay: 150
+    };
+}
+
+function localizacaoOperacionalLinha(demanda) {
+    const itens = demanda?.setores_operacionais_abertos;
+    if (itens?.length) return itens;
+    if (demanda?.unidade_administrativa) {
+        const u = demanda.unidade_administrativa;
+        return [{
+            setor_sigla: u.sigla,
+            setor_nome: u.nome,
+            orgao_nome: '',
+            aberto: true,
+            tipo: 'direto',
+            quantidade: 1
+        }];
+    }
+    return [];
+}
+
+const LOCALIZACAO_MAX_CHIPS = 2;
+
+function resumoLocalizacaoCelula(demanda) {
+    const itens = localizacaoOperacionalLinha(demanda);
+    if (!itens.length) {
+        return { visiveis: [], extras: 0 };
+    }
+    return {
+        visiveis: itens.slice(0, LOCALIZACAO_MAX_CHIPS),
+        extras: Math.max(0, itens.length - LOCALIZACAO_MAX_CHIPS)
+    };
+}
+
+const colunaLocalizacaoHeader = computed(() => {
+    if (isSecretaria.value && escopoSecretaria.value === 'encerrado') {
+        return 'Setor destino';
+    }
+    if (usaPainelFila.value && painelFila.value === 'operacionais') {
+        return 'Onde está';
+    }
+    return 'Setor';
+});
+
+const contadoresResumo = ref({ abertos: 0, finalizados: 0, atrasados: 0 });
+const tablePagination = ref({ first: 0, rows: 25 });
+const totalDemandas = ref(0);
+const demandasJaCarregadas = ref(false);
+const posCargaInicialDemandas = ref(false);
+let carregamentoDemandasSeq = 0;
+let demandasFetchPromise = null;
+let demandasFetchKey = '';
+let ultimaCargaDemandasConcluida = { chave: '', em: 0 };
 
 const mensagemListaVazia = computed(() => {
     if (filtros.value.q) {
         return `Nenhum processo encontrado para «${filtros.value.q}». Revise a busca ou limpe os filtros.`;
     }
-    if (isPainelProtocolo.value) {
-        if (painelFila.value === 'protocolados') {
+    if (exibirPainelFilas.value) {
+        if (isPainelProtocolo.value && painelFila.value === 'protocolados') {
             return 'Nenhum processo aguardando despacho do Protocolo. Novos ofícios aparecem aqui após o envio oficial.';
         }
         if (painelFila.value === 'operacionais') {
+            if (isPainelGestorSetorial.value && escopoSecretaria.value === 'encerrado') {
+                return 'Nenhuma demanda encerrada no escopo do seu setor.';
+            }
+            if (
+                (isPainelGestorSetorial.value || isPainelProtocolo.value) &&
+                escopoSecretaria.value === 'acompanhando'
+            ) {
+                return 'Nenhum processo fixado para acompanhamento.';
+            }
             return 'Nenhum processo em tramitação operacional no momento.';
         }
-        if (painelFila.value === 'devolutivas') {
+        if (isPainelProtocolo.value && painelFila.value === 'devolutivas') {
             return 'Nenhuma devolutiva pendente. Processos concluídos pela secretaria aguardando resposta do Protocolo aparecem aqui.';
+        }
+        if (painelFila.value === 'stand_by') {
+            return 'Nenhuma demanda na base stand-by de estudo e viabilidade.';
+        }
+        if (painelFila.value === 'finalizados') {
+            return 'Nenhum processo finalizado no momento.';
         }
     }
     if (isSecretaria.value) {
-        if (escopoSecretaria.value === 'meu_setor') {
-            return 'Nenhuma demanda no seu setor. Alterne para «Toda secretaria» ou confira se o setor está vinculado ao seu usuário em Gestão de Setores.';
+        if (escopoSecretaria.value === 'encerrado') {
+            return 'Nenhuma demanda encerrada no seu setor. Processos concluídos por você aparecem aqui após encerrar a participação.';
         }
-        if (filtroUnidadeId.value) {
-            return 'Nenhuma demanda operacional neste setor com os filtros atuais.';
+        if (escopoSecretaria.value === 'acompanhando') {
+            return 'Nenhum processo fixado para acompanhamento. Fixe após encerrar sua participação ou a qualquer momento enquanto o processo estiver em operação.';
         }
-        return 'Nenhuma demanda operacional na secretaria. Super OS aparecem apenas na demanda líder.';
+        return 'Nenhuma demanda em operação no seu setor. Confira se o setor está vinculado ao seu usuário em Gestão de Setores.';
+    }
+    if (isPainelProtocolo.value && painelFila.value === 'operacionais' && escopoSecretaria.value === 'acompanhando') {
+        return 'Nenhum processo fixado para acompanhamento.';
     }
     if (userStore.currentUser?.perfil === 'VEREADOR') {
         return 'Você ainda não possui demandas. Use o Copiloto para criar um novo ofício.';
     }
     return 'Nenhuma demanda encontrada com os filtros atuais.';
-});
-
-const tituloPainelContexto = computed(() => {
-    if (isSecretaria.value) {
-        return escopoSecretaria.value === 'meu_setor' ? 'Fila do meu setor' : 'Fila operacional da secretaria';
-    }
-    if (painelFila.value === 'protocolados') return 'Fila de protocolados';
-    if (painelFila.value === 'operacionais') return 'Fila operacional';
-    if (painelFila.value === 'devolutivas') return 'Fila de devolutivas';
-    return 'Demandas';
 });
 
 // Helper function para verificar se uma *única* demanda está atrasada
@@ -248,29 +595,25 @@ const isAtrasada = (demanda) => {
     return new Date() > dataVencimento;
 };
 
-const totalAbertos = computed(() => {
-    return demandas.value.filter((d) => statusAbertos.includes(d.status)).length;
-});
+const totalAbertos = computed(() => contadoresResumo.value.abertos);
 
-const totalFinalizados = computed(() => {
-    return demandas.value.filter((d) => d.status === 'FINALIZADO').length;
-});
+const totalFinalizados = computed(() => contadoresResumo.value.finalizados);
 
-const totalAtrasados = computed(() => {
-    // Reutiliza a função helper
-    return demandas.value.filter(isAtrasada).length;
-});
+const totalAtrasados = computed(() => contadoresResumo.value.atrasados);
 
 const filtroHubAtrasadas = computed(() => route.query?.consulta === 'atrasadas');
-
-const demandasExibidas = computed(() =>
-    filtroHubAtrasadas.value ? demandas.value.filter(isAtrasada) : demandas.value
-);
 
 const limparFiltroHubAtrasadas = () => {
     const query = { ...route.query };
     delete query.consulta;
+    resetPaginaDemandas();
     router.replace({ name: 'demandas', query });
+    carregarDemandas();
+};
+
+const aplicarFiltrosDemandas = () => {
+    resetPaginaDemandas();
+    carregarDemandas();
 };
 
 const statusOptions = ref([
@@ -307,6 +650,26 @@ const getStatusSeverity = (demanda) => {
     return map[demanda.status] || 'contrast';
 };
 
+const badgeAssinaturaLista = (demanda) => badgeAssinaturaProtocolo(demanda);
+
+const podeDespacharDemandaLista = (demanda) =>
+    demanda?.status === 'AGUARDANDO_PROTOCOLO' &&
+    !despachoInicialPendenteGestor(demanda?.assinaturas_resumo);
+
+const gestorDespachoSelecionadoLista = computed(() =>
+    gestorPorId(gestoresProtocolo.value, despachoAssinatura.value.gestor_protocolo_id)
+);
+
+const modoAssinaturaDespachoInicial = computed(() =>
+    modoPainelAssinaturaProtocolo(CONTEXTO_ASSINATURA.DESPACHO_INICIAL, userStore.currentUser, userStore)
+);
+
+const modoAssinaturaDevolutiva = computed(() => {
+    const previewModo = devolutivaPreview.value?.modo_assinatura;
+    if (previewModo) return previewModo;
+    return modoPainelAssinaturaProtocolo(CONTEXTO_ASSINATURA.DEVOLUTIVA, userStore.currentUser, userStore);
+});
+
 const extrairMensagemErro = (error) => {
     const data = error?.response?.data;
     if (!data) return 'Não foi possível carregar as demandas. Verifique sua conexão e tente novamente.';
@@ -316,82 +679,212 @@ const extrairMensagemErro = (error) => {
     return 'Falha ao carregar demandas. Tente novamente.';
 };
 
-async function carregarDemandas() {
-    loading.value = true;
-    erroCarregamento.value = null;
-    try {
-        let params = { ...filtros.value };
+function extrairListaDemandas(response) {
+    const data = response?.data;
+    return data?.results || data || [];
+}
 
-        const currentUser = userStore.currentUser;
-        if (!currentUser?.id) {
-            loading.value = false;
+function extrairTotalDemandas(response, fallback = 0) {
+    const data = response?.data;
+    if (data && typeof data === 'object' && data.count != null) {
+        return data.count;
+    }
+    return fallback;
+}
+
+function montarParamsDemandas() {
+    let params = { ...filtros.value };
+    const currentUser = userStore.currentUser;
+
+    if (filtroHubAtrasadas.value) {
+        params.consulta = 'atrasadas';
+    }
+
+    switch (currentUser?.perfil) {
+        case 'VEREADOR':
+            params.autor = currentUser.id;
+            break;
+        case 'SECRETARIA':
+            if (currentUser.secretaria || currentUser.sinapse_orgao_id) {
+                params.fila = 'operacionais';
+                params.escopo_setor = escopoSecretaria.value;
+                if (filtroStandByEstudo.value) {
+                    params.stand_by_estudo = true;
+                }
+                delete params.status;
+                delete params.status__in;
+                delete params.secretaria_destino;
+                delete params.minha_unidade;
+                delete params.unidade_administrativa;
+                if (filtroUnidadesIds.value?.length) {
+                    params.unidades_administrativas = [...filtroUnidadesIds.value];
+                }
+            }
+            break;
+        case 'GESTOR':
+        case 'PROTOCOLO':
+            if (exibirPainelFilas.value && painelFila.value && !params.trilha) {
+                params.fila = painelFila.value;
+                delete params.status;
+                delete params.status__exclude;
+                if (painelFila.value === 'operacionais') {
+                    params.escopo_setor = escopoSecretaria.value;
+                }
+                if (exibirFiltroSetores.value && filtroUnidadesIds.value?.length) {
+                    params.unidades_administrativas = [...filtroUnidadesIds.value];
+                } else if (painelFila.value === 'operacionais' && filtroUnidadeId.value) {
+                    params.unidade_administrativa = filtroUnidadeId.value;
+                }
+            } else if (params.status !== 'RASCUNHO') {
+                params.status__exclude = 'RASCUNHO';
+            }
+            break;
+    }
+
+    Object.keys(params).forEach((key) => (params[key] == null || params[key] === '') && delete params[key]);
+    return params;
+}
+
+function montarChaveRequisicaoDemandas() {
+    const page = Math.floor(tablePagination.value.first / tablePagination.value.rows) + 1;
+    const params = {
+        ...montarParamsDemandas(),
+        page,
+        page_size: tablePagination.value.rows
+    };
+    if (isPainelProtocolo.value) {
+        params.include_resumo = '1';
+    }
+    return JSON.stringify(params);
+}
+
+function finalizarPosCargaInicialDemandas() {
+    if (posCargaInicialDemandas.value) return;
+    posCargaInicialDemandas.value = true;
+    tentarEnvioLoteDaQuery();
+    carregarAuxiliaresDemandas();
+}
+
+function aplicarResumoFilas(data) {
+    if (!data) return;
+    contadoresResumo.value = {
+        abertos: data.abertos ?? 0,
+        finalizados: data.finalizados ?? 0,
+        atrasados: data.atrasados ?? 0
+    };
+}
+
+async function carregarContadoresResumo() {
+    if (!isPainelProtocolo.value) return;
+    try {
+        const { data } = await ApiService.getDemandasResumoFilas();
+        aplicarResumoFilas(data);
+    } catch {
+        contadoresResumo.value = { abertos: 0, finalizados: 0, atrasados: 0 };
+    }
+}
+
+const resetPaginaDemandas = () => {
+    tablePagination.value = { ...tablePagination.value, first: 0 };
+};
+
+const onPageDemandas = (event) => {
+    tablePagination.value = { first: event.first, rows: event.rows };
+    demandasJaCarregadas.value = true;
+    carregarDemandas().then(finalizarPosCargaInicialDemandas);
+};
+
+async function carregarDemandas({ forcar = false } = {}) {
+    const chave = montarChaveRequisicaoDemandas();
+    const agora = Date.now();
+
+    if (!forcar) {
+        if (demandasFetchPromise && demandasFetchKey === chave) {
+            return demandasFetchPromise;
+        }
+        if (
+            chave === ultimaCargaDemandasConcluida.chave &&
+            agora - ultimaCargaDemandasConcluida.em < 1500
+        ) {
             return;
         }
+    }
 
-        switch (currentUser.perfil) {
-            case 'VEREADOR':
-                params.autor = currentUser.id;
-                break;
-            case 'SECRETARIA':
-                if (currentUser.secretaria) {
-                    params.secretaria_destino = currentUser.secretaria;
-                    params.fila = 'operacionais';
-                    delete params.status;
-                    delete params.status__in;
-                    if (escopoSecretaria.value === 'meu_setor') {
-                        params.minha_unidade = '1';
-                        delete params.unidade_administrativa;
-                    } else {
-                        delete params.minha_unidade;
-                        if (filtroUnidadeId.value) {
-                            params.unidade_administrativa = filtroUnidadeId.value;
-                        }
-                    }
-                }
-                break;
-            case 'GESTOR':
-            case 'PROTOCOLO':
-                if (isPainelProtocolo.value && painelFila.value && !params.trilha) {
-                    params.fila = painelFila.value;
-                    delete params.status;
-                    delete params.status__exclude;
-                    if (painelFila.value === 'operacionais' && filtroUnidadeId.value) {
-                        params.unidade_administrativa = filtroUnidadeId.value;
-                    }
-                } else if (params.status !== 'RASCUNHO') {
-                    params.status__exclude = 'RASCUNHO';
-                }
-                break;
+    demandasFetchKey = chave;
+    const seq = ++carregamentoDemandasSeq;
+
+    demandasFetchPromise = (async () => {
+        loading.value = true;
+        erroCarregamento.value = null;
+        try {
+            if (!userStore.currentUser?.id) {
+                return;
+            }
+
+            const params = JSON.parse(chave);
+            const response = await ApiService.getDemandas(params);
+            if (seq !== carregamentoDemandasSeq) return;
+
+            const lista = extrairListaDemandas(response);
+            demandas.value = lista;
+            totalDemandas.value = extrairTotalDemandas(response, lista.length);
+            if (response.data?.resumo_filas) {
+                aplicarResumoFilas(response.data.resumo_filas);
+            } else if (isPainelProtocolo.value) {
+                await carregarContadoresResumo();
+            }
+            ultimaCargaDemandasConcluida = { chave, em: Date.now() };
+        } catch (error) {
+            if (seq !== carregamentoDemandasSeq) return;
+            console.error('Erro ao buscar demandas:', error);
+            demandas.value = [];
+            totalDemandas.value = 0;
+            erroCarregamento.value = extrairMensagemErro(error);
+            toast.add({ severity: 'error', summary: 'Erro ao carregar', detail: erroCarregamento.value, life: 5000 });
+        } finally {
+            if (seq === carregamentoDemandasSeq) {
+                loading.value = false;
+            }
         }
+    })();
 
-        Object.keys(params).forEach((key) => (params[key] == null || params[key] === '') && delete params[key]);
-
-        const response = await ApiService.getDemandas(params);
-        demandas.value = response.data.results || response.data;
-    } catch (error) {
-        console.error('Erro ao buscar demandas:', error);
-        demandas.value = [];
-        erroCarregamento.value = extrairMensagemErro(error);
-        toast.add({ severity: 'error', summary: 'Erro ao carregar', detail: erroCarregamento.value, life: 5000 });
+    try {
+        await demandasFetchPromise;
     } finally {
-        loading.value = false;
+        if (demandasFetchKey === chave) {
+            demandasFetchPromise = null;
+        }
     }
 }
 
 const carregarUnidadesSetor = async () => {
-    const orgaoId =
-        userStore.currentUser?.secretaria ||
-        userStore.currentUser?.sinapse_orgao_id;
-    if (!orgaoId) {
+    const user = userStore.currentUser;
+    if (!user?.id) {
+        unidadesSetor.value = [];
+        return;
+    }
+    if (!exibirFiltroSetores.value) {
         unidadesSetor.value = [];
         return;
     }
     try {
-        const { data } = await ApiService.listarUnidadesAdministrativas({
-            sinapse_orgao_id: orgaoId,
-            ativo: true
-        });
-        const lista = Array.isArray(data) ? data : data?.results || [];
+        const params = { ativo: true };
+        if (isSecretaria.value) {
+            const orgaoId = user.secretaria?.id || user.sinapse_orgao_id;
+            if (!orgaoId) {
+                unidadesSetor.value = [];
+                return;
+            }
+            params.sinapse_orgao_id = orgaoId;
+        }
+        const { data } = await ApiService.listarUnidadesAdministrativas(params);
+        let lista = Array.isArray(data) ? data : data?.results || [];
+        if (isSecretaria.value) {
+            const idsVinculados = new Set(vinculoSecretaria.value?.unidade_ids || []);
+            if (idsVinculados.size) {
+                lista = lista.filter((u) => idsVinculados.has(u.id));
+            }
+        }
         unidadesSetor.value = lista.map((u) => ({
             label: u.sigla ? `${u.sigla} — ${u.nome}` : u.nome,
             value: u.id
@@ -411,6 +904,8 @@ const limparFiltros = () => {
         origem_vinculo: null,
         trilha: null
     };
+    filtroUnidadesIds.value = [];
+    resetPaginaDemandas();
     router.replace({ name: 'demandas', query: {} });
     carregarDemandas();
 };
@@ -439,6 +934,7 @@ const limparTrilha = () => {
     const query = { ...route.query };
     delete query.trilha;
     delete query.origem_vinculo;
+    resetPaginaDemandas();
     router.replace({ name: 'demandas', query });
     carregarDemandas();
 };
@@ -480,26 +976,7 @@ const irGerirTendencia = (demanda) => {
     router.push({ name: 'gestao-tendencias', query: { id: String(demanda.tendencia_id) } });
 };
 
-onMounted(() => {
-    const qs = route.query?.status;
-    if (typeof qs === 'string' && qs) {
-        filtros.value.status = qs;
-    }
-    const filaQs = route.query?.fila;
-    if (typeof filaQs === 'string' && ['protocolados', 'operacionais', 'devolutivas'].includes(filaQs)) {
-        painelFila.value = filaQs;
-    }
-    if (route.query?.minha_unidade === '0') {
-        escopoSecretaria.value = 'toda';
-    }
-    aplicarQueryRota();
-    if (['SECRETARIA', 'PROTOCOLO', 'GESTOR'].includes(userStore.currentUser?.perfil)) {
-        carregarUnidadesSetor();
-    }
-    carregarDemandas().then(() => tentarEnvioLoteDaQuery());
-    clockInterval = setInterval(() => {
-        clockTick.value = Date.now();
-    }, 60_000);
+const carregarAuxiliaresDemandas = () => {
     ApiService.getSecretarias().then((response) => {
         todasSecretarias.value = response.data;
     });
@@ -524,6 +1001,53 @@ onMounted(() => {
                 clustersFiltro.value = [];
             });
     }
+};
+
+onMounted(() => {
+    const qs = route.query?.status;
+    if (typeof qs === 'string' && qs) {
+        filtros.value.status = qs;
+    }
+    const filaQs = route.query?.fila;
+    if (typeof filaQs === 'string' && ['protocolados', 'operacionais', 'devolutivas', 'stand_by', 'finalizados'].includes(filaQs)) {
+        const filasSetorial = FILAS_GESTOR_SETORIAL;
+        if (
+            userStore.currentUser?.perfil === 'PROTOCOLO' ||
+            podePainelProtocoloCentral.value ||
+            (userStore.currentUser?.perfil === 'GESTOR' &&
+                !podePainelProtocoloCentral.value &&
+                filasSetorial.includes(filaQs))
+        ) {
+            painelFila.value = filaQs;
+        } else if (userStore.currentUser?.perfil === 'GESTOR' && !podePainelProtocoloCentral.value) {
+            painelFila.value = 'operacionais';
+        } else if (filaQs === 'operacionais') {
+            painelFila.value = filaQs;
+        }
+    } else if (userStore.currentUser?.perfil === 'GESTOR' && !podePainelProtocoloCentral.value) {
+        painelFila.value = 'operacionais';
+    }
+    if (typeof route.query?.escopo_setor === 'string' && ['em_operacao', 'encerrado', 'acompanhando'].includes(route.query.escopo_setor)) {
+        escopoSecretaria.value = route.query.escopo_setor;
+    } else if (route.query?.minha_unidade === '0') {
+        escopoSecretaria.value = 'encerrado';
+    }
+    aplicarQueryRota();
+    sincronizandoDemandasRota.value = false;
+    if (['SECRETARIA', 'PROTOCOLO', 'GESTOR'].includes(userStore.currentUser?.perfil)) {
+        carregarUnidadesSetor();
+    }
+    nextTick(() => {
+        // PrimeVue lazy emite @page após montar; fallback só se isso não ocorrer.
+        setTimeout(() => {
+            if (demandasJaCarregadas.value) return;
+            demandasJaCarregadas.value = true;
+            carregarDemandas().then(finalizarPosCargaInicialDemandas);
+        }, 80);
+    });
+    clockInterval = setInterval(() => {
+        clockTick.value = Date.now();
+    }, 60_000);
 });
 
 onUnmounted(() => {
@@ -531,38 +1055,45 @@ onUnmounted(() => {
 });
 
 watch(
-    () => [route.query.trilha, route.query.origem_vinculo],
+    () => [route.query.trilha, route.query.origem_vinculo, route.query.consulta],
     () => {
+        if (sincronizandoDemandasRota.value) return;
         aplicarQueryRota();
+        resetPaginaDemandas();
         carregarDemandas();
     }
 );
 
+watch(isPainelGestorSetorial, (setorial) => {
+    if (setorial && !FILAS_GESTOR_SETORIAL.includes(painelFila.value)) {
+        painelFila.value = 'operacionais';
+    }
+    if (setorial && escopoSecretaria.value === 'encerrado') {
+        escopoSecretaria.value = 'em_operacao';
+    }
+}, { immediate: true });
+
 watch(painelFila, (fila) => {
-    if (!isPainelProtocolo.value) return;
+    if (sincronizandoDemandasRota.value || !exibirPainelFilas.value) return;
     filtros.value.status = null;
     filtroUnidadeId.value = null;
+    filtroUnidadesIds.value = [];
+    resetPaginaDemandas();
     router.replace({ query: { ...route.query, fila } });
     carregarDemandas();
 });
 
 watch(escopoSecretaria, () => {
-    if (!isSecretaria.value) return;
-    filtroUnidadeId.value = null;
+    if (sincronizandoDemandasRota.value || !exibirEscopoOperacional.value) return;
+    resetPaginaDemandas();
     router.replace({
         query: {
             ...route.query,
-            fila: 'operacionais',
-            minha_unidade: escopoSecretaria.value === 'meu_setor' ? '1' : '0'
+            fila: isSecretaria.value ? 'operacionais' : painelFila.value,
+            escopo_setor: escopoSecretaria.value
         }
     });
     carregarDemandas();
-});
-
-watch(filtroUnidadeId, () => {
-    if (isSecretaria.value && escopoSecretaria.value === 'toda') {
-        carregarDemandas();
-    }
 });
 
 const editarDemanda = (id) => router.push(`/demandas/editar/${id}`);
@@ -585,34 +1116,270 @@ const excluirDemanda = (id) => {
     });
 };
 
-const despachoData = ref({
-    secretaria_id: null
+const formDespacho = ref(estadoFormularioTramitacao());
+const despachoData = formDespacho;
+const despachoAnexos = computed({
+    get: () => formDespacho.value.anexos || [],
+    set: (v) => {
+        formDespacho.value.anexos = v;
+    }
 });
 
-const abrirDialogoDespacho = (demanda) => {
-    demandaParaDespacho.value = demanda;
+const orgaosCatalogo = ref([]);
 
-    despachoData.value = {
-        secretaria_id: demanda.servico?.secretaria_responsavel?.id || null
+const orgaoCompetenteDespacho = computed(() => {
+    const d = demandaParaDespacho.value;
+    if (!d) return null;
+    return (
+        d.servico?.secretaria_responsavel?.id ||
+        d.secretaria_destino?.id ||
+        d.sinapse_orgao_id ||
+        despachoPreview.value?.orgao_competente_id ||
+        null
+    );
+});
+
+const orgaoCompetenteNome = computed(() => {
+    const d = demandaParaDespacho.value;
+    const nome =
+        d?.servico?.secretaria_responsavel?.nome ||
+        d?.secretaria_destino?.nome ||
+        despachoPreview.value?.orgao_competente_nome;
+    if (nome) return nome;
+    const id = orgaoCompetenteDespacho.value;
+    const sec = todasSecretarias.value.find((s) => s.id === id);
+    return sec?.nome || (id ? `Órgão #${id}` : '—');
+});
+
+const secretariasIntegraveis = computed(() => {
+    const excluir = orgaoCompetenteDespacho.value;
+    if (!excluir) return todasSecretarias.value;
+    return todasSecretarias.value.filter((s) => s.id !== excluir);
+});
+
+const despachoMultiOrgao = computed(() => despachoEhTransversal(formDespacho.value.destinos));
+
+const resumoDestinosDespacho = computed(() =>
+    resumoDestinosTexto(formDespacho.value.destinos, orgaosCatalogo.value)
+);
+
+const montarPayloadDespacho = () =>
+    payloadDespachoDestinos(formDespacho.value, orgaoCompetenteDespacho.value);
+
+const carregarOrgaos = async () => {
+    if (orgaosCatalogo.value.length) return orgaosCatalogo.value;
+    try {
+        const { data } = await ApiService.getSecretarias();
+        orgaosCatalogo.value = Array.isArray(data) ? data : [];
+    } catch {
+        orgaosCatalogo.value = [];
+    }
+    return orgaosCatalogo.value;
+};
+
+const onAnexosRejeitadosForm = (msg) => {
+    toast.add({ severity: 'warn', summary: 'Anexos', detail: msg, life: 4000 });
+};
+
+const podeMontarDespacho = () => {
+    const payload = montarPayloadDespacho();
+    if (!payload.destinos?.length && !payload.secretaria_id) return false;
+    return contarPernasDestinos(formDespacho.value.destinos) <= MAX_PERNAS_DESPACHO;
+};
+
+const onDespachoAnexosSelected = (event) => {
+    const { aceitos, rejeitados } = filtrarArquivosDuplicados(event.files, despachoAnexos.value.map((f) => f.name));
+    despachoAnexos.value = [...despachoAnexos.value, ...aceitos];
+    const msg = mensagemAnexosRejeitados(rejeitados);
+    if (msg) {
+        toast.add({ severity: 'warn', summary: 'Anexos', detail: msg, life: 4000 });
+    }
+};
+
+const textoDevolutivaLimpo = (html) => (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+const invalidarPreviewDevolutiva = () => {
+    devolutivaPreview.value = null;
+    devolutivaAssinatura.value = {
+        declaracaoOperador: false,
+        declaracaoGestor: false,
+        gestor_protocolo_id: null
     };
+};
 
+const abrirDialogoDespachoInterno = async (demanda) => {
+    demandaParaDespacho.value = demanda;
+    formDespacho.value = estadoFormularioTramitacao({
+        destinos: inicializarDestinosDespacho(orgaoCompetenteDespacho.value)
+    });
+    despachoPreview.value = null;
+    despachoAssinatura.value = { declaracaoOperador: false, declaracaoGestor: false, gestor_protocolo_id: null };
+    await carregarOrgaos();
+    todasSecretarias.value = orgaosCatalogo.value;
+    try {
+        const { data } = await ApiService.getGestoresProtocolo();
+        gestoresProtocolo.value = Array.isArray(data) ? data : [];
+    } catch {
+        gestoresProtocolo.value = [];
+    }
     despachoDialog.value = true;
 };
 
+const abrirDialogoDespacho = async (demanda) => {
+    if (userStore.currentUser?.perfil === 'PROTOCOLO' && demanda?.cluster?.id) {
+        try {
+            const { data } = await ApiService.getClusterSituacaoAderencia(demanda.id);
+            if (data?.exibir_decisao) {
+                demandaParaDespacho.value = demanda;
+                clusterAderenciaSituacao.value = data;
+                clusterAderenciaDialog.value = true;
+                return;
+            }
+        } catch {
+            /* segue fluxo unitário */
+        }
+    }
+    await abrirDialogoDespachoInterno(demanda);
+};
+
+const confirmarAderenciaCluster = async () => {
+    if (!demandaParaDespacho.value?.id) return;
+    clusterAderenciaLoading.value = true;
+    try {
+        const { data } = await ApiService.aderirClusterLider(demandaParaDespacho.value.id);
+        toast.add({
+            severity: 'success',
+            summary: 'Integrada ao líder',
+            detail: `Demanda integrada ao processo líder. Protocolo executivo: ${data?.protocolo_executivo || '—'}.`,
+            life: 5000
+        });
+        clusterAderenciaDialog.value = false;
+        clusterAderenciaSituacao.value = null;
+        carregarDemandas();
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível integrar ao processo líder.',
+            life: 4000
+        });
+    } finally {
+        clusterAderenciaLoading.value = false;
+    }
+};
+
+const confirmarDesvincularClusterDespacho = async () => {
+    if (!demandaParaDespacho.value?.id) return;
+    clusterAderenciaLoading.value = true;
+    try {
+        const { data } = await ApiService.desvincularDemandaClusterIndividual(demandaParaDespacho.value.id);
+        clusterAderenciaDialog.value = false;
+        clusterAderenciaSituacao.value = null;
+        await abrirDialogoDespachoInterno({ ...demandaParaDespacho.value, ...data, cluster: null });
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível desvincular a demanda do cluster.',
+            life: 4000
+        });
+    } finally {
+        clusterAderenciaLoading.value = false;
+    }
+};
+
+const gerarPreviewDespacho = async () => {
+    if (!podeMontarDespacho()) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Atenção',
+            detail: 'Não foi possível identificar o órgão competente da carta.',
+            life: 3000
+        });
+        return false;
+    }
+    carregandoDespachoPreview.value = true;
+    try {
+        const { data } = await ApiService.previewDespachoDemanda(demandaParaDespacho.value.id, montarPayloadDespacho());
+        despachoPreview.value = data;
+        if (data.gestores_protocolo?.length) {
+            gestoresProtocolo.value = data.gestores_protocolo;
+        }
+        return true;
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível gerar a prévia de assinatura.',
+            life: 4000
+        });
+        return false;
+    } finally {
+        carregandoDespachoPreview.value = false;
+    }
+};
+
 const confirmarDespacho = async () => {
-    if (!despachoData.value.secretaria_id) {
-        toast.add({ severity: 'warn', summary: 'Atenção', detail: 'Por favor, selecione uma secretaria.', life: 3000 });
+    if (!podeMontarDespacho()) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Atenção',
+            detail: 'Não foi possível identificar o órgão competente da carta.',
+            life: 3000
+        });
         return;
     }
+    const textoDespacho = (formDespacho.value.descricao || '').trim();
+    if (textoDespacho.length < 10) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Despacho',
+            detail: 'Informe o texto do despacho do protocolo (mínimo 10 caracteres).',
+            life: 4000
+        });
+        return;
+    }
+    if (!despachoPreview.value?.hash_documento) {
+        const ok = await gerarPreviewDespacho();
+        if (!ok) return;
+    }
+    assinaturaDespachoDialogVisible.value = true;
+};
 
+const executarDespachoComAssinatura = async (payloadAssinatura) => {
+    executandoAssinatura.value = true;
     try {
-        await ApiService.despacharDemanda(demandaParaDespacho.value.id, despachoData.value);
+        const { data } = await ApiService.despacharDemanda(
+            demandaParaDespacho.value.id,
+            {
+                ...montarPayloadDespacho(),
+                ...payloadAssinatura
+            },
+            despachoAnexos.value
+        );
 
-        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Demanda despachada.', life: 3000 });
+        let detail =
+            data.mensagem ||
+            (data.aguardando_validacao_gestor
+                ? 'Assinatura registrada. O despacho só será executado após validação do gestor em Assinaturas pendentes.'
+                : 'Demanda despachada com assinatura eletrônica.');
+        if (data.demandas_desdobradas?.length) {
+            const extras = data.demandas_desdobradas.map((d) => d.protocolo_executivo).join(', ');
+            detail += ` Desdobramentos criados: ${extras}.`;
+        }
+        toast.add({ severity: 'success', summary: 'Sucesso', detail, life: 5000 });
+        assinaturaDespachoDialogVisible.value = false;
         despachoDialog.value = false;
         carregarDemandas();
     } catch (error) {
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível despachar.', life: 3000 });
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível despachar.',
+            life: 4000
+        });
+    } finally {
+        executandoAssinatura.value = false;
     }
 };
 
@@ -649,22 +1416,97 @@ const confirmarDespachoSuperOs = async () => {
     }
 };
 
-const abrirDialogoDevolutiva = (demanda) => {
+const abrirDialogoDevolutiva = async (demanda) => {
     demandaParaDevolutiva.value = demanda;
-    devolutivaParecer.value = '';
+    formDevolutiva.value = estadoFormularioDevolutiva();
+    invalidarPreviewDevolutiva();
+    await carregarOrgaos();
+    try {
+        const { data } = await ApiService.getGestoresProtocolo();
+        gestoresProtocolo.value = Array.isArray(data) ? data : [];
+    } catch {
+        gestoresProtocolo.value = [];
+    }
     devolutivaDialog.value = true;
 };
 
 const confirmarDevolutiva = async () => {
-    if ((devolutivaParecer.value || '').trim().length < 10) {
-        toast.add({ severity: 'warn', summary: 'Parecer obrigatório', detail: 'Informe a resposta ao vereador.', life: 3000 });
+    const parecer = formDevolutiva.value.parecer_resposta || '';
+    const validacaoAlerta = formDevolutivaRef.value?.validarAlertaDestinos?.();
+    if (validacaoAlerta && !validacaoAlerta.ok) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Alerta de devolutiva',
+            detail: validacaoAlerta.mensagem || 'Selecione o setor de cada órgão no alerta.',
+            life: 4000
+        });
         return;
     }
-    try {
-        await ApiService.despacharDevolutiva(demandaParaDevolutiva.value.id, {
-            parecer_resposta: devolutivaParecer.value
+    if (textoDevolutivaLimpo(parecer).length < 10) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Resposta obrigatória',
+            detail: 'Informe a devolutiva ao vereador (mín. 10 caracteres).',
+            life: 3000
         });
-        toast.add({ severity: 'success', summary: 'Devolutiva enviada', life: 3000 });
+        return;
+    }
+    if (!devolutivaPreview.value?.hash_documento) {
+        carregandoDevolutivaPreview.value = true;
+        try {
+            const { data } = await ApiService.previewDespachoDevolutiva(demandaParaDevolutiva.value.id, {
+                parecer_resposta: parecer
+            });
+            devolutivaPreview.value = data;
+            if (data.gestores_protocolo?.length) {
+                gestoresProtocolo.value = data.gestores_protocolo;
+            }
+        } catch (error) {
+            toast.add({
+                severity: 'error',
+                summary: 'Erro',
+                detail: error?.response?.data?.detail || 'Não foi possível gerar a prévia.',
+                life: 4000
+            });
+            return;
+        } finally {
+            carregandoDevolutivaPreview.value = false;
+        }
+    }
+    assinaturaDevolutivaDialogVisible.value = true;
+};
+
+const executarDevolutivaComAssinatura = async (payloadAssinatura) => {
+    executandoAssinatura.value = true;
+    try {
+        const arquivos = formDevolutiva.value.anexos_novos || [];
+        const formComGestor = {
+            ...formDevolutiva.value,
+            gestor_protocolo_id: payloadAssinatura.gestor_protocolo_id
+        };
+        await ApiService.despacharDevolutiva(
+            demandaParaDevolutiva.value.id,
+            {
+                ...buildDevolutivaPayload(
+                    formComGestor,
+                    payloadAssinatura.hash_documento || devolutivaPreview.value.hash_documento,
+                    {
+                        declaracaoOperadorText: DECLARACAO_DEVOLUTIVA,
+                        declaracaoGestorText: DECLARACAO_GESTOR_PROTOCOLO
+                    },
+                    modoAssinaturaDevolutiva.value
+                ),
+                ...payloadAssinatura
+            },
+            arquivos
+        );
+        toast.add({
+            severity: 'success',
+            summary: 'Devolutiva enviada',
+            detail: 'Demanda finalizada e vereador notificado.',
+            life: 4000
+        });
+        assinaturaDevolutivaDialogVisible.value = false;
         devolutivaDialog.value = false;
         carregarDemandas();
     } catch (error) {
@@ -674,6 +1516,32 @@ const confirmarDevolutiva = async () => {
             detail: error?.response?.data?.detail || 'Falha ao despachar devolutiva.',
             life: 4000
         });
+    } finally {
+        executandoAssinatura.value = false;
+    }
+};
+
+const gerarPreviewDevolutivaDialog = async () => {
+    const parecer = formDevolutiva.value.parecer_resposta || '';
+    if (textoDevolutivaLimpo(parecer).length < 10) return;
+    carregandoDevolutivaPreview.value = true;
+    try {
+        const { data } = await ApiService.previewDespachoDevolutiva(demandaParaDevolutiva.value.id, {
+            parecer_resposta: parecer
+        });
+        devolutivaPreview.value = data;
+        if (data.gestores_protocolo?.length) {
+            gestoresProtocolo.value = data.gestores_protocolo;
+        }
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível gerar a prévia.',
+            life: 4000
+        });
+    } finally {
+        carregandoDevolutivaPreview.value = false;
     }
 };
 
@@ -812,9 +1680,6 @@ async function tentarEnvioLoteDaQuery() {
                     <template #start>
                         <div>
                             <h5 class="m-0">Gestão de Demandas</h5>
-                            <p v-if="isPainelProtocolo" class="text-sm text-muted-color m-0 mt-1">
-                                Prioridade: processos com maior tempo de espera na etapa atual
-                            </p>
                         </div>
                     </template>
                     <template #end>
@@ -850,73 +1715,43 @@ async function tentarEnvioLoteDaQuery() {
                     </div>
                 </Message>
 
-                <div v-if="isPainelProtocolo" class="mb-4 flex flex-col gap-3">
+                <div v-if="exibirPainelFilas" class="mb-4 flex flex-col gap-3">
                     <SelectButton
                         v-model="painelFila"
-                        :options="opcoesPainel"
+                        :options="opcoesPainelVisiveis"
                         optionLabel="label"
                         optionValue="value"
                         :allowEmpty="false"
                     />
-                    <Message severity="info" :closable="false" class="text-sm m-0">
-                        <template v-if="painelFila === 'protocolados'">
-                            <strong>{{ contagemPainelAtivo }}</strong> processo(s) aguardando triagem/despacho do
-                            Protocolo — ordenados do mais antigo ao mais recente.
-                        </template>
-                        <template v-else-if="painelFila === 'operacionais'">
-                            <strong>{{ contagemPainelAtivo }}</strong> processo(s) em tramitação operacional
-                            (secretarias/setores) — priorize os com maior tempo parado.
-                        </template>
-                        <template v-else>
-                            <strong>{{ contagemPainelAtivo }}</strong> devolutiva(s) pendente(s) — resposta da
-                            secretaria aguardando despacho ao vereador.
-                        </template>
-                    </Message>
-                    <div v-if="painelFila === 'operacionais' && unidadesSetor.length" class="flex flex-col gap-2 max-w-md">
-                        <label class="text-sm font-medium">Filtrar por setor</label>
-                        <Select
-                            v-model="filtroUnidadeId"
+                </div>
+
+                <div v-if="exibirEscopoOperacional" class="mb-4 flex flex-col gap-3">
+                    <div
+                        v-if="exibirFiltroSetores && unidadesSetor.length"
+                        class="flex flex-col gap-2 max-w-md"
+                    >
+                        <label class="text-sm font-medium">Setor</label>
+                        <MultiSelect
+                            v-model="filtroUnidadesIds"
                             :options="unidadesSetor"
                             optionLabel="label"
                             optionValue="value"
                             placeholder="Todos os setores"
+                            display="chip"
                             showClear
                             fluid
-                            @change="carregarDemandas"
+                            @change="aplicarFiltrosDemandas"
                         />
                     </div>
-                </div>
-
-                <div v-if="isSecretaria" class="mb-4 flex flex-col gap-3">
                     <SelectButton
                         v-model="escopoSecretaria"
-                        :options="opcoesEscopoSecretaria"
+                        :options="opcoesEscopoOperacional"
                         optionLabel="label"
                         optionValue="value"
                         :allowEmpty="false"
                     />
-                    <Message severity="info" :closable="false" class="text-sm m-0">
-                        <strong>{{ contagemPainelAtivo }}</strong> demanda(s) em
-                        <strong>{{ tituloPainelContexto.toLowerCase() }}</strong>
-                        — Super OS listam só a demanda líder; processos vinculados aparecem no detalhe.
-                    </Message>
-                    <div
-                        v-if="escopoSecretaria === 'toda' && unidadesSetor.length"
-                        class="flex flex-col gap-2 max-w-md"
-                    >
-                        <label class="text-sm font-medium">Setor específico</label>
-                        <Select
-                            v-model="filtroUnidadeId"
-                            :options="unidadesSetor"
-                            optionLabel="label"
-                            optionValue="value"
-                            placeholder="Todos os setores da secretaria"
-                            showClear
-                            fluid
-                        />
-                    </div>
                     <Message
-                        v-if="escopoSecretaria === 'meu_setor' && vinculoSecretariaIncompleto && !loading"
+                        v-if="isSecretaria && vinculoSecretariaIncompleto && !loading"
                         severity="warn"
                         :closable="false"
                         class="text-sm m-0"
@@ -926,15 +1761,28 @@ async function tentarEnvioLoteDaQuery() {
                         Solicite ao Gestor ou Protocolo a configuração em «Usuários secretaria».
                     </Message>
                     <Message
-                        v-else-if="escopoSecretaria === 'meu_setor' && !unidadesSetor.length && !loading && !vinculoSecretariaIncompleto"
+                        v-else-if="isSecretaria && !unidadesSetor.length && !loading && !vinculoSecretariaIncompleto"
                         severity="warn"
                         :closable="false"
                         class="text-sm m-0"
                     >
                         Nenhum setor vinculado ao seu usuário.
-                        <router-link to="/gestao-setores" class="text-primary ml-1">Cadastre em Gestão de Setores</router-link>
-                        ou use «Toda secretaria».
+                        <router-link to="/gestao-setores" class="text-primary ml-1">Cadastre em Gestão de Setores</router-link>.
                     </Message>
+                    <div
+                        v-if="isSecretaria && escopoSecretaria === 'encerrado'"
+                        class="flex items-center gap-2"
+                    >
+                        <Checkbox
+                            v-model="filtroStandByEstudo"
+                            binary
+                            inputId="filtro_stand_by_estudo"
+                            @change="aplicarFiltrosDemandas"
+                        />
+                        <label for="filtro_stand_by_estudo" class="text-sm cursor-pointer">
+                            Somente stand-by (estudo/viabilidade)
+                        </label>
+                    </div>
                 </div>
 
                 <Message
@@ -945,12 +1793,12 @@ async function tentarEnvioLoteDaQuery() {
                 >
                     <div class="flex flex-wrap items-center justify-between gap-3">
                         <span>{{ erroCarregamento }}</span>
-                        <Button label="Tentar novamente" icon="pi pi-refresh" size="small" outlined @click="carregarDemandas" />
+                        <Button label="Tentar novamente" icon="pi pi-refresh" size="small" outlined @click="carregarDemandas({ forcar: true })" />
                     </div>
                 </Message>
 
                 <Message
-                    v-else-if="!loading && demandas.length === 0"
+                    v-else-if="!loading && totalDemandas === 0"
                     severity="secondary"
                     :closable="false"
                     class="mb-4"
@@ -958,7 +1806,7 @@ async function tentarEnvioLoteDaQuery() {
                     {{ mensagemListaVazia }}
                 </Message>
 
-                <div class="grid grid-cols-12 gap-8 mb-4">
+                <div v-if="isPainelProtocolo" class="grid grid-cols-12 gap-8 mb-4">
                     <Panel class="col-span-12 lg:col-span-6 xl:col-span-4">
                         <div class="flex justify-between mb-4">
                             <div>
@@ -1005,9 +1853,26 @@ async function tentarEnvioLoteDaQuery() {
                             <label for="status">Status</label>
                             <Select id="status" v-model="filtros.status" :options="statusOptions" optionLabel="label" optionValue="value" placeholder="Selecione" />
                         </div>
-                        <div v-if="userStore.currentUser?.perfil !== 'SECRETARIA'" class="flex flex-col gap-2 w-full">
+                        <div
+                            v-if="userStore.currentUser?.perfil !== 'SECRETARIA' && !isPainelGestorSetorial"
+                            class="flex flex-col gap-2 w-full"
+                        >
                             <label for="secretaria">Secretaria</label>
                             <Select id="secretaria" v-model="filtros.secretaria_destino" :options="todasSecretarias" optionLabel="nome" optionValue="id" placeholder="Selecione" />
+                        </div>
+                        <div v-if="exibirFiltroSetores && unidadesSetor.length" class="flex flex-col gap-2 w-full">
+                            <label for="setor_busca">Setor</label>
+                            <MultiSelect
+                                id="setor_busca"
+                                v-model="filtroUnidadesIds"
+                                :options="unidadesSetor"
+                                optionLabel="label"
+                                optionValue="value"
+                                placeholder="Todos os setores"
+                                display="chip"
+                                showClear
+                                fluid
+                            />
                         </div>
                         <div v-if="showVereadorFilter" class="flex flex-col gap-2 w-full">
                             <label for="vereador">Vereador</label>
@@ -1027,7 +1892,7 @@ async function tentarEnvioLoteDaQuery() {
                         </div>
                     </div>
 
-                    <Button label="Filtrar" class="mr-3" icon="pi pi-filter" @click="carregarDemandas" />
+                    <Button label="Filtrar" class="mr-3" icon="pi pi-filter" @click="aplicarFiltrosDemandas" />
                     <Button label="Limpar" icon="pi pi-times" @click="limparFiltros" class="p-button-outlined" />
                 </Panel>
 
@@ -1044,21 +1909,223 @@ async function tentarEnvioLoteDaQuery() {
                 <div class="sgdl-datatable-host demandas-table-host">
                 <DataTable
                     v-model:selection="selectedDemandas"
-                    :value="demandasExibidas"
+                    :value="demandas"
                     :loading="loading"
+                    lazy
                     scrollable
                     class="sgdl-table-scroll"
                     :tableStyle="{ minWidth: '80rem', width: 'max-content' }"
                     paginator
-                    :rows="10"
-                    :rowsPerPageOptions="[5, 10, 20, 50]"
+                    :rows="tablePagination.rows"
+                    :first="tablePagination.first"
+                    :totalRecords="totalDemandas"
+                    :rowsPerPageOptions="[10, 25, 50, 100]"
+                    paginatorTemplate="CurrentPageReport FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown"
+                    currentPageReportTemplate="Mostrando {first} a {last} de {totalRecords}"
                     :dataKey="'id'"
+                    @page="onPageDemandas"
                 >
                     <Column
                         v-if="mostrarSelecaoLote"
                         selectionMode="multiple"
                         headerStyle="width: 3rem"
                     />
+                    <Column
+                        header="Ações"
+                        frozen
+                        alignFrozen="left"
+                        :style="{ minWidth: isPainelProtocolo ? '9rem' : '7.5rem' }"
+                    >
+                        <template #body="slotProps">
+                            <div class="flex flex-nowrap items-center gap-0.5">
+                            <template v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && isPainelProtocolo">
+                                <Button
+                                    v-if="podeAcaoCluster(slotProps.data)"
+                                    icon="pi pi-sitemap"
+                                    severity="help"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="acaoCluster(slotProps.data)"
+                                    v-tooltip.top="
+                                        podeDespacharSuperOs(slotProps.data)
+                                            ? 'Cluster — Despachar Super OS'
+                                            : 'Cluster — ver agrupamento'
+                                    "
+                                />
+                                <Button
+                                    v-if="podeDespacharDemandaLista(slotProps.data)"
+                                    icon="pi pi-send"
+                                    severity="success"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="abrirDialogoDespacho(slotProps.data)"
+                                    v-tooltip.top="'Enviar — despachar ao setor'"
+                                />
+                                <Button
+                                    v-if="podeGerirTendencia(slotProps.data)"
+                                    icon="pi pi-compass"
+                                    severity="info"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="irGerirTendencia(slotProps.data)"
+                                    v-tooltip.top="'Gerir tendência'"
+                                />
+                                <Button
+                                    v-if="slotProps.data.status === 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO'"
+                                    icon="pi pi-reply"
+                                    severity="info"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="abrirDialogoDevolutiva(slotProps.data)"
+                                    v-tooltip.top="'Despachar devolutiva ao vereador'"
+                                />
+                                <Button
+                                    v-if="slotProps.data.status === 'AGUARDANDO_TRANSFERENCIA'"
+                                    icon="pi pi-check-circle"
+                                    severity="warning"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="abrirDialogoAprovarTransferencia(slotProps.data)"
+                                    v-tooltip.top="'Revisar transferência'"
+                                />
+                                <Button
+                                    icon="pi pi-eye"
+                                    severity="secondary"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="visualizarDemanda(slotProps.data.id)"
+                                    v-tooltip.top="'Ver — acompanhar'"
+                                />
+                            </template>
+                            <template v-else>
+                                <Button
+                                    v-if="podeAcaoAcompanhamentoRapida(slotProps.data)"
+                                    :icon="slotProps.data.acompanhando ? 'pi pi-bookmark-fill' : 'pi pi-bookmark'"
+                                    :severity="slotProps.data.acompanhando ? 'help' : 'secondary'"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="alternarAcompanhamentoLista(slotProps.data)"
+                                    v-tooltip.top="
+                                        slotProps.data.acompanhando
+                                            ? 'Desfixar acompanhamento'
+                                            : 'Fixar acompanhamento'
+                                    "
+                                />
+                                <Button
+                                    v-if="['VEREADOR', 'GESTOR'].includes(userStore.currentUser?.perfil) && slotProps.data.status === 'RASCUNHO'"
+                                    icon="pi pi-pencil"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="editarDemanda(slotProps.data.id)"
+                                    v-tooltip.top="'Editar rascunho'"
+                                />
+                                <Button
+                                    v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'"
+                                    icon="pi pi-trash"
+                                    severity="danger"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="excluirDemanda(slotProps.data.id)"
+                                    v-tooltip.top="'Excluir'"
+                                />
+                                <Button
+                                    v-if="podeDespacharSuperOs(slotProps.data)"
+                                    icon="pi pi-sitemap"
+                                    severity="help"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="abrirDialogoSuperOs(slotProps.data)"
+                                    v-tooltip.top="'Despachar Super OS (lote)'"
+                                />
+                                <Button
+                                    v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && podeDespacharDemandaLista(slotProps.data)"
+                                    icon="pi pi-send"
+                                    severity="success"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="abrirDialogoDespacho(slotProps.data)"
+                                    v-tooltip.top="'Despachar (unitário)'"
+                                />
+                                <Button
+                                    v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_TRANSFERENCIA'"
+                                    icon="pi pi-check-circle"
+                                    severity="warning"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="abrirDialogoAprovarTransferencia(slotProps.data)"
+                                    v-tooltip.top="'Revisar Transferência'"
+                                />
+                                <Button
+                                    v-if="slotProps.data.status !== 'RASCUNHO'"
+                                    icon="pi pi-eye"
+                                    severity="secondary"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="visualizarDemanda(slotProps.data.id)"
+                                    v-tooltip.top="'Visualizar'"
+                                />
+                            </template>
+                            </div>
+                        </template>
+                    </Column>
+                    <Column
+                        v-if="usaPainelFila"
+                        :header="colunaLocalizacaoHeader"
+                        bodyClass="col-localizacao-operacional"
+                        headerClass="col-localizacao-operacional"
+                        style="width: 10.5rem; min-width: 10.5rem; max-width: 10.5rem"
+                    >
+                        <template #body="{ data }">
+                            <template v-if="isSecretaria && escopoSecretaria === 'encerrado'">
+                                <span
+                                    v-if="data.unidade_administrativa"
+                                    class="localizacao-texto truncate block"
+                                    v-tooltip.top="data.unidade_administrativa.nome"
+                                >
+                                    {{ rotuloCompactoLocalizacao({
+                                        setor_sigla: data.unidade_administrativa.sigla,
+                                        setor_nome: data.unidade_administrativa.nome
+                                    }) }}
+                                </span>
+                                <span v-else class="text-muted-color text-xs">—</span>
+                            </template>
+                            <template v-else-if="localizacaoOperacionalLinha(data).length">
+                                <div
+                                    class="localizacao-celula"
+                                    v-tooltip.top="tooltipLocalizacaoConfig(data)"
+                                >
+                                    <span
+                                        v-for="(loc, idx) in resumoLocalizacaoCelula(data).visiveis"
+                                        :key="`${loc.setor_id || loc.orgao_id}-${loc.aberto}-${idx}`"
+                                        class="localizacao-chip"
+                                        :class="loc.aberto === false ? 'localizacao-chip--fechado' : 'localizacao-chip--aberto'"
+                                    >
+                                        {{ rotuloLocalizacaoItem(loc) }}
+                                    </span>
+                                    <span
+                                        v-if="resumoLocalizacaoCelula(data).extras > 0"
+                                        class="localizacao-chip localizacao-chip--mais"
+                                    >
+                                        +{{ resumoLocalizacaoCelula(data).extras }}
+                                    </span>
+                                </div>
+                            </template>
+                            <span v-else class="text-muted-color text-xs">—</span>
+                        </template>
+                    </Column>
                     <Column field="protocolo_legislativo" header="Ofício" :sortable="true" style="min-width: 9rem"></Column>
                     <Column field="protocolo_executivo" header="Protocolo" :sortable="true" style="min-width: 7rem"></Column>
                     <Column field="data_criacao" header="Criado em" :sortable="true" style="min-width: 7rem">
@@ -1087,31 +2154,49 @@ async function tentarEnvioLoteDaQuery() {
                                     :value="isAtrasada(data) ? 'ATRASADO' : data.status_display"
                                     :severity="getStatusSeverity(data)"
                                 />
+                                <Tag
+                                    v-if="isPainelProtocolo && badgeAssinaturaLista(data)"
+                                    :value="badgeAssinaturaLista(data).label"
+                                    :severity="badgeAssinaturaLista(data).severity"
+                                    icon="pi pi-verified"
+                                    class="text-xs"
+                                />
+                                <Tag
+                                    v-if="data.stand_by_estudo_viabilidade && ['PROTOCOLO', 'SECRETARIA', 'GESTOR'].includes(userStore.currentUser?.perfil)"
+                                    value="Stand-by"
+                                    severity="warn"
+                                    icon="pi pi-pause-circle"
+                                    class="text-xs"
+                                />
                             </div>
                         </template>
                     </Column>
-                    <Column v-if="usaPainelFila" header="Setor" style="min-width: 8rem">
-                        <template #body="{ data }">
-                            <span v-if="data.unidade_administrativa">
-                                {{ data.unidade_administrativa.sigla || data.unidade_administrativa.nome }}
-                            </span>
-                            <span v-else class="text-muted-color text-sm">—</span>
-                        </template>
-                    </Column>
-                    <Column v-if="usaPainelFila" header="Parado há" style="min-width: 7rem">
+                    <Column
+                        v-if="usaPainelFila"
+                        :header="exibirTempoExecucaoTotal ? 'Tempo de execução' : 'Parado há'"
+                        style="min-width: 7rem"
+                    >
                         <template #body="{ data }">
                             <Tag
-                                :value="formatTempoParado(data)"
-                                :severity="severidadeTempoParado(data)"
-                                v-tooltip.top="
-                                    data.data_entrada_etapa
-                                        ? `Desde ${new Date(data.data_entrada_etapa).toLocaleString('pt-BR')}`
-                                        : 'Tempo na etapa atual'
+                                :value="
+                                    exibirTempoExecucaoTotal
+                                        ? formatTempoExecucaoTotal(data)
+                                        : formatTempoParado(data)
                                 "
+                                :severity="
+                                    exibirTempoExecucaoTotal
+                                        ? severidadeTempoExecucao(data)
+                                        : severidadeTempoParado(data)
+                                "
+                                v-tooltip.top="tooltipTempoColuna(data)"
                             />
                         </template>
                     </Column>
-                    <Column field="secretaria_destino.nome" header="Secretaria Destino" style="min-width: 11rem"></Column>
+                    <Column
+                        :header="isSecretaria && escopoSecretaria === 'encerrado' ? 'Secretaria encaminhada' : 'Secretaria Destino'"
+                        field="secretaria_destino.nome"
+                        style="min-width: 11rem"
+                    ></Column>
                     <Column v-if="showSuperOsColumn" header="Super OS" style="min-width: 10rem">
                         <template #body="{ data }">
                             <template v-if="(data.super_os?.ativo) || (data.cluster && clusterComMinimo(data))">
@@ -1145,125 +2230,6 @@ async function tentarEnvioLoteDaQuery() {
                         </template>
                     </Column>
                     <Column field="autor.first_name" header="Autor" style="min-width: 8rem"></Column>
-
-                    <Column header="Ações" :style="{ minWidth: isPainelProtocolo ? '14rem' : '12rem' }">
-                        <template #body="slotProps">
-                            <template v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && isPainelProtocolo">
-                                <Button
-                                    v-if="podeAcaoCluster(slotProps.data)"
-                                    icon="pi pi-sitemap"
-                                    severity="help"
-                                    text
-                                    rounded
-                                    @click="acaoCluster(slotProps.data)"
-                                    v-tooltip.top="
-                                        podeDespacharSuperOs(slotProps.data)
-                                            ? 'Cluster — Despachar Super OS'
-                                            : 'Cluster — ver agrupamento'
-                                    "
-                                />
-                                <Button
-                                    v-if="slotProps.data.status === 'AGUARDANDO_PROTOCOLO'"
-                                    icon="pi pi-send"
-                                    severity="success"
-                                    text
-                                    rounded
-                                    @click="abrirDialogoDespacho(slotProps.data)"
-                                    v-tooltip.top="'Enviar — despachar ao setor'"
-                                />
-                                <Button
-                                    v-if="podeGerirTendencia(slotProps.data)"
-                                    icon="pi pi-compass"
-                                    severity="info"
-                                    text
-                                    rounded
-                                    @click="irGerirTendencia(slotProps.data)"
-                                    v-tooltip.top="'Gerir tendência'"
-                                />
-                                <Button
-                                    v-if="slotProps.data.status === 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO'"
-                                    icon="pi pi-reply"
-                                    severity="info"
-                                    text
-                                    rounded
-                                    @click="abrirDialogoDevolutiva(slotProps.data)"
-                                    v-tooltip.top="'Despachar devolutiva ao vereador'"
-                                />
-                                <Button
-                                    v-if="slotProps.data.status === 'AGUARDANDO_TRANSFERENCIA'"
-                                    icon="pi pi-check-circle"
-                                    severity="warning"
-                                    text
-                                    rounded
-                                    @click="abrirDialogoAprovarTransferencia(slotProps.data)"
-                                    v-tooltip.top="'Revisar transferência'"
-                                />
-                                <Button
-                                    icon="pi pi-eye"
-                                    severity="secondary"
-                                    text
-                                    rounded
-                                    @click="visualizarDemanda(slotProps.data.id)"
-                                    v-tooltip.top="'Ver — acompanhar'"
-                                />
-                            </template>
-                            <template v-else>
-                                <Button
-                                    v-if="['VEREADOR', 'GESTOR'].includes(userStore.currentUser?.perfil) && slotProps.data.status === 'RASCUNHO'"
-                                    icon="pi pi-pencil"
-                                    text
-                                    rounded
-                                    @click="editarDemanda(slotProps.data.id)"
-                                    v-tooltip.top="'Editar rascunho'"
-                                />
-                                <Button
-                                    v-if="userStore.currentUser?.perfil === 'VEREADOR' && slotProps.data.status === 'RASCUNHO'"
-                                    icon="pi pi-trash"
-                                    severity="danger"
-                                    text
-                                    rounded
-                                    @click="excluirDemanda(slotProps.data.id)"
-                                    v-tooltip.top="'Excluir'"
-                                />
-                                <Button
-                                    v-if="podeDespacharSuperOs(slotProps.data)"
-                                    icon="pi pi-sitemap"
-                                    severity="help"
-                                    text
-                                    rounded
-                                    @click="abrirDialogoSuperOs(slotProps.data)"
-                                    v-tooltip.top="'Despachar Super OS (lote)'"
-                                />
-                                <Button
-                                    v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_PROTOCOLO'"
-                                    icon="pi pi-send"
-                                    severity="success"
-                                    text
-                                    rounded
-                                    @click="abrirDialogoDespacho(slotProps.data)"
-                                    v-tooltip.top="'Despachar (unitário)'"
-                                />
-                                <Button
-                                    v-if="userStore.currentUser?.perfil === 'PROTOCOLO' && slotProps.data.status === 'AGUARDANDO_TRANSFERENCIA'"
-                                    icon="pi pi-check-circle"
-                                    severity="warning"
-                                    text
-                                    rounded
-                                    @click="abrirDialogoAprovarTransferencia(slotProps.data)"
-                                    v-tooltip.top="'Revisar Transferência'"
-                                />
-                                <Button
-                                    v-if="slotProps.data.status !== 'RASCUNHO'"
-                                    icon="pi pi-eye"
-                                    severity="secondary"
-                                    text
-                                    rounded
-                                    @click="visualizarDemanda(slotProps.data.id)"
-                                    v-tooltip.top="'Visualizar'"
-                                />
-                            </template>
-                        </template>
-                    </Column>
                 </DataTable>
                 </div>
 
@@ -1299,35 +2265,103 @@ async function tentarEnvioLoteDaQuery() {
                     </template>
                 </Dialog>
 
-                <Dialog v-model:visible="despachoDialog" header="Despachar Demanda" :modal="true" style="width: 450px">
+                <DialogClusterAderencia
+                    v-model:visible="clusterAderenciaDialog"
+                    :demanda="demandaParaDespacho"
+                    :situacao="clusterAderenciaSituacao"
+                    :carregando="clusterAderenciaLoading"
+                    @aderir="confirmarAderenciaCluster"
+                    @desvincular="confirmarDesvincularClusterDespacho"
+                />
+
+                <Dialog v-model:visible="despachoDialog" header="Despachar demanda (assinatura eletrônica)" :modal="true" style="width: 640px">
                     <div class="flex flex-col gap-4">
-                        <div>
-                            <label for="secretaria" class="block mb-3">Enviar para a Secretaria</label>
-                            <Select id="secretaria" v-model="despachoData.secretaria_id" :options="todasSecretarias" optionLabel="nome" optionValue="id" placeholder="Selecione uma secretaria" fluid />
-                        </div>
+                        <p v-if="demandaParaDespacho" class="m-0 text-sm text-muted-color">
+                            {{ demandaParaDespacho.protocolo_legislativo || `#${demandaParaDespacho.id}` }} — {{ demandaParaDespacho.titulo }}
+                        </p>
+                        <FormularioTramitacao
+                            v-if="despachoDialog"
+                            v-model="formDespacho"
+                            :modo="MODO_DESPACHO"
+                            layout="dialog"
+                            :exibir-assinatura-formulario="false"
+                            :orgaos="orgaosCatalogo"
+                            :orgao-competente-id="orgaoCompetenteDespacho"
+                            :orgao-competente-nome="orgaoCompetenteNome"
+                            :orgaos-integraveis="secretariasIntegraveis"
+                            @invalidar-preview="despachoPreview = null"
+                            @anexos-rejeitados="onAnexosRejeitadosForm"
+                        >
+                            <template #extra>
+                                <Message
+                                    v-if="despachoMultiOrgao"
+                                    severity="info"
+                                    :closable="false"
+                                    class="m-0 text-sm"
+                                >
+                                    Após o despacho, todas as secretarias envolvidas entram na etapa
+                                    <strong>Operação</strong> com nós abertos — cada uma despacha ou encerra sua
+                                    participação até o Protocolo concluir o processo.
+                                </Message>
+                                <Message
+                                    v-if="despachoPreview?.multi_secretaria"
+                                    severity="info"
+                                    :closable="false"
+                                    class="m-0"
+                                >
+                                    Despacho integrado — o processo principal permanece no órgão competente
+                                    <strong v-if="despachoPreview.orgao_competente_nome">
+                                        ({{ despachoPreview.orgao_competente_nome }})
+                                    </strong>.
+                                    <span v-if="despachoPreview.orgaos_integrados?.length">
+                                        Integrados:
+                                        {{ despachoPreview.orgaos_integrados.map((o) => o.orgao_nome).join(', ') }}.
+                                    </span>
+                                </Message>
+                            </template>
+                        </FormularioTramitacao>
                     </div>
                     <template #footer>
                         <Button label="Cancelar" icon="pi pi-times" text @click="despachoDialog = false" />
-                        <Button label="Confirmar Despacho" icon="pi pi-check" @click="confirmarDespacho" />
+                        <Button
+                            label="Assinar e despachar"
+                            icon="pi pi-verified"
+                            :loading="carregandoDespachoPreview"
+                            @click="confirmarDespacho"
+                        />
                     </template>
                 </Dialog>
 
-                <Dialog v-model:visible="devolutivaDialog" header="Despachar devolutiva ao vereador" :modal="true" style="width: 520px">
+                <Dialog
+                    v-model:visible="devolutivaDialog"
+                    header="Despachar devolutiva ao vereador"
+                    :modal="true"
+                    style="width: min(720px, 96vw)"
+                >
                     <div v-if="demandaParaDevolutiva" class="flex flex-col gap-3">
                         <p class="m-0 text-sm text-muted-color">
                             Demanda {{ demandaParaDevolutiva.protocolo_executivo }} — autor:
                             {{ demandaParaDevolutiva.autor?.first_name || demandaParaDevolutiva.autor?.username }}
                         </p>
-                        <Textarea
-                            v-model="devolutivaParecer"
-                            rows="5"
-                            class="w-full"
-                            placeholder="Resposta do Protocolo ao vereador (parecer de devolutiva)..."
+                        <FormularioDevolutivaProtocolo
+                            ref="formDevolutivaRef"
+                            v-model="formDevolutiva"
+                            :demanda-id="demandaParaDevolutiva.id"
+                            :orgaos="orgaosCatalogo"
+                            :usa-fluxo-operacional="Boolean(demandaParaDevolutiva.fluxo_roteamento)"
+                            :preview-ativa="Boolean(devolutivaPreview?.hash_documento)"
+                            @invalidar-preview="invalidarPreviewDevolutiva"
+                            @anexos-rejeitados="(msg) => toast.add({ severity: 'warn', summary: 'Anexos', detail: msg, life: 4000 })"
                         />
                     </div>
                     <template #footer>
                         <Button label="Cancelar" icon="pi pi-times" text @click="devolutivaDialog = false" />
-                        <Button label="Enviar devolutiva" icon="pi pi-reply" @click="confirmarDevolutiva" />
+                        <Button
+                            label="Assinar e enviar devolutiva"
+                            icon="pi pi-verified"
+                            :loading="carregandoDevolutivaPreview"
+                            @click="confirmarDevolutiva"
+                        />
                     </template>
                 </Dialog>
 
@@ -1361,7 +2395,33 @@ async function tentarEnvioLoteDaQuery() {
                         <div v-if="carregandoPreviewLote" class="text-sm text-muted-color">
                             Gerando pré-visualizações…
                         </div>
-                        <ul v-else-if="previewLote?.itens?.length" class="list-none p-0 m-0 flex flex-col gap-2 max-h-64 overflow-y-auto">
+                        <Message
+                            v-if="alertasDuplicidadeLote.length"
+                            :severity="duplicidadeLoteSugerirNaoEnviar ? 'error' : 'warn'"
+                            :closable="false"
+                            class="text-sm m-0"
+                        >
+                            <p class="m-0 font-medium">
+                                {{
+                                    duplicidadeLoteSugerirNaoEnviar
+                                        ? 'Atenção — possível duplicidade em tramitação'
+                                        : 'Possível duplicidade de rascunho'
+                                }}
+                            </p>
+                            <ul class="m-0 mt-2 list-disc pl-5 max-h-40 overflow-y-auto">
+                                <li v-for="(a, idx) in alertasDuplicidadeLote" :key="`${a.demanda_id}-${idx}`">
+                                    <span v-if="a.demanda_envio_titulo" class="text-muted-color">
+                                        Ao enviar «{{ a.demanda_envio_titulo }}»:
+                                    </span>
+                                    {{ a.mensagem }}
+                                </li>
+                            </ul>
+                            <p v-if="duplicidadeLoteSugerirNaoEnviar" class="m-0 mt-2">
+                                Recomendamos não assinar. Você ainda pode continuar se tiver certeza de que são pedidos
+                                diferentes.
+                            </p>
+                        </Message>
+                        <ul v-if="previewLote?.itens?.length" class="list-none p-0 m-0 flex flex-col gap-2 max-h-64 overflow-y-auto">
                             <li
                                 v-for="item in previewLote.itens"
                                 :key="item.demanda_id"
@@ -1403,6 +2463,37 @@ async function tentarEnvioLoteDaQuery() {
                 </Dialog>
             </div>
         </div>
+
+        <DialogAssinaturaEletronica
+            v-model:visible="assinaturaDespachoDialogVisible"
+            titulo="Assinatura eletrônica — despacho inicial"
+            :preview="despachoPreview"
+            :gestores="gestoresProtocolo"
+            :modo="modoAssinaturaDespachoInicial"
+            :declaracao-operador-texto="DECLARACAO_DESPACHO"
+            label-confirmar="Assinar e despachar"
+            :loading="executandoAssinatura"
+            :loading-preview="carregandoDespachoPreview"
+            mensagem-intro="Assine como operador do protocolo. O gestor validará a assinatura em seguida."
+            @confirmar="executarDespachoComAssinatura"
+            @gerar-preview="gerarPreviewDespacho"
+        />
+
+        <DialogAssinaturaEletronica
+            v-model:visible="assinaturaDevolutivaDialogVisible"
+            titulo="Assinatura eletrônica — devolutiva"
+            :preview="devolutivaPreview"
+            :gestores="gestoresProtocolo"
+            :modo="modoAssinaturaDevolutiva"
+            :declaracao-operador-texto="DECLARACAO_DEVOLUTIVA"
+            :declaracao-gestor-texto="DECLARACAO_GESTOR_PROTOCOLO"
+            label-confirmar="Assinar e enviar devolutiva"
+            :loading="executandoAssinatura"
+            :loading-preview="carregandoDevolutivaPreview"
+            mensagem-intro="Revise a devolutiva e confirme a assinatura eletrônica."
+            @confirmar="executarDevolutivaComAssinatura"
+            @gerar-preview="gerarPreviewDevolutivaDialog"
+        />
     </div>
 </template>
 
@@ -1414,5 +2505,141 @@ async function tentarEnvioLoteDaQuery() {
 .demandas-table-host :deep(.p-datatable-table) {
     width: max-content !important;
     min-width: 80rem;
+}
+
+.demandas-table-host :deep(.col-localizacao-operacional) {
+    white-space: nowrap !important;
+    overflow: hidden;
+    vertical-align: middle;
+    box-sizing: border-box;
+}
+
+.localizacao-celula {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.2rem;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.localizacao-texto {
+    font-size: 0.7rem;
+    line-height: 1.2;
+    max-width: 100%;
+}
+
+.localizacao-chip {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 4.5rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.65rem;
+    line-height: 1.25;
+    padding: 0.1rem 0.35rem;
+    border-radius: 0.25rem;
+    font-weight: 600;
+}
+
+.localizacao-chip--aberto {
+    background: color-mix(in srgb, var(--p-primary-color) 16%, var(--p-content-background));
+    color: var(--p-primary-color);
+    border: 1px solid color-mix(in srgb, var(--p-primary-color) 35%, transparent);
+}
+
+.localizacao-chip--fechado {
+    background: var(--p-content-hover-background);
+    color: var(--p-text-muted-color);
+    border: 1px solid var(--p-content-border-color);
+}
+
+.localizacao-chip--mais {
+    flex: 0 0 auto;
+    max-width: none;
+    background: var(--p-content-hover-background);
+    color: var(--p-text-muted-color);
+    border: 1px solid var(--p-content-border-color);
+}
+</style>
+
+<style>
+/* Tooltip portaled no body — fora do escopo do componente */
+.p-tooltip.sgdl-tooltip-localizacao {
+    max-width: min(24rem, 92vw);
+}
+
+.p-tooltip.sgdl-tooltip-localizacao .p-tooltip-text {
+    padding: 0.55rem 0.65rem;
+    background: var(--p-content-background);
+    color: var(--p-text-color);
+    border: 1px solid var(--p-content-border-color);
+    box-shadow: 0 4px 16px color-mix(in srgb, var(--p-text-color) 12%, transparent);
+}
+
+.p-tooltip.sgdl-tooltip-localizacao .p-tooltip-arrow {
+    border-top-color: var(--p-content-border-color);
+    border-bottom-color: var(--p-content-border-color);
+}
+
+.sgdl-loc-tip {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    text-align: left;
+}
+
+.sgdl-loc-tip__item + .sgdl-loc-tip__item {
+    padding-top: 0.45rem;
+    border-top: 1px solid var(--p-content-border-color);
+}
+
+.sgdl-loc-tip__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.sgdl-loc-tip__sigla {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: var(--p-text-color);
+}
+
+.sgdl-loc-tip__qtd {
+    font-size: 0.65rem;
+    font-weight: 600;
+    color: var(--p-text-muted-color);
+}
+
+.sgdl-loc-tip__badge {
+    font-size: 0.62rem;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0.08rem 0.35rem;
+    border-radius: 0.25rem;
+    white-space: nowrap;
+}
+
+.sgdl-loc-tip__badge--aberto {
+    background: color-mix(in srgb, var(--p-primary-color) 18%, var(--p-content-background));
+    color: var(--p-primary-color);
+    border: 1px solid color-mix(in srgb, var(--p-primary-color) 32%, transparent);
+}
+
+.sgdl-loc-tip__badge--fechado {
+    background: var(--p-content-hover-background);
+    color: var(--p-text-muted-color);
+    border: 1px solid var(--p-content-border-color);
+}
+
+.sgdl-loc-tip__orgao {
+    margin-top: 0.15rem;
+    font-size: 0.68rem;
+    line-height: 1.35;
+    color: var(--p-text-muted-color);
 }
 </style>

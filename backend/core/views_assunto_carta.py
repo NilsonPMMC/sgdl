@@ -9,6 +9,7 @@ from core.models_assunto_carta import AssuntoCarta
 from core.serializers import AssuntoCartaSerializer
 from core.services.carta_utilizacao_service import CartaUtilizacaoService
 from core.services.fluxo_protocolo_service import FluxoProtocoloService
+from core.services.gestor_escopo import gestor_pode_crud_admin
 
 _PERFIS_GESTOR = frozenset({"GESTOR"})
 _PERFIS_CARTA = frozenset({"GESTOR", "PROTOCOLO"})
@@ -26,7 +27,10 @@ def _pode_gerir_carta(user) -> bool:
     return bool(
         user
         and user.is_authenticated
-        and (getattr(user, "perfil", None) in _PERFIS_CARTA or user.is_staff)
+        and (
+            getattr(user, "perfil", None) == "PROTOCOLO"
+            or gestor_pode_crud_admin(user)
+        )
     )
 
 
@@ -104,9 +108,9 @@ class CartaAssuntoViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=["post"], url_path="upsert")
     def upsert(self, request):
-        if not _pode_gestor(request.user):
+        if not _pode_gerir_carta(request.user):
             return Response(
-                {"detail": "Acesso restrito ao Gestor."},
+                {"detail": "Acesso restrito a Protocolo ou Gestor."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         sid = request.data.get("sinapse_servico_id")
@@ -115,8 +119,8 @@ class CartaAssuntoViewSet(viewsets.ViewSet):
                 {"detail": "sinapse_servico_id é obrigatório."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        assunto_raw = request.data.get("assunto_id")
-        assunto_id = assunto_raw if "assunto_id" in request.data else None
+        atualizar_assunto = "assunto_id" in request.data
+        assunto_id = request.data.get("assunto_id") if atualizar_assunto else None
         modo = request.data.get("modo_utilizacao_sgdl") if "modo_utilizacao_sgdl" in request.data else None
         msg = (
             request.data.get("mensagem_orientacao")
@@ -127,6 +131,7 @@ class CartaAssuntoViewSet(viewsets.ViewSet):
             svc_obj = CartaUtilizacaoService().vincular(
                 int(sid),
                 assunto_id=assunto_id,
+                atualizar_assunto=atualizar_assunto,
                 modo_utilizacao_sgdl=modo,
                 mensagem_orientacao=msg,
             )

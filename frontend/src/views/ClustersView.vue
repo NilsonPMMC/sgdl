@@ -66,7 +66,6 @@ const podeDespacharSuperOs = computed(
     () =>
         podeGerirCluster.value &&
         detalhe.value?.id &&
-        !detalhe.value?.protocolo_super_os &&
         (detalhe.value?.pendentes_protocolo ?? 0) > 0
 );
 
@@ -159,10 +158,16 @@ const abrirClusterPorId = async (clusterId) => {
         try {
             const { data } = await ApiService.obterCluster(id);
             row = data;
-            if (row && (row.demandas_count ?? 0) >= 2) {
+            if (row) {
                 clusters.value = [row, ...clusters.value.filter((c) => c.id !== id)];
             }
         } catch {
+            toast.add({
+                severity: 'warn',
+                summary: 'Cluster',
+                detail: `Cluster #${id} não encontrado ou sem permissão de acesso.`,
+                life: 4000
+            });
             return;
         }
     }
@@ -215,7 +220,7 @@ const recarregar = async () => {
 const abrirDialogoSuperOs = () => {
     if (!detalhe.value?.id) return;
     despachoData.value = {
-        secretaria_id: null
+        secretaria_id: detalhe.value.orgao_competente_id || null
     };
     superOsDialog.value = true;
 };
@@ -305,6 +310,15 @@ onMounted(async () => {
 watch(
     () => filtros.value.status,
     () => loadClusters()
+);
+
+watch(
+    () => route.query?.id,
+    async (id) => {
+        if (id) {
+            await abrirClusterPorId(id);
+        }
+    }
 );
 </script>
 
@@ -433,14 +447,33 @@ watch(
                         <div v-else-if="detalhe" class="flex flex-col gap-4 text-sm">
                             <div class="flex flex-wrap justify-between gap-2">
                                 <h3 class="text-lg font-semibold m-0">{{ detalhe.titulo }}</h3>
-                                <Tag
-                                    :value="statusTag(detalhe.status).label"
-                                    :severity="statusTag(detalhe.status).severity"
-                                />
+                                <div class="flex flex-wrap gap-2">
+                                    <Tag
+                                        v-if="detalhe.tipo_display"
+                                        :value="detalhe.tipo_display"
+                                        :severity="detalhe.tipo === 'MULTI_DESTINO' ? 'help' : 'info'"
+                                    />
+                                    <Tag
+                                        :value="statusTag(detalhe.status).label"
+                                        :severity="statusTag(detalhe.status).severity"
+                                    />
+                                </div>
                             </div>
                             <p v-if="detalhe.descricao_resumo" class="m-0 whitespace-pre-wrap text-justify">
                                 {{ detalhe.descricao_resumo }}
                             </p>
+                            <Message
+                                v-if="detalhe.orgaos_envolvidos?.length > 1"
+                                severity="info"
+                                :closable="false"
+                                class="m-0 text-xs"
+                            >
+                                Órgãos no grupo:
+                                {{ detalhe.orgaos_envolvidos.map((o) => o.orgao_nome).join(', ') }}.
+                                <span v-if="detalhe.orgao_competente_nome">
+                                    Competente (carta): <strong>{{ detalhe.orgao_competente_nome }}</strong>.
+                                </span>
+                            </Message>
                             <div class="grid grid-cols-2 gap-2 text-xs">
                                 <div>
                                     <span class="font-semibold">Bairro ref.</span>
@@ -451,8 +484,8 @@ watch(
                                     <p class="m-0">{{ detalhe.servico_nome || '—' }}</p>
                                 </div>
                                 <div>
-                                    <span class="font-semibold">Órgão</span>
-                                    <p class="m-0">{{ detalhe.secretaria_responsavel || '—' }}</p>
+                                    <span class="font-semibold">Órgão competente</span>
+                                    <p class="m-0">{{ detalhe.orgao_competente_nome || detalhe.secretaria_responsavel || '—' }}</p>
                                 </div>
                                 <div>
                                     <span class="font-semibold">Demandas</span>
@@ -462,6 +495,21 @@ watch(
                                     <span class="font-semibold">Autores distintos</span>
                                     <p class="m-0">{{ detalhe.autores_distintos }}</p>
                                 </div>
+                                <div v-if="detalhe.protocolados_count != null">
+                                    <span class="font-semibold">Protocoladas</span>
+                                    <p class="m-0">{{ detalhe.protocolados_count }}</p>
+                                </div>
+                                <div v-if="detalhe.lider_demanda_id">
+                                    <span class="font-semibold">Demanda líder</span>
+                                    <p class="m-0">
+                                        <Button
+                                            :label="`#${detalhe.lider_demanda_id}`"
+                                            link
+                                            class="p-0"
+                                            @click="irDemanda(detalhe.lider_demanda_id)"
+                                        />
+                                    </p>
+                                </div>
                                 <div v-if="detalhe.protocolo_super_os" class="col-span-2">
                                     <span class="font-semibold">Protocolo Super OS</span>
                                     <p class="m-0 font-medium">{{ detalhe.protocolo_super_os }}</p>
@@ -469,7 +517,7 @@ watch(
                                         Despachado em {{ formatarData(detalhe.despachado_em) }}
                                     </p>
                                 </div>
-                                <div v-else-if="(detalhe.pendentes_protocolo ?? 0) > 0">
+                                <div v-if="(detalhe.pendentes_protocolo ?? 0) > 0">
                                     <span class="font-semibold">Aguardando protocolo</span>
                                     <p class="m-0">{{ detalhe.pendentes_protocolo }} demanda(s)</p>
                                 </div>

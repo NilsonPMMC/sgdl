@@ -3,7 +3,6 @@ import { createPinia } from 'pinia';
 import App from './App.vue';
 import router from './router';
 
-import Aura from '@primeuix/themes/aura';
 import PrimeVue from 'primevue/config';
 import ConfirmationService from 'primevue/confirmationservice';
 import ToastService from 'primevue/toastservice';
@@ -12,16 +11,18 @@ import StyleClass from 'primevue/styleclass';
 
 import '@/assets/styles.scss';
 
+import { SgdlAuraPreset } from '@/theme/sgdl-preset';
+
 const app = createApp(App);
 
 app.use(createPinia());
-
 app.use(router);
 app.use(PrimeVue, {
     theme: {
-        preset: Aura,
+        preset: SgdlAuraPreset,
         options: {
-            darkModeSelector: '.app-dark'
+            darkModeSelector: '.app-dark',
+            cssLayer: false
         }
     }
 });

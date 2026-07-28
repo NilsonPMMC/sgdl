@@ -6,11 +6,22 @@ from core.services.atraso_demanda_service import AtrasoDemandaService
 
 
 class AtrasoDemandaServiceTests(TestCase):
-    def test_demanda_vencida_gera_notificacao(self):
-        gestor = Usuario.objects.create_user(
+    def test_demanda_vencida_gera_notificacao_gestor_geral(self):
+        gestor_geral = Usuario.objects.create_user(
             username="gestor_atraso",
             password="x",
             perfil="GESTOR",
+        )
+        gestor_setorial = Usuario.objects.create_user(
+            username="gestor_set_atraso",
+            password="x",
+            perfil="GESTOR",
+            sinapse_orgao_id=2001,
+        )
+        protocolo = Usuario.objects.create_user(
+            username="prot_atraso",
+            password="x",
+            perfil="PROTOCOLO",
         )
         autor = Usuario.objects.create_user(
             username="ver_atraso",
@@ -35,5 +46,11 @@ class AtrasoDemandaServiceTests(TestCase):
         demanda.refresh_from_db()
         self.assertTrue(demanda.notificacao_atraso_enviada)
         self.assertTrue(
-            Notificacao.objects.filter(destinatario=gestor, tipo="ATRASO").exists()
+            Notificacao.objects.filter(destinatario=gestor_geral, tipo="ATRASO").exists()
+        )
+        self.assertTrue(
+            Notificacao.objects.filter(destinatario=protocolo, tipo="ATRASO").exists()
+        )
+        self.assertFalse(
+            Notificacao.objects.filter(destinatario=autor, tipo="ATRASO").exists()
         )

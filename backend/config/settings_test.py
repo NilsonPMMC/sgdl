@@ -4,36 +4,55 @@ DEBUG = True
 ENVIRONMENT = "test"
 
 
-class _KeepdbSqliteCreation:
-    """Compatibilidade com --keepdb (legado SQLite)."""
+class _HomologTestDbCreation:
+    """
+    Reutiliza o Postgres de homologação nos testes (sem CREATE DATABASE).
+    Necessário quando o usuário DB não tem permissão de criar banco.
+    """
 
     @classmethod
     def patch(cls):
-        from django.db.backends.base import creation as creation_module
+        from django.db.backends.base.creation import BaseDatabaseCreation
 
-        if getattr(creation_module.BaseDatabaseCreation.create_test_db, "_sgdl_patched", False):
+        if getattr(BaseDatabaseCreation._create_test_db, "_sgdl_homolog_patched", False):
             return
 
-        original = creation_module.BaseDatabaseCreation.create_test_db
+        original = BaseDatabaseCreation._create_test_db
 
-        def create_test_db(self, verbosity=1, autoclobber=False, serialize=True, keepdb=False):
-            import os
+        def _create_test_db(self, verbosity, autoclobber, keepdb=False):
+            cfg = self.connection.settings_dict
+            test_name = cfg.get("TEST", {}).get("NAME")
+            main_name = cfg.get("NAME")
+            if test_name and str(test_name) == str(main_name):
+                if verbosity >= 1:
+                    self.log(
+                        "Reusing homolog database %s (no CREATE DATABASE)."
+                        % self.connection.ops.quote_name(str(test_name))
+                    )
+                return str(test_name)
+            return original(self, verbosity, autoclobber, keepdb)
 
-            test_name = self.connection.settings_dict["TEST"].get("NAME")
-            if test_name is None:
-                test_name = self._get_test_db_name()
-            test_name = str(test_name)
-            if keepdb and os.path.exists(test_name):
-                self.connection.settings_dict["NAME"] = test_name
-                self.connection.close()
-                return test_name
-            return original(self, verbosity, autoclobber, serialize, keepdb)
+        original_destroy = BaseDatabaseCreation._destroy_test_db
 
-        create_test_db._sgdl_patched = True
-        creation_module.BaseDatabaseCreation.create_test_db = create_test_db
+        def _destroy_test_db(self, test_database_name, verbosity):
+            cfg = self.connection.settings_dict
+            test_name = cfg.get("TEST", {}).get("NAME")
+            main_name = cfg.get("NAME")
+            if test_name and str(test_name) == str(main_name):
+                if verbosity >= 1:
+                    self.log(
+                        "Preserving homolog database %s (no DROP DATABASE)."
+                        % self.connection.ops.quote_name(str(test_name))
+                    )
+                return
+            return original_destroy(self, test_database_name, verbosity)
+
+        _create_test_db._sgdl_homolog_patched = True
+        BaseDatabaseCreation._create_test_db = _create_test_db
+        BaseDatabaseCreation._destroy_test_db = _destroy_test_db
 
 
-_KeepdbSqliteCreation.patch()
+_HomologTestDbCreation.patch()
 
 # Postgres de homologação: reutiliza o banco principal com rollback transacional
 # (ArrayField/pgvector não funcionam em SQLite sync).

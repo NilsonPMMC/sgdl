@@ -12,6 +12,7 @@ from core.models_config import ConfiguracaoOficio
 from core.serializers import ConfiguracaoOficioSerializer
 from core.services.oficio_config_preview import clonar_config_para_preview, limpar_imagem_preview_temp
 from core.services.oficio_service import OficioService
+from core.services.gestor_escopo import gestor_pode_crud_admin
 
 _PERFIS_GESTAO = frozenset({"GESTOR"})
 
@@ -38,11 +39,7 @@ _CAMPOS_PREVIEW = frozenset(
 
 
 def _pode_gestao_config_oficio(user) -> bool:
-    return bool(
-        user
-        and user.is_authenticated
-        and (getattr(user, "perfil", None) in _PERFIS_GESTAO or user.is_staff)
-    )
+    return gestor_pode_crud_admin(user)
 
 
 def _payload_preview(request) -> dict:

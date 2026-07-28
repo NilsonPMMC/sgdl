@@ -110,6 +110,70 @@ class CartaSetorServiceTests(SinapseCatalogTestMixin, TestCase):
         demanda.refresh_from_db()
         self.assertEqual(demanda.unidade_administrativa_id, self.setor_a.pk)
 
+    def test_despacho_transversal_perna_competente_herda_setor_carta(self):
+        from core.models_no_operacional import NoOperacional, StatusNoOperacional
+        from core.models_perna_operacional import PernaOperacional
+        from core.models_unidade_administrativa import UnidadeAdministrativaResponsavel
+        from core.services.scatter_gather_service import NoOperacionalService
+
+        self.svc_otim.unidade_administrativa = self.setor_a
+        self.svc_otim.save()
+        protocolo = Usuario.objects.create_user(
+            username=f"prot_setor_{self.suffix}", password="x", perfil="PROTOCOLO"
+        )
+        sec_a = Usuario.objects.create_user(
+            username=f"sec_setor_{self.suffix}",
+            password="x",
+            perfil="SECRETARIA",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+        )
+        demanda = Demanda.objects.create(
+            titulo="Transversal setor carta",
+            descricao="x",
+            autor=self.vereador,
+            status="AGUARDANDO_PROTOCOLO",
+            sinapse_servico_id=SINAPSE_SERVICO_ID,
+            protocolo_legislativo=f"OF-T-{self.suffix}",
+        )
+        DemandaDespachoService().despachar_multiplo(
+            demanda,
+            [
+                {"secretaria_id": SINAPSE_ORGAO_A},
+                {"secretaria_id": SINAPSE_ORGAO_B, "unidade_administrativa_id": self.setor_b.pk},
+            ],
+            usuario=protocolo,
+            texto_despacho="Despacho transversal com setor da carta no órgão competente.",
+        )
+        demanda.refresh_from_db()
+        self.assertEqual(demanda.unidade_administrativa_id, self.setor_a.pk)
+        perna_a = PernaOperacional.objects.get(demanda=demanda, sinapse_orgao_id=SINAPSE_ORGAO_A)
+        self.assertEqual(perna_a.unidade_administrativa_id, self.setor_a.pk)
+
+        demanda.status = "EM_EXECUCAO"
+        demanda.save(update_fields=["status"])
+        perna_a.unidade_administrativa = None
+        perna_a.save(update_fields=["unidade_administrativa"])
+        no_a = NoOperacional.objects.create(
+            demanda=demanda,
+            perna_operacional=perna_a,
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            status=StatusNoOperacional.ABERTO,
+        )
+        sg = NoOperacionalService()
+        self.assertEqual(sg.reparar_unidades_sem_setor(demanda), 2)
+        no_a.refresh_from_db()
+        self.assertEqual(no_a.unidade_administrativa_id, self.setor_a.pk)
+
+        UnidadeAdministrativaResponsavel.objects.create(
+            unidade=self.setor_a,
+            usuario=sec_a,
+            ativo=True,
+            pode_tramitar=True,
+        )
+        visiveis = sg.nos_abertos_do_usuario(demanda, sec_a)
+        self.assertEqual(len(visiveis), 1)
+        self.assertEqual(visiveis[0].pk, no_a.pk)
+
 
 class CartaSetorAPITests(SinapseCatalogTestMixin, APITestCase):
     def setUp(self):

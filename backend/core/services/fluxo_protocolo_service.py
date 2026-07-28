@@ -122,14 +122,29 @@ class FluxoProtocoloService:
             cid = int(demanda.cluster_id)
             if cid in clusters_processados:
                 continue
-            membros = [
-                d
-                for d in fila
-                if d.cluster_id == cid
-            ]
+
+            cluster = demanda.cluster
+            total_cluster = Demanda.objects.filter(cluster_id=cid).count()
+
+            if (
+                cluster
+                and cluster_svc.cluster_ja_despachado(cluster)
+                and total_cluster >= CLUSTER_MIN_DEMANDAS
+            ):
+                pendentes_cluster = Demanda.objects.filter(
+                    cluster_id=cid, status="AGUARDANDO_PROTOCOLO"
+                ).count()
+                if pendentes_cluster and self._despachar_super_os_automatico(
+                    cluster, secretaria_id=int(orgao_id)
+                ):
+                    despachadas += pendentes_cluster
+                clusters_processados.add(cid)
+                continue
+
+            membros = [d for d in fila if d.cluster_id == cid]
             if len(membros) >= CLUSTER_MIN_DEMANDAS:
                 if self._despachar_super_os_automatico(
-                    demanda.cluster, secretaria_id=int(orgao_id)
+                    cluster, secretaria_id=int(orgao_id)
                 ):
                     despachadas += len(membros)
                 clusters_processados.add(cid)
@@ -164,11 +179,14 @@ class FluxoProtocoloService:
     def _despachar_super_os_automatico(
         self, cluster, *, secretaria_id: int
     ) -> bool:
-        if cluster.protocolo_super_os:
-            return True
+        pendentes = Demanda.objects.filter(
+            cluster=cluster, status="AGUARDANDO_PROTOCOLO"
+        ).count()
+        if pendentes == 0:
+            return bool(cluster.protocolo_super_os)
         try:
             with transaction.atomic():
-                ClusterDespachoService().despachar_super_os(
+                resultado = ClusterDespachoService().despachar_super_os(
                     cluster,
                     secretaria_id=secretaria_id,
                     usuario=None,
@@ -179,8 +197,9 @@ class FluxoProtocoloService:
             )
             return False
         logger.info(
-            "Super OS automática despachada cluster pk=%s em %s",
+            "Super OS automática cluster pk=%s — %s demanda(s) integrada(s) em %s",
             cluster.pk,
+            resultado.get("total", 0),
             timezone.now().isoformat(),
         )
         return True

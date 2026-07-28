@@ -12,6 +12,13 @@ from core.models_unidade_administrativa import (
     UnidadeAdministrativaResponsavel,
 )
 from core.services.tramitacao_setor_service import UnidadeAdministrativaService
+from core.services.gestor_escopo import (
+    TIPO_GERAL,
+    TIPO_SETORIAL,
+    orgaos_escopo_gestor,
+    privilegios_django_gestor,
+    tipo_gestor,
+)
 from integrations import sinapse_catalog
 
 logger = logging.getLogger(__name__)
@@ -119,18 +126,29 @@ class UsuarioVinculoService:
             org_id = usuario.sinapse_orgao_id
             org_nome = sinapse_catalog.get_orgao_nome(org_id) if org_id else None
             st = self.status_vinculo_gestor(usuario)
-            resumo = self._resumo_orgao_setor(org_nome, setores, fallback="Todo o sistema")
+            tipo = st.get("tipo_gestor") or TIPO_GERAL
+            if tipo == TIPO_GERAL:
+                resumo = "Todo o sistema"
+                escopo = "Gestor Geral — acesso pleno e CRUD administrativo"
+            else:
+                resumo = self._resumo_orgao_setor(
+                    org_nome,
+                    setores,
+                    fallback="Escopo setorial",
+                )
+                escopo = "Gestor Setorial — dados e tramitações do escopo vinculado"
             return {
                 "perfil": perfil,
+                "tipo_gestor": tipo,
                 "requer_orgao": False,
                 "requer_setor": False,
                 "orgao_id": org_id,
                 "orgao_nome": org_nome,
                 "setores": setores,
                 "resumo": resumo,
-                "escopo": "Administração plena — todas as secretarias e configurações",
-                "completa": bool(st.get("admin_pleno")),
-                "referencia_institucional": bool(org_nome or setores),
+                "escopo": escopo,
+                "completa": bool(st.get("admin_pleno") or tipo == TIPO_SETORIAL),
+                "referencia_institucional": tipo == TIPO_SETORIAL,
             }
 
         return {
@@ -295,16 +313,11 @@ class UsuarioVinculoService:
         unidade_ids: list[int] | None = None,
         limpar_referencia: bool = False,
     ) -> dict:
-        """Garante privilégios admin e metadados institucionais opcionais (U4)."""
+        """Garante privilégios Django e metadados institucionais (U4/U7)."""
         if getattr(usuario, "perfil", None) != "GESTOR":
             raise ValueError("Vínculo de gestor aplica-se apenas ao perfil GESTOR.")
 
         updates: dict = {}
-        if not usuario.is_staff:
-            updates["is_staff"] = True
-        if not usuario.is_superuser:
-            updates["is_superuser"] = True
-
         if limpar_referencia:
             updates["sinapse_orgao_id"] = None
         elif sinapse_orgao_id is not None:
@@ -342,6 +355,16 @@ class UsuarioVinculoService:
                 ).update(ativo=False)
 
         usuario.refresh_from_db()
+        priv = privilegios_django_gestor(usuario)
+        priv_updates = {}
+        if usuario.is_staff != priv["is_staff"]:
+            priv_updates["is_staff"] = priv["is_staff"]
+        if usuario.is_superuser != priv["is_superuser"]:
+            priv_updates["is_superuser"] = priv["is_superuser"]
+        if priv_updates:
+            Usuario.objects.filter(pk=usuario.pk).update(**priv_updates)
+            usuario.refresh_from_db()
+
         return self.status_vinculo_gestor(usuario)
 
     def status_vinculo_gestor(self, usuario: Usuario) -> dict:
@@ -357,21 +380,28 @@ class UsuarioVinculoService:
             }
 
         unidade_ids = self.ids_unidades_ativas(usuario)
-        admin_pleno = bool(usuario.is_staff and usuario.is_superuser)
+        tipo = tipo_gestor(usuario) or TIPO_GERAL
+        admin_pleno = bool(
+            tipo == TIPO_GERAL and usuario.is_staff and usuario.is_superuser
+        )
         avisos: list[str] = []
-        if not admin_pleno:
+        if tipo == TIPO_GERAL and not admin_pleno:
             avisos.append("Privilégios Django Admin incompletos (is_staff/is_superuser).")
-        if not usuario.sinapse_orgao_id:
+        if tipo == TIPO_SETORIAL and usuario.is_superuser:
+            avisos.append("Gestor setorial não deve ter superuser — será corrigido na sincronização.")
+        if tipo == TIPO_GERAL and (usuario.sinapse_orgao_id or unidade_ids):
             avisos.append(
-                "Recomendado: vincular órgão institucional de referência (ex.: SMGOV)."
+                "Gestor com vínculo org/setor é classificado como Setorial — remova vínculos para Geral."
             )
 
         return {
             "aplicavel": True,
+            "tipo_gestor": tipo,
             "admin_pleno": admin_pleno,
             "referencia_orgao": bool(usuario.sinapse_orgao_id),
             "referencia_unidades": bool(unidade_ids),
-            "recomendado_pendente": not usuario.sinapse_orgao_id,
+            "orgaos_escopo": orgaos_escopo_gestor(usuario),
+            "recomendado_pendente": False,
             "unidade_ids": unidade_ids,
             "avisos": avisos,
         }

@@ -85,11 +85,6 @@ def montar_texto_oficio(
 
     linhas.append("Nestes termos, pede deferimento.")
     linhas.append("")
-    if municipio:
-        linhas.append(f"{municipio}, {data_linha}.")
-    else:
-        linhas.append(f"{data_linha}.")
-    linhas.append("")
     linhas.append(autor_nome.strip() or "Vereador")
     if autor_cargo:
         linhas.append(autor_cargo.strip())
@@ -146,11 +141,6 @@ def montar_texto_oficio_lote(
         linhas.append("")
 
     linhas.append("Nestes termos, pede deferimento.")
-    linhas.append("")
-    if municipio:
-        linhas.append(f"{municipio}, {data_linha}.")
-    else:
-        linhas.append(f"{data_linha}.")
     linhas.append("")
     linhas.append(autor_nome.strip() or "Vereador")
     if autor_cargo:

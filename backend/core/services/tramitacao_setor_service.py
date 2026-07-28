@@ -172,6 +172,12 @@ class UnidadeAdministrativaService:
         )
         return obj
 
+    def unidade_principal_usuario(self, usuario) -> UnidadeAdministrativa | None:
+        ids = self.ids_unidades_do_usuario(usuario)
+        if not ids:
+            return None
+        return UnidadeAdministrativa.objects.filter(pk=ids[0]).first()
+
     def ids_unidades_do_usuario(self, usuario) -> list[int]:
         return list(
             UnidadeAdministrativaResponsavel.objects.filter(
@@ -179,3 +185,78 @@ class UnidadeAdministrativaService:
                 ativo=True,
             ).values_list("unidade_id", flat=True)
         )
+
+    def estatisticas_vinculos(self, unidade: UnidadeAdministrativa) -> dict[str, int]:
+        from core.models import Demanda
+        from core.models_carta_otimizada import ServicoOtimizado
+
+        demandas_qs = Demanda.objects.filter(unidade_administrativa=unidade)
+        status_aberto = [
+            "AGUARDANDO_PROTOCOLO",
+            "PROTOCOLADO",
+            "EM_EXECUCAO",
+            "AGUARDANDO_TRANSFERENCIA",
+            "AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+            "DEVOLVIDO_VEREADOR",
+        ]
+        return {
+            "demandas": demandas_qs.count(),
+            "demandas_abertas": demandas_qs.filter(status__in=status_aberto).count(),
+            "servicos_carta": ServicoOtimizado.objects.filter(
+                unidade_administrativa=unidade, ativo=True
+            ).count(),
+            "responsaveis": unidade.responsaveis.filter(ativo=True).count(),
+        }
+
+    def excluir_com_redirecionamento(
+        self,
+        unidade: UnidadeAdministrativa,
+        *,
+        unidade_destino_id: int | None = None,
+    ) -> dict[str, int | str | None]:
+        from core.models import Demanda
+        from core.models_carta_otimizada import ServicoOtimizado
+
+        stats = self.estatisticas_vinculos(unidade)
+        precisa_destino = stats["demandas"] > 0 or stats["servicos_carta"] > 0
+        destino: UnidadeAdministrativa | None = None
+
+        if precisa_destino:
+            if not unidade_destino_id:
+                raise ValueError(
+                    "Informe o setor de destino para redirecionar demandas e vínculos da carta."
+                )
+            try:
+                destino = UnidadeAdministrativa.objects.get(
+                    pk=int(unidade_destino_id), ativo=True
+                )
+            except (UnidadeAdministrativa.DoesNotExist, TypeError, ValueError):
+                raise ValueError("Setor de destino não encontrado ou inativo.")
+            if destino.pk == unidade.pk:
+                raise ValueError("O setor de destino deve ser diferente do setor excluído.")
+
+        demandas_movidas = 0
+        servicos_movidos = 0
+        if destino:
+            demandas_movidas = Demanda.objects.filter(unidade_administrativa=unidade).update(
+                unidade_administrativa=destino
+            )
+            servicos_movidos = ServicoOtimizado.objects.filter(
+                unidade_administrativa=unidade
+            ).update(unidade_administrativa=destino)
+
+        UnidadeAdministrativaResponsavel.objects.filter(unidade=unidade).update(ativo=False)
+        excluido_id = unidade.pk
+        nome = unidade.nome
+        destino_id = destino.pk if destino else None
+        destino_nome = (destino.sigla or destino.nome) if destino else None
+        unidade.delete()
+
+        return {
+            "excluido_id": excluido_id,
+            "nome": nome,
+            "demandas_redirecionadas": demandas_movidas,
+            "servicos_carta_redirecionados": servicos_movidos,
+            "unidade_destino_id": destino_id,
+            "unidade_destino_nome": destino_nome,
+        }

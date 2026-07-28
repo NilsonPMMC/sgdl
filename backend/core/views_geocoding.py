@@ -38,6 +38,29 @@ class GeocodingCepAPIView(APIView):
         return Response({"cep": cep, **dados})
 
 
+class GeocodingLogradourosAPIView(APIView):
+    """GET /api/v1/geocoding/logradouros/?q=...&bairro=... — autocomplete de vias (Mogi das Cruzes)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        termo = (request.query_params.get("q") or request.query_params.get("termo") or "").strip()
+        bairro = (request.query_params.get("bairro") or "").strip() or None
+        if len(termo) < 3:
+            return Response(
+                {"detail": "Informe ao menos 3 caracteres para buscar logradouros."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            limite = int(request.query_params.get("limit") or 8)
+        except (TypeError, ValueError):
+            limite = 8
+
+        svc = GeocodingService()
+        sugestoes = svc.buscar_sugestoes_logradouro(termo, bairro=bairro, limit=limite)
+        return Response({"resultados": sugestoes, "total": len(sugestoes)})
+
+
 class GeocodingResolverAPIView(APIView):
     """POST /api/v1/geocoding/resolver/ — coordenadas via GeocodingService."""
 

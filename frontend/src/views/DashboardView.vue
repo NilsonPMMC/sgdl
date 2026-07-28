@@ -1,10 +1,12 @@
 <script setup>
-import { computed, ref, onMounted, watch } from 'vue';
+import { computed, ref, onMounted, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import ApiService from '@/service/ApiService.js';
 import Chart from 'primevue/chart';
 import Button from 'primevue/button';
 import Tag from 'primevue/tag';
+import TabView from 'primevue/tabview';
+import TabPanel from 'primevue/tabpanel';
 import { useLayout } from '@/layout/composables/layout';
 import { useUserStore } from '@/stores/userStore';
 
@@ -50,6 +52,18 @@ const barOptions = ref(null);
 const lineOptions = ref(null);
 const doughnutOptions = ref(null);
 const pieOptions = ref(null);
+const chartRefreshKey = ref(0);
+
+function irRecusasCopiloto(motivo) {
+    const query = motivo ? { motivo: String(motivo).slice(0, 120) } : {};
+    router.push({ name: 'gestao-recusas-copiloto', query });
+}
+
+function onTabChange() {
+    nextTick(() => {
+        chartRefreshKey.value += 1;
+    });
+}
 
 async function carregarDadosDoDashboard() {
     loading.value = true;
@@ -72,6 +86,8 @@ async function carregarDadosDoDashboard() {
         const response = await ApiService.getDashboardStats(params);
         stats.value = response.data;
         formatChartData(response.data);
+        await nextTick();
+        chartRefreshKey.value += 1;
     } catch (error) {
         console.error('Erro ao buscar dados do dashboard:', error);
     } finally {
@@ -103,14 +119,17 @@ function irDemandasPorTrilha(trilha) {
     router.push({ name: 'demandas', query: { trilha } });
 }
 
-function irRecusasCopiloto(motivo) {
-    const query = motivo ? { motivo: String(motivo).slice(0, 120) } : {};
-    router.push({ name: 'gestao-recusas-copiloto', query });
-}
-
 function irGestaoTendencias() {
     router.push({ name: 'gestao-tendencias' });
 }
+
+const abasKpiDisponiveis = computed(() => {
+    const abas = [];
+    if (podeVerResumoSuperOs.value) abas.push('super-os');
+    if (mostrarKpisTrilha.value) abas.push('trilhas');
+    abas.push('dashboard');
+    return abas;
+});
 
 onMounted(() => {
     setChartOptions();
@@ -133,6 +152,7 @@ function setChartOptions() {
         }
     };
     lineOptions.value = {
+        maintainAspectRatio: false,
         plugins: { legend: { labels: { color: textColor } } },
         scales: {
             x: { ticks: { color: textColorSecondary }, grid: { color: surfaceBorder } },
@@ -140,13 +160,17 @@ function setChartOptions() {
         }
     };
     doughnutOptions.value = {
+        maintainAspectRatio: false,
         plugins: { legend: { labels: { color: textColor, usePointStyle: true } } }
     };
-    pieOptions.value = { plugins: { legend: { labels: { color: textColor, usePointStyle: true } } } };
+    pieOptions.value = {
+        maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: textColor, usePointStyle: true } } }
+    };
 }
 
 function formatChartData(data) {
-    const documentStyle = getComputedStyle(document.body);
+    const documentStyle = getComputedStyle(document.documentElement);
     barSecretariaData.value = {
         labels: data.por_secretaria.map((item) => item.secretaria_destino__nome),
         datasets: [
@@ -281,209 +305,77 @@ function formatChartData(data) {
             </div>
         </div>
 
-        <template v-if="mostrarKpisTrilha && stats.trilhas">
-            <div class="col-span-12 lg:col-span-4">
-                <div class="card mb-0 h-full">
-                    <div class="flex justify-between mb-4">
+        <TabView v-if="abasKpiDisponiveis.length > 1" class="col-span-12 sgdl-dashboard-tabs" @tab-change="onTabChange">
+            <TabPanel v-if="podeVerResumoSuperOs" header="Super OS">
+                <div class="card mt-0">
+                    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                         <div>
-                            <span class="block text-muted-color font-medium mb-4">Trilha Carta</span>
-                            <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">
-                                {{ stats.trilhas.carta.total }}
+                            <div class="font-semibold text-xl">
+                                {{ podeVerSuperOsSecretaria ? 'Super Ordens de Serviço' : 'Super Ordens de Serviço (IA)' }}
                             </div>
-                            <span class="text-sm text-muted-color">
-                                {{ stats.trilhas.carta.percentual_demandas }}% das formalizadas
-                            </span>
+                            <p class="text-sm text-muted-color m-0 mt-1">
+                                <template v-if="podeVerSuperOsSecretaria">
+                                    Agrupamentos com processos da sua secretaria — tramite pela demanda líder.
+                                </template>
+                                <template v-else>
+                                    Demandas agrupadas por tema e local — evita despachos duplicados no mesmo buraco.
+                                </template>
+                            </p>
                         </div>
-                        <div class="flex items-center justify-center bg-cyan-100 dark:bg-cyan-400/10 rounded-border" style="width: 2.5rem; height: 2.5rem">
-                            <i class="pi pi-book text-cyan-500 !text-xl"></i>
-                        </div>
-                    </div>
-                    <Button
-                        label="Ver demandas (Carta)"
-                        icon="pi pi-arrow-right"
-                        text
-                        size="small"
-                        class="p-0"
-                        @click="irDemandasPorTrilha('carta')"
-                    />
-                </div>
-            </div>
-            <div class="col-span-12 lg:col-span-4">
-                <div class="card mb-0 h-full">
-                    <div class="flex justify-between mb-4">
-                        <div>
-                            <span class="block text-muted-color font-medium mb-4">Trilha Tendência</span>
-                            <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">
-                                {{ stats.trilhas.tendencia.total }}
-                            </div>
-                            <span class="text-sm text-muted-color">
-                                {{ stats.trilhas.tendencia.percentual_demandas }}% das formalizadas
-                            </span>
-                        </div>
-                        <div class="flex items-center justify-center bg-purple-100 dark:bg-purple-400/10 rounded-border" style="width: 2.5rem; height: 2.5rem">
-                            <i class="pi pi-chart-line text-purple-500 !text-xl"></i>
-                        </div>
-                    </div>
-                    <Button
-                        label="Ver demandas (Tendência)"
-                        icon="pi pi-arrow-right"
-                        text
-                        size="small"
-                        class="p-0"
-                        @click="irDemandasPorTrilha('tendencia')"
-                    />
-                    <Button
-                        label="Gestão de tendências"
-                        icon="pi pi-chart-line"
-                        text
-                        size="small"
-                        class="p-0 mt-1"
-                        @click="irGestaoTendencias()"
-                    />
-                </div>
-            </div>
-            <div class="col-span-12 lg:col-span-4">
-                <div class="card mb-0 h-full">
-                    <div class="flex justify-between mb-4">
-                        <div>
-                            <span class="block text-muted-color font-medium mb-4">Recusas (Copiloto)</span>
-                            <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">
-                                {{ stats.trilhas.recusa.total }}
-                            </div>
-                            <span class="text-sm text-muted-color">
-                                {{ stats.trilhas.recusa.percentual_motor }}% do motor de ingresso
-                            </span>
-                        </div>
-                        <div class="flex items-center justify-center bg-orange-100 dark:bg-orange-400/10 rounded-border" style="width: 2.5rem; height: 2.5rem">
-                            <i class="pi pi-ban text-orange-500 !text-xl"></i>
-                        </div>
-                    </div>
-                    <Button
-                        label="Ver recusas no Copiloto"
-                        icon="pi pi-list"
-                        text
-                        size="small"
-                        class="p-0"
-                        @click="irRecusasCopiloto()"
-                    />
-                </div>
-            </div>
-
-            <div class="col-span-12 lg:col-span-6">
-                <div class="card flex flex-col items-center">
-                    <div class="font-semibold text-xl mb-4">Motor de trilhas</div>
-                    <Chart v-if="trilhaDoughnutData" type="doughnut" :data="trilhaDoughnutData" :options="doughnutOptions"></Chart>
-                </div>
-            </div>
-            <div class="col-span-12 lg:col-span-6">
-                <div class="card">
-                    <div class="font-semibold text-xl mb-4">Carta × Tendência (mensal)</div>
-                    <Chart v-if="trilhaLineData" type="line" :data="trilhaLineData" :options="lineOptions"></Chart>
-                    <p v-else class="text-sm text-muted-color m-0">Sem série mensal no período.</p>
-                </div>
-            </div>
-
-            <div v-if="stats.trilhas.amostra_motivo_recusa?.length" class="col-span-12">
-                <div class="card">
-                    <div class="font-semibold text-xl mb-2">Motivos de recusa (amostra)</div>
-                    <p class="text-sm text-muted-color mt-0 mb-4">
-                        Itens bloqueados no Copiloto antes da formalização — top {{ stats.trilhas.amostra_motivo_recusa.length }} motivos.
-                    </p>
-                    <ul class="list-none p-0 m-0 flex flex-col gap-2">
-                        <li
-                            v-for="(item, idx) in stats.trilhas.amostra_motivo_recusa"
-                            :key="idx"
-                            class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-surface-200 last:border-0"
-                        >
-                            <span class="text-sm">{{ item.motivo }}</span>
-                            <div class="flex items-center gap-2 shrink-0">
-                                <Tag :value="String(item.total)" severity="warn" />
-                                <Button
-                                    icon="pi pi-search"
-                                    text
-                                    rounded
-                                    size="small"
-                                    v-tooltip.top="'Ver recusas com este motivo'"
-                                    @click="irRecusasCopiloto(item.motivo)"
-                                />
-                            </div>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-        </template>
-
-        <div v-if="podeVerResumoSuperOs" class="col-span-12">
-            <div class="card">
-                <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-                    <div>
-                        <div class="font-semibold text-xl">
-                            {{ podeVerSuperOsSecretaria ? 'Super Ordens de Serviço' : 'Super Ordens de Serviço (IA)' }}
-                        </div>
-                        <p class="text-sm text-muted-color m-0 mt-1">
-                            <template v-if="podeVerSuperOsSecretaria">
-                                Agrupamentos com processos da sua secretaria — tramite pela demanda líder.
-                            </template>
-                            <template v-else>
-                                Demandas agrupadas por tema e local — evita despachos duplicados no mesmo buraco.
-                            </template>
-                        </p>
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        <Button
-                            v-if="podeVerSuperOsSecretaria"
-                            label="Fila do meu setor"
-                            icon="pi pi-inbox"
-                            outlined
-                            size="small"
-                            @click="router.push({ name: 'demandas', query: { fila: 'operacionais', minha_unidade: '1' } })"
-                        />
-                        <Button
-                            v-if="podeVerClusters"
-                            label="Ver todos os clusters"
-                            icon="pi pi-objects-column"
-                            outlined
-                            size="small"
-                            @click="router.push({ name: 'clusters' })"
-                        />
-                    </div>
-                </div>
-                <div v-if="loadingClusters" class="text-sm text-muted-color">Carregando Super OS…</div>
-                <div v-else-if="!clustersResumo.length" class="text-sm text-muted-color">
-                    Nenhuma Super OS ativa no momento para o seu perfil.
-                </div>
-                <ul v-else class="list-none p-0 m-0 flex flex-col gap-2">
-                    <li
-                        v-for="c in clustersResumo"
-                        :key="c.id"
-                        class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-surface-200 last:border-0"
-                    >
-                        <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap gap-2">
                             <Button
-                                v-if="podeVerSuperOsSecretaria && c.lider_demanda_id"
-                                :label="c.protocolo_super_os || c.titulo"
-                                link
-                                class="p-0 font-medium"
-                                @click="abrirLiderSuperOs(c)"
+                                v-if="podeVerSuperOsSecretaria"
+                                label="Fila do meu setor"
+                                icon="pi pi-inbox"
+                                outlined
+                                size="small"
+                                @click="router.push({ name: 'demandas', query: { fila: 'operacionais', minha_unidade: '1' } })"
                             />
-                            <span v-else class="font-medium">
-                                {{ c.protocolo_super_os || c.titulo }}
-                            </span>
-                            <span v-if="c.servico_nome" class="text-xs text-muted-color ml-2">
-                                · {{ c.servico_nome }}
-                            </span>
-                            <span v-if="c.bairro_referencia" class="text-xs text-muted-color ml-2">
-                                · {{ c.bairro_referencia }}
-                            </span>
+                            <Button
+                                v-if="podeVerClusters"
+                                label="Ver todos os clusters"
+                                icon="pi pi-objects-column"
+                                outlined
+                                size="small"
+                                @click="router.push({ name: 'clusters' })"
+                            />
                         </div>
-                        <div class="flex items-center gap-2 shrink-0">
-                            <Tag :value="`${c.demandas_count} vinculados`" severity="info" />
-                            <Tag
-                                v-if="(c.autores_distintos || 0) > 1"
-                                :value="`${c.autores_distintos} vereadores`"
-                                severity="warn"
-                            />
-                            <div class="flex gap-1">
+                    </div>
+                    <div v-if="loadingClusters" class="text-sm text-muted-color">Carregando Super OS…</div>
+                    <div v-else-if="!clustersResumo.length" class="text-sm text-muted-color">
+                        Nenhuma Super OS ativa no momento para o seu perfil.
+                    </div>
+                    <ul v-else class="list-none p-0 m-0 flex flex-col gap-2">
+                        <li
+                            v-for="c in clustersResumo"
+                            :key="c.id"
+                            class="flex flex-wrap items-center justify-between gap-2 py-2 border-b border-surface-200 dark:border-surface-700 last:border-0"
+                        >
+                            <div class="min-w-0 flex-1">
+                                <Button
+                                    v-if="podeVerSuperOsSecretaria && c.lider_demanda_id"
+                                    :label="c.protocolo_super_os || c.titulo"
+                                    link
+                                    class="p-0 font-medium"
+                                    @click="abrirLiderSuperOs(c)"
+                                />
+                                <span v-else class="font-medium">
+                                    {{ c.protocolo_super_os || c.titulo }}
+                                </span>
+                                <span v-if="c.servico_nome" class="text-xs text-muted-color ml-2">
+                                    · {{ c.servico_nome }}
+                                </span>
+                                <span v-if="c.bairro_referencia" class="text-xs text-muted-color ml-2">
+                                    · {{ c.bairro_referencia }}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                <Tag :value="`${c.demandas_count} vinculados`" severity="info" />
+                                <Tag
+                                    v-if="(c.autores_distintos || 0) > 1"
+                                    :value="`${c.autores_distintos} vereadores`"
+                                    severity="warn"
+                                />
                                 <Button
                                     v-if="podeVerSuperOsSecretaria && c.lider_demanda_id"
                                     label="Abrir líder"
@@ -493,39 +385,211 @@ function formatChartData(data) {
                                     @click="abrirLiderSuperOs(c)"
                                 />
                             </div>
-                        </div>
-                    </li>
-                </ul>
-            </div>
-        </div>
+                        </li>
+                    </ul>
+                </div>
+            </TabPanel>
 
-        <div v-if="mostrarGraficoPorSecretaria" class="col-span-12 lg:col-span-6 xl:col-span-6">
-            <div class="card">
-                <div class="font-semibold text-xl mb-4">Demandas por Secretaria</div>
-                <Chart type="bar" :data="barSecretariaData" :options="barOptions"></Chart>
+            <TabPanel v-if="mostrarKpisTrilha && stats.trilhas" header="Trilhas">
+                <div class="grid grid-cols-12 gap-6">
+                    <div class="col-span-12 lg:col-span-4">
+                        <div class="card mb-0 h-full">
+                            <div class="flex justify-between mb-4">
+                                <div>
+                                    <span class="block text-muted-color font-medium mb-4">Trilha Carta</span>
+                                    <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">
+                                        {{ stats.trilhas.carta.total }}
+                                    </div>
+                                    <span class="text-sm text-muted-color">
+                                        {{ stats.trilhas.carta.percentual_demandas }}% das formalizadas
+                                    </span>
+                                </div>
+                                <div class="flex items-center justify-center bg-cyan-100 dark:bg-cyan-400/10 rounded-border" style="width: 2.5rem; height: 2.5rem">
+                                    <i class="pi pi-book text-cyan-500 !text-xl"></i>
+                                </div>
+                            </div>
+                            <Button
+                                label="Ver demandas (Carta)"
+                                icon="pi pi-arrow-right"
+                                text
+                                size="small"
+                                class="p-0"
+                                @click="irDemandasPorTrilha('carta')"
+                            />
+                        </div>
+                    </div>
+                    <div class="col-span-12 lg:col-span-4">
+                        <div class="card mb-0 h-full">
+                            <div class="flex justify-between mb-4">
+                                <div>
+                                    <span class="block text-muted-color font-medium mb-4">Trilha Tendência</span>
+                                    <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">
+                                        {{ stats.trilhas.tendencia.total }}
+                                    </div>
+                                    <span class="text-sm text-muted-color">
+                                        {{ stats.trilhas.tendencia.percentual_demandas }}% das formalizadas
+                                    </span>
+                                </div>
+                                <div class="flex items-center justify-center bg-purple-100 dark:bg-purple-400/10 rounded-border" style="width: 2.5rem; height: 2.5rem">
+                                    <i class="pi pi-chart-line text-purple-500 !text-xl"></i>
+                                </div>
+                            </div>
+                            <Button
+                                label="Ver demandas (Tendência)"
+                                icon="pi pi-arrow-right"
+                                text
+                                size="small"
+                                class="p-0"
+                                @click="irDemandasPorTrilha('tendencia')"
+                            />
+                            <Button
+                                label="Gestão de tendências"
+                                icon="pi pi-chart-line"
+                                text
+                                size="small"
+                                class="p-0 mt-1"
+                                @click="irGestaoTendencias()"
+                            />
+                        </div>
+                    </div>
+                    <div class="col-span-12 lg:col-span-4">
+                        <div class="card mb-0 h-full">
+                            <div class="flex justify-between mb-4">
+                                <div>
+                                    <span class="block text-muted-color font-medium mb-4">Recusas (Copiloto)</span>
+                                    <div class="text-surface-900 dark:text-surface-0 font-medium text-xl">
+                                        {{ stats.trilhas.recusa.total }}
+                                    </div>
+                                    <span class="text-sm text-muted-color">
+                                        {{ stats.trilhas.recusa.percentual_motor }}% do motor de ingresso
+                                    </span>
+                                </div>
+                                <div class="flex items-center justify-center bg-orange-100 dark:bg-orange-400/10 rounded-border" style="width: 2.5rem; height: 2.5rem">
+                                    <i class="pi pi-ban text-orange-500 !text-xl"></i>
+                                </div>
+                            </div>
+                            <Button
+                                label="Ver recusas no Copiloto"
+                                icon="pi pi-list"
+                                text
+                                size="small"
+                                class="p-0"
+                                @click="irRecusasCopiloto()"
+                            />
+                        </div>
+                    </div>
+                    <div class="col-span-12 lg:col-span-6">
+                        <div class="card">
+                            <div class="font-semibold text-xl mb-4">Motor de trilhas</div>
+                            <div v-if="trilhaDoughnutData" class="relative w-full" style="height: 300px">
+                                <Chart
+                                    :key="'trilha-' + chartRefreshKey"
+                                    type="doughnut"
+                                    :data="trilhaDoughnutData"
+                                    :options="doughnutOptions"
+                                    class="w-full h-full"
+                                />
+                            </div>
+                            <p v-else class="text-sm text-muted-color m-0">Sem dados de trilhas no período.</p>
+                        </div>
+                    </div>
+                    <div class="col-span-12 lg:col-span-6">
+                        <div class="card">
+                            <div class="font-semibold text-xl mb-4">Carta × Tendência (mensal)</div>
+                            <div v-if="trilhaLineData" class="relative w-full" style="height: 300px">
+                                <Chart
+                                    :key="'trilha-line-' + chartRefreshKey"
+                                    type="line"
+                                    :data="trilhaLineData"
+                                    :options="lineOptions"
+                                    class="w-full h-full"
+                                />
+                            </div>
+                            <p v-else class="text-sm text-muted-color m-0">Sem série mensal no período.</p>
+                        </div>
+                    </div>
+                </div>
+            </TabPanel>
+
+            <TabPanel header="Dashboard">
+                <div class="grid grid-cols-12 gap-6">
+                    <div v-if="mostrarGraficoPorSecretaria" class="col-span-12 lg:col-span-6">
+                        <div class="card">
+                            <div class="font-semibold text-xl mb-4">Demandas por Secretaria</div>
+                            <Chart type="bar" :data="barSecretariaData" :options="barOptions"></Chart>
+                        </div>
+                    </div>
+                    <div
+                        v-if="userStore.currentUser?.perfil !== 'VEREADOR'"
+                        :class="isSecretaria ? 'col-span-12' : 'col-span-12 lg:col-span-6'"
+                    >
+                        <div class="card">
+                            <div class="font-semibold text-xl mb-4">Demandas por Vereador</div>
+                            <Chart type="bar" :data="barVereadorData" :options="barOptions"></Chart>
+                        </div>
+                    </div>
+                    <div class="col-span-12 lg:col-span-6">
+                        <div class="card">
+                            <div class="font-semibold text-xl mb-4">Visão Geral por Status</div>
+                            <div v-if="doughnutData" class="relative w-full max-w-md mx-auto" style="height: 300px">
+                                <Chart
+                                    :key="'status-' + chartRefreshKey"
+                                    type="doughnut"
+                                    :data="doughnutData"
+                                    :options="pieOptions"
+                                    class="w-full h-full"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-span-12 lg:col-span-6">
+                        <div class="card">
+                            <div class="font-semibold text-xl mb-4">Evolução Mensal</div>
+                            <div v-if="lineData" class="relative w-full" style="height: 300px">
+                                <Chart
+                                    :key="'mensal-' + chartRefreshKey"
+                                    type="line"
+                                    :data="lineData"
+                                    :options="lineOptions"
+                                    class="w-full h-full"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </TabPanel>
+        </TabView>
+
+        <!-- Perfil com uma única aba (ex.: Vereador): gráficos direto -->
+        <template v-else>
+            <div v-if="mostrarGraficoPorSecretaria" class="col-span-12 lg:col-span-6 xl:col-span-6">
+                <div class="card">
+                    <div class="font-semibold text-xl mb-4">Demandas por Secretaria</div>
+                    <Chart type="bar" :data="barSecretariaData" :options="barOptions"></Chart>
+                </div>
             </div>
-        </div>
-        <div
-            v-if="userStore.currentUser?.perfil !== 'VEREADOR'"
-            :class="isSecretaria ? 'col-span-12' : 'col-span-12 lg:col-span-6 xl:col-span-6'"
-        >
-            <div class="card">
-                <div class="font-semibold text-xl mb-4">Demandas por Vereador</div>
-                <Chart type="bar" :data="barVereadorData" :options="barOptions"></Chart>
+            <div
+                v-if="userStore.currentUser?.perfil !== 'VEREADOR'"
+                :class="isSecretaria ? 'col-span-12' : 'col-span-12 lg:col-span-6 xl:col-span-6'"
+            >
+                <div class="card">
+                    <div class="font-semibold text-xl mb-4">Demandas por Vereador</div>
+                    <Chart type="bar" :data="barVereadorData" :options="barOptions"></Chart>
+                </div>
             </div>
-        </div>
-        <div class="col-span-12 lg:col-span-6 xl:col-span-6">
-            <div class="card flex flex-col items-center">
-                <div class="font-semibold text-xl mb-4">Visão Geral por Status</div>
-                <Chart type="doughnut" :data="doughnutData" :options="pieOptions"></Chart>
+            <div class="col-span-12 lg:col-span-6 xl:col-span-6">
+                <div class="card flex flex-col items-center">
+                    <div class="font-semibold text-xl mb-4">Visão Geral por Status</div>
+                    <Chart type="doughnut" :data="doughnutData" :options="pieOptions"></Chart>
+                </div>
             </div>
-        </div>
-        <div class="col-span-12 lg:col-span-6 xl:col-span-6">
-            <div class="card">
-                <div class="font-semibold text-xl mb-4">Evolução Mensal</div>
-                <Chart type="line" :data="lineData" :options="lineOptions"></Chart>
+            <div class="col-span-12 lg:col-span-6 xl:col-span-6">
+                <div class="card">
+                    <div class="font-semibold text-xl mb-4">Evolução Mensal</div>
+                    <Chart type="line" :data="lineData" :options="lineOptions"></Chart>
+                </div>
             </div>
-        </div>
+        </template>
     </div>
     <div v-else class="text-center">
         <p class="text-red-500">Não foi possível carregar os dados do dashboard.</p>

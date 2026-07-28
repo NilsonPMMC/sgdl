@@ -52,6 +52,27 @@ class DemandaReportFilter(django_filters.FilterSet):
         label='Vereadores (Múltiplos)'
     )
 
+    # 6. Setor (unidade administrativa)
+    unidade__in = django_filters.BaseInFilter(
+        field_name='unidade_administrativa_id',
+        lookup_expr='in',
+        label='Setores (Múltiplos)',
+    )
+
+    # 7. Super OS (cluster)
+    cluster__in = django_filters.BaseInFilter(
+        field_name='cluster_id',
+        lookup_expr='in',
+        label='Clusters Super OS',
+    )
+
+    super_os = django_filters.BooleanFilter(
+        field_name='cluster',
+        lookup_expr='isnull',
+        exclude=True,
+        label='Somente Super OS',
+    )
+
     class Meta:
         model = Demanda
         fields = [
@@ -60,5 +81,8 @@ class DemandaReportFilter(django_filters.FilterSet):
             'status__in', 
             'secretaria__in', 
             'servico__in', 
-            'vereador__in'
+            'vereador__in',
+            'unidade__in',
+            'cluster__in',
+            'super_os',
         ]

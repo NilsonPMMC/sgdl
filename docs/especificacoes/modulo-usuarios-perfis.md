@@ -26,7 +26,7 @@ Todo login no SGDL combina dois eixos:
 | **VEREADOR** | Sem órgão/setor — autor legislativo |
 | **PROTOCOLO** | Fixo: órgão **12** (SMGOV) › UA **754** (SGAC) — aplicado automaticamente |
 | **SECRETARIA** | Órgão + 1+ setor **obrigatórios** — fila «Meu setor» |
-| **GESTOR** | Órgão/setor **opcionais** (referência) — escopo é o sistema inteiro |
+| **GESTOR** | Órgão/setor **definem o subtipo** — ver §2.4 (**Geral** vs **Setorial**) | Escopo de dados e CRUD |
 
 A tela **Gestão de usuários** (`/gestao-usuarios`) organiza o cadastro em três blocos: **1. Perfil** → **2. Onde atua (Órgão › Setor)** → **3. Dados da conta**.
 
@@ -109,17 +109,60 @@ flowchart LR
 
 ---
 
-### 2.4 Gestor
+### 2.4 Gestor — Geral vs Setorial
+
+O perfil `GESTOR` mantém **um único login** no enum; o **subtipo operacional** deriva dos vínculos institucionais (órgão Sinapse + setor(es) UA). Decisão de produto **jun/2026** (H3-16 / H3-28).
+
+| Subtipo | Vínculo órgão/setor | Escopo de **dados** | Permissões |
+|---------|---------------------|---------------------|------------|
+| **Gestor Geral** | **Nenhum** (`sinapse_orgao_id` nulo e sem UA responsável) | **Todo o sistema** — todas secretarias, demandas, clusters, relatórios e configurações | **CRUD administrativo pleno**: Django Admin (`is_staff` + `is_superuser`), gestão de usuários, carta, FAQ, import RM, fluxo, reconciliação |
+| **Gestor Setorial** | **Um ou mais** órgãos e/ou setores via `sinapse_orgao_id` + `UnidadeAdministrativaResponsavel` | **Dados vinculados** aos órgãos/setores gerenciados — listagens, dashboards, clusters e relatórios filtrados ao escopo | **Tramitações e operação gerencial** dentro do escopo (despacho, andamentos, devolutiva, encaminhamentos); **sem** CRUD administrativo global (sem superuser pleno ou com restrição explícita) |
+
+#### Regras de classificação (cadastro)
+
+```text
+GESTOR + sem órgão + sem setor(es)  →  Gestor Geral
+GESTOR + órgão e/ou 1+ setor(es)    →  Gestor Setorial
+```
+
+- **Multi-órgão / multi-setor:** Gestor Setorial pode ter vários setores; se os setores pertencerem a órgãos distintos, o escopo de dados é a **união** dos órgãos/setores vinculados (implementação H3-28).
+- **Menu frontend:** ambos acessam rotas de gestor (demandas, clusters, relatórios, etc.); a **filtragem de queryset** diferencia o subtipo — hoje **não implementada** (ver §7 U7).
+
+#### Gestor Geral
 
 | Aspecto | Regra |
 |---------|--------|
-| **Papel** | **Administrador do sistema** — configuração, carta, FAQ, relatórios, homologação |
-| **Vínculo órgão/unidade** | **Recomendado** vínculo institucional (ex.: SMGOV + UA de referência) para auditoria e contexto — **não limita** alcance |
-| **Escopo** | **Acesso amplo** a todo o SGDL: todas as secretarias, carta, assuntos, import RM, configurações |
-| **Frontend** | Menu gestor completo (assuntos, SLA carta, FAQ, fluxo, reconciliação, relatórios, …) |
-| **Backend** | **`is_staff` + `is_superuser`** — Django Admin pleno (usuários, modelos, FAQ, …) |
+| **Papel** | Administrador institucional / TI / gestão de produto |
+| **Vínculo** | **Propositalmente vazio** — não cadastrar órgão/setor de referência |
+| **Escopo dados** | Ilimitado no SGDL |
+| **Django Admin** | **`is_staff` + `is_superuser`** obrigatórios |
+| **Gestão usuários** | CRUD de todos os perfis (via `/gestao-usuarios`) |
 
-**Princípio:** vínculo org/UA é **metadado institucional**; permissões vêm do perfil `GESTOR` + flags Django, não do escopo da secretaria.
+#### Gestor Setorial
+
+| Aspecto | Regra |
+|---------|--------|
+| **Papel** | Gestor de secretaria ou de unidade(s) — visão macro **do(s) órgão(s)/setor(es)** vinculados |
+| **Vínculo** | **Obrigatório** ao menos órgão **ou** um setor UA (mesma regra de validação que Secretaria para coerência org↔setor) |
+| **Escopo dados** | Demandas, filas, clusters e relatórios cujo órgão competente ou setor operacional intersecta o vínculo |
+| **Tramitações** | Despacho, andamento, devolutiva e encaminhamentos **dentro** do escopo gerencial |
+| **Django Admin** | **Não** pleno — operação via frontend SGDL; eventual `is_staff` limitado fica a critério de governança |
+| **Exemplo** | Gestor da Mobilidade: vinculado ao órgão Mobilidade + setores RM correspondentes — vê e tramita apenas demandas daquele universo |
+
+```mermaid
+flowchart TB
+  subgraph gestor [Perfil GESTOR]
+    G[Gestor login]
+  end
+  G -->|sem org/setor| GG[Gestor Geral]
+  G -->|com org e/ou setor| GS[Gestor Setorial]
+  GG --> D1[Todos os dados]
+  GG --> A1[CRUD admin pleno]
+  GS --> D2[Dados do escopo vinculado]
+  GS --> A2[Tramitações gerenciais no escopo]
+```
+
+> **Estado jun/2026:** U7 implementado — `gestor_escopo.py`, filtros de demanda/cluster, admin 403 para Setorial, UI com rótulos Geral/Setorial.
 
 ---
 
@@ -130,7 +173,7 @@ flowchart LR
 | **VEREADOR** | Legislador | — | — | Próprias demandas | Não |
 | **PROTOCOLO** | Protocolo Geral | **12** (SMGOV) | **754** / SGAC | Institucional (protocolo) | Opcional |
 | **SECRETARIA** | Secretaria + setor | Secretaria do usuário | 1+ via responsável | Órgão + `minha_unidade` | Não |
-| **GESTOR** | TI / gestão produto | Referência (opcional) | Referência (opcional) | **Sistema inteiro** | **Sim** (staff/super) |
+| **GESTOR** | TI / gestão | **Geral:** — · **Setorial:** 1+ órgão/setor | Referência **define subtipo** | **Geral:** sistema · **Setorial:** escopo vinculado | **Geral:** Sim · **Setorial:** limitado |
 
 ---
 
@@ -162,13 +205,36 @@ flowchart LR
 | **U4** | **Gestor** — vínculo institucional opcional; `is_staff`/`is_superuser` + menu completo | **Concluído** (jun/2026) |
 | **U5** | Tela frontend **Gestão de usuários** (substituir ou complementar Django Admin para operação) | **Concluído** (jun/2026) |
 | **U6** | Django Admin alinhado — Perfil + Órgão + inline Setor (UA) + coluna «Onde atua» | **Concluído** (jun/2026) |
+| **U5.1** | UX hub U5 — senha acidental, filtro busca, exibição vínculos UA no formulário (H3-14/15 + vínculos) | **Concluído** (jun/2026) |
+| **U7** | **Gestor Geral vs Setorial** — RBAC em API/querysets + UI (rótulo subtipo, restrição admin) | **Concluído** jun/2026 |
 
 ### Critérios de aceite (quando implementar U2–U5)
 
 - [x] Usuário `PROTOCOLO` criado com `sinapse_orgao_id=12` e responsável na UA 754 (signal + admin + comando `aplicar_vinculo_protocolo`).
 - [x] Usuário `SECRETARIA` sem órgão ou sem setor responsável → aviso na UI / bloqueio de fila `minha_unidade`.
-- [x] `GESTOR` acessa todas as rotas gestor + `/admin/` sem filtro por órgão.
+- [x] `GESTOR` **Geral** (sem vínculo) acessa todas as rotas gestor + `/admin/` sem filtro por órgão.
+- [ ] `GESTOR` **Setorial** (com vínculo) vê e tramita apenas dados do escopo — **U7 pendente**.
 - [x] `VEREADOR` permanece sem vínculo org/UA; isolamento por `autor` mantido.
+
+### Critérios de aceite U7 (Gestor Geral vs Setorial)
+
+- [x] Helper `tipo_gestor(usuario)` → `GERAL` | `SETORIAL` conforme vínculos.
+- [x] Querysets de demanda/cluster/relatório aplicam filtro de escopo para **Setorial**; **Geral** inalterado.
+- [x] Gestor Setorial **não** acessa CRUD administrativo global (usuários, carta, FAQ, import RM) — 403.
+- [x] UI `/gestao-usuarios`: rótulo «Gestor Geral» / «Gestor Setorial» na listagem e no formulário.
+- [x] Testes API: `test_gestor_escopo.py`.
+
+---
+
+## 7. Homologação U5 (jun/2026) — itens fechados
+
+| ID | Achado | Correção | Status |
+|----|--------|----------|--------|
+| **H3-14** | Senha alterada sem intenção ao editar | Checkbox «Alterar senha»; backend ignora senha vazia | **Resolvido** |
+| **H3-15** | Após editar, busca filtrava «admin» (autofill) | `autocomplete="off"` + restauração de filtro | **Resolvido** |
+| **U5-UX** | Vínculos UA não apareciam no formulário de edição | Resumo «Atuação vinculada hoje» + merge opções MultiSelect | **Resolvido** |
+
+Arquivos: `GestaoUsuariosView.vue`, `serializers.py` (write). Revalidação: [ROTEIRO § Gestão de usuários](../operacao/ROTEIRO-HOMOLOGACAO-COMPLETO.md).
 
 ---
 
@@ -180,4 +246,4 @@ flowchart LR
 
 ---
 
-**Última atualização:** 2026-06-10 · Módulo usuários U1–U5 **concluído**.
+**Última atualização:** 2026-06-10 · U1–U6 **concluído** · U5.1 homologado jun/2026 · **U7** (Gestor Geral/Setorial) especificado — implementação pendente.

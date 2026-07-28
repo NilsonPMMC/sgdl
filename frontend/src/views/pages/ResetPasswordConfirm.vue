@@ -61,7 +61,7 @@ const handleResetConfirm = async () => {
 
 <template>
     <div class="grid grid-cols-12 min-h-screen overflow-hidden">
-        <div id="col-saudacao" class="flex flex-col col-span-6 items-center justify-center text-white p-8">
+        <div id="col-saudacao" class="sgdl-auth-panel flex flex-col col-span-6 items-center justify-center text-white p-8">
             <img src="/layout/images/brasao_nome_pmmc.png" alt="Brasão PMMC" style="width: 300px" class="mb-5" />
             <h1 class="text-6xl font-bold mb-3">Quase lá!</h1>
             <p class="text-xl text-center">Defina sua nova senha de acesso.</p>
@@ -104,14 +104,6 @@ const handleResetConfirm = async () => {
 </template>
 
 <style scoped>
-/* Puxa o mesmo background do Login.vue */
-#col-saudacao {
-    background-image: url(/layout/images/bg-mogi-green.png);
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: cover;
-}
-
 /* Garante que o input dentro do Password preencha o espaço */
 :deep(.p-password-input) {
     width: 100%;

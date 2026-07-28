@@ -99,6 +99,21 @@ Para serviços com `AUTOMATICO` ativo:
 
 Usa `DemandaDespachoService.despachar(..., automatico=True)` — mesmo efeito de protocolo manual: `PROTOCOLADO`, `protocolo_executivo`, `data_inicio_prazo`.
 
+### Assinatura eletrônica no fluxo AUTO (H3-01 / H3-18 — jun/2026)
+
+**Decisão de produto:** despacho **manual** na UI exige assinatura do operador **Protocolo** + **Gestor do Protocolo** (A4). Despacho **automático** (serviço configurado pelo Gestor) registra assinatura **do sistema**:
+
+| Modo | Quem assina | Declaração | Gestor Protocolo |
+|------|-------------|------------|------------------|
+| **MANUAL** (UI) | Operador Protocolo + Gestor | `ASSINO O DESPACHO` + gestor | **Obrigatório** |
+| **AUTOMATICO** | Usuário técnico `sgdl_sistema` | `DESPACHO AUTOMATICO DO SISTEMA` | **Não exige** (regra configurada) |
+
+Implementação: `AssinaturaEletronicaService.registrar_assinatura_despacho_automatico()` após tramitação DESPACHO com `automatico=True` (individual e Super OS automática).
+
+**Motivo:** o Protocolo não intervém na fila quando o serviço está em AUTO; a trilha de auditoria substitui a assinatura humana, sem exigir re-assinatura posterior.
+
+Testes: `core.tests.test_fluxo_protocolo.FluxoProtocoloServiceTests.test_despacho_automatico_registra_assinatura_sistema`.
+
 ### Exclusões — nunca despacho automático
 
 | Condição | Motivo |

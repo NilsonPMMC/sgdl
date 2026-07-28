@@ -11,17 +11,79 @@ import Tag from 'primevue/tag';
 import ProgressSpinner from 'primevue/progressspinner';
 import Editor from 'primevue/editor';
 import Select from 'primevue/select';
+import MultiSelect from 'primevue/multiselect';
 import FileUpload from 'primevue/fileupload';
+import Chip from 'primevue/chip';
 import Message from 'primevue/message';
 import Textarea from 'primevue/textarea';
 import Divider from 'primevue/divider';
 import Avatar from 'primevue/avatar';
 import Dialog from 'primevue/dialog';
+import Checkbox from 'primevue/checkbox';
 import { descricaoParaHtml } from '@/utils/oficioTexto';
 import {
+    DECLARACAO_CONCLUSAO,
+    DECLARACAO_CONCLUSAO_FINAL,
+    DECLARACAO_DESPACHO,
+    DECLARACAO_DEVOLUTIVA,
+    DECLARACAO_GESTOR_PROTOCOLO,
+    CONTEXTO_ASSINATURA,
+    despachoInicialPendenteGestor,
+    conclusaoFinalPendenteGestor,
+    usuarioDeveBloquearOperacaoAguardandoGestor,
+    formatSignatarioLinha,
+    gestorPorId,
+    modoPainelAssinaturaProtocolo,
+    MODO_PAINEL_ASSINATURA,
+    usuarioEhGestorProtocoloSgac,
+    usuarioPodePainelProtocoloCentral,
+    validarAssinaturaFormulario,
+    payloadAssinaturaProtocolo,
+    mensagemErroAssinatura
+} from '@/constants/assinaturaEletronica';
+import {
+    FLUXO_TRANSVERSAL,
+    tramitacoesParaTimelineOperacional
+} from '@/constants/operacionalEstado';
+import OperacionalTimeline from '@/components/demanda/OperacionalTimeline.vue';
+import FormularioScatterGather from '@/components/demanda/FormularioScatterGather.vue';
+import FormularioResultadoOperacional from '@/components/demanda/FormularioResultadoOperacional.vue';
+import {
+    estadoInicialResultadoOperacional,
+    validarResultadoOperacional,
+    payloadResultadoOperacional
+} from '@/constants/estudoViabilidade';
+import FormularioTramitacao from '@/components/tramitacao/FormularioTramitacao.vue';
+import DialogAssinaturaEletronica from '@/components/tramitacao/DialogAssinaturaEletronica.vue';
+import DialogConfirmacaoTramitacao from '@/components/tramitacao/DialogConfirmacaoTramitacao.vue';
+import ValidacaoGestorDemandaBanner from '@/components/tramitacao/ValidacaoGestorDemandaBanner.vue';
+import FormularioDevolutivaProtocolo from '@/components/devolutiva/FormularioDevolutivaProtocolo.vue';
+import ConclusaoDigitalVereador from '@/components/devolutiva/ConclusaoDigitalVereador.vue';
+import DialogClusterAderencia from '@/components/demanda/DialogClusterAderencia.vue';
+import {
+    estadoFormularioTramitacao,
+    inicializarDestinosAndamento,
+    inicializarDestinosDespacho,
+    destinoAndamentoPayload,
+    destinosParaPayload,
+    temIntegradosDestinos,
+    resumoDestinosTexto,
+    contarPernasDestinos,
+    despachoEhTransversal,
+    MAX_PERNAS_DESPACHO,
+    MODO_ANDAMENTO,
+    MODO_DESPACHO
+} from '@/constants/tramitacaoFormulario';
+import {
+    descricaoTramitacaoVereador,
+    montarTimelineVereador,
+    filtrarTramitacoesVereador,
     labelTramitacaoVereador,
-    tramitacaoVisivelParaVereador
+    perfilEhVereador,
+    rotuloInstitucionalTramitacao
 } from '@/constants/tramitacaoVisibilidade';
+import { descricaoTramitacaoParaExibicao, pareceHtmlRico } from '@/utils/tramitacaoTexto';
+import { payloadDespachoDestinos, buildDevolutivaPayload, buildMultipartPayload, estadoFormularioDevolutiva } from '@/utils/protocoloFormData';
 
 const route = useRoute();
 const router = useRouter();
@@ -31,14 +93,15 @@ const userStore = useUserStore();
 const toast = useToast();
 const confirm = useConfirm();
 
-const novaTramitacao = ref({
-    tipo: null,
-    descricao: '',
-    anexos_arquivos: [],
-    unidade_destino_id: null
-});
+const formAndamento = ref(estadoFormularioTramitacao());
+const formDespacho = ref(estadoFormularioTramitacao());
+const formDespachoRef = ref(null);
+const formAndamentoRef = ref(null);
+const formDevolutivaRef = ref(null);
+const confirmTramitacaoVisible = ref(false);
+const pendingAssinarTramitacao = ref(false);
 
-const unidadesSetor = ref([]);
+const orgaosCatalogo = ref([]);
 
 const dataCriacaoFormatada = computed(() => {
     if (demanda.value?.data_criacao) {
@@ -69,50 +132,316 @@ const isSecretaria = computed(() => {
     return perfilNome.toUpperCase().trim() === 'SECRETARIA';
 });
 
-const isVereador = computed(() => userStore.currentUser?.perfil === 'VEREADOR');
+const isVereador = computed(() => perfilEhVereador(userStore.currentUser?.perfil));
 
 const isGestor = computed(() => userStore.currentUser?.perfil === 'GESTOR');
 
-const isProtocolo = computed(() => userStore.currentUser?.perfil === 'PROTOCOLO' || isGestor.value);
+const podeOperarProtocoloCentral = computed(
+    () =>
+        userStore.currentUser?.perfil === 'PROTOCOLO' ||
+        usuarioPodePainelProtocoloCentral(userStore.currentUser, userStore)
+);
+
+const isProtocolo = computed(() => podeOperarProtocoloCentral.value);
 
 const isProtocoloPerfil = computed(() => userStore.currentUser?.perfil === 'PROTOCOLO');
+
+const ehGestorProtocoloSgac = computed(() =>
+    usuarioEhGestorProtocoloSgac(userStore.currentUser, userStore)
+);
+
+const assinaturasResumo = computed(() => demanda.value?.assinaturas_resumo || {});
+
+const despachoAguardandoGestor = computed(
+    () =>
+        demanda.value?.status === 'AGUARDANDO_PROTOCOLO' &&
+        despachoInicialPendenteGestor(assinaturasResumo.value)
+);
+
+const conclusaoFinalAguardandoGestor = computed(() =>
+    conclusaoFinalPendenteGestor(assinaturasResumo.value)
+);
+
+const bloqueioOperacaoAguardandoGestor = computed(() =>
+    usuarioDeveBloquearOperacaoAguardandoGestor(
+        assinaturasResumo.value,
+        userStore.currentUser,
+        userStore
+    )
+);
+
+const validacaoGestorBannerRef = ref(null);
 
 const podeGerirSuperOs = computed(
     () => isSecretaria.value || isProtocolo.value
 );
 
 const mostrarCardSuperOs = computed(
-    () => superOs.value?.ativo && podeGerirSuperOs.value
+    () =>
+        (superOs.value?.total_vinculados ?? 0) >= 2 &&
+        (superOs.value?.demandas_vinculadas?.length ?? 0) >= 2 &&
+        podeGerirSuperOs.value
 );
 
-const podeDespacharDevolutiva = computed(() =>
-    isProtocolo.value && demanda.value?.status === 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO'
+const tituloCardCluster = computed(
+    () => superOs.value?.tipo_display || 'Super Ordem de Serviço'
 );
+
+const ehClusterMultiDestino = computed(() => superOs.value?.tipo === 'MULTI_DESTINO');
+
+const podeDespacharProtocolo = computed(
+    () =>
+        isProtocoloPerfil.value &&
+        demanda.value?.status === 'AGUARDANDO_PROTOCOLO' &&
+        !despachoAguardandoGestor.value
+);
+
+const podeDespacharDevolutiva = computed(
+    () =>
+        !conclusaoFinalAguardandoGestor.value &&
+        (podeConclusaoFinalOperacional.value ||
+            (isProtocolo.value && demanda.value?.status === 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO'))
+);
+
+const usaEndpointConclusaoFinal = computed(() => podeConclusaoFinalOperacional.value);
 
 const podeEncerrarDevolutiva = computed(
     () => isProtocolo.value && demanda.value?.status === 'DEVOLVIDO_VEREADOR'
-);
-
-const podeDespacharProtocolo = computed(
-    () => isProtocoloPerfil.value && demanda.value?.status === 'AGUARDANDO_PROTOCOLO'
 );
 
 const usarDescricaoEstruturada = computed(
     () => isProtocolo.value || isSecretaria.value || isGestor.value
 );
 
-const descricaoExibicao = computed(() => {
-    const raw = demanda.value?.descricao || '';
-    return usarDescricaoEstruturada.value ? descricaoParaHtml(raw) : raw;
+const podeVerStandByExecutivo = computed(
+    () => isProtocolo.value || isSecretaria.value || isGestor.value
+);
+
+const enderecoSugeridoDemanda = computed(() => {
+    const d = demanda.value;
+    if (!d) return '';
+    const partes = [d.logradouro, d.numero ? `nº ${d.numero}` : null, d.bairro].filter(Boolean);
+    return partes.join(', ');
 });
 
 const todasSecretarias = ref([]);
 const despachoDialog = ref(false);
-const despachoData = ref({ secretaria_id: null });
+const assinaturaDespachoDialogVisible = ref(false);
+const assinaturaDevolutivaDialogVisible = ref(false);
+const assinaturaConclusaoDialogVisible = ref(false);
+const executandoAssinatura = ref(false);
+const clusterAderenciaDialog = ref(false);
+const clusterAderenciaSituacao = ref(null);
+const clusterAderenciaLoading = ref(false);
+const despachoPreview = ref(null);
+const despachoAssinatura = ref({
+    declaracaoOperador: false,
+    declaracaoGestor: false,
+    gestor_protocolo_id: null
+});
+const carregandoDespachoPreview = ref(false);
+const gestoresProtocolo = ref([]);
+const despachoData = formDespacho;
+const despachoAnexos = computed({
+    get: () => formDespacho.value.anexos || [],
+    set: (v) => {
+        formDespacho.value.anexos = v;
+    }
+});
+const formDevolutiva = ref(estadoFormularioDevolutiva());
+const devolutivaPreview = ref(null);
+const devolutivaAssinatura = ref({
+    declaracaoOperador: false,
+    declaracaoGestor: false,
+    gestor_protocolo_id: null
+});
+const carregandoDevolutivaPreview = ref(false);
 
-const devolutivaResposta = ref('');
+const isDevolutivaAlertaLeitura = computed(() => Boolean(demanda.value?.devolutiva_alerta_leitura));
+
+const podeGerenciarAcompanhamento = computed(() => isSecretaria.value || isGestor.value);
+const acompanhandoDemanda = computed(() => Boolean(demanda.value?.acompanhando));
+const podeAcompanharDemanda = computed(() => Boolean(demanda.value?.pode_acompanhar));
+const somenteAcompanhamento = computed(() => Boolean(demanda.value?.somente_acompanhamento));
+
+const TIPO_DEVOLUCAO_PROTOCOLO = 'DEVOLUCAO_PROTOCOLO';
+const TIPO_CONCLUSAO_PARCIAL = 'CONCLUSAO_PARCIAL';
+
+const estadoOperacional = ref(null);
+const carregandoEstadoOperacional = ref(false);
+const recusaDialog = ref(false);
+const recusaParecer = ref('');
+const vincularServicoDialog = ref(false);
+const servicoVinculoId = ref(null);
+const servicosCarta = ref([]);
+const carregandoServicosCarta = ref(false);
+
+const acoesOperacionais = computed(() => estadoOperacional.value?.acoes_disponiveis || []);
+
+const podeAbrirPernasTransversal = computed(() =>
+    acoesOperacionais.value.includes('abrir_pernas_transversal')
+);
+
+const orgaoLiderTransversal = computed(() => {
+    const d = demanda.value;
+    if (!d) return null;
+    return (
+        d.sinapse_orgao_lider_id ||
+        estadoOperacional.value?.sinapse_orgao_lider_id ||
+        orgaoIdDemanda.value
+    );
+});
+
+const orgaoLiderTransversalNome = computed(() => {
+    if (estadoOperacional.value?.orgao_lider_nome) {
+        return estadoOperacional.value.orgao_lider_nome;
+    }
+    const id = orgaoLiderTransversal.value;
+    if (!id) return '';
+    const o = orgaosCatalogo.value.find((item) => Number(item.id) === Number(id));
+    return o?.nome || '';
+});
+
+const secretariasIntegraveisTransversal = computed(() => {
+    const sessao = orgaoIdDemanda.value;
+    if (!sessao) return orgaosCatalogo.value;
+    return orgaosCatalogo.value.filter((s) => Number(s.id) !== Number(sessao));
+});
+
+const podeVincularServico = computed(() => acoesOperacionais.value.includes('vincular_servico'));
+const podeRecusaProtocolo = computed(() => acoesOperacionais.value.includes('recusa_protocolo'));
+const podeConclusaoParcial = computed(() => acoesOperacionais.value.includes('conclusao_parcial'));
+const podeDevolverProtocolo = computed(() => acoesOperacionais.value.includes('devolver_protocolo'));
+const podeConclusaoFinalOperacional = computed(() => acoesOperacionais.value.includes('conclusao_final'));
+
+const podeScatterGather = computed(
+    () =>
+        !bloqueioOperacaoAguardandoGestor.value &&
+        acoesOperacionais.value.some((a) => String(a).startsWith('scatter_'))
+);
+
+const processoScatterGatherAtivo = computed(
+    () =>
+        Boolean(estadoOperacional.value?.processo_scatter_gather) ||
+        podeScatterGather.value ||
+        (estadoOperacional.value?.nos_ativos ?? 0) > 0 ||
+        (estadoOperacional.value?.nos_usuario?.length ?? 0) > 0
+);
+
+const demandaScatterReferenciaId = computed(() => {
+    const ref = estadoOperacional.value?.demanda_scatter_id;
+    if (!ref || Number(ref) === Number(demanda.value?.id)) return null;
+    return Number(ref);
+});
+
+const exibirAvisoDemandaScatterParalela = computed(
+    () =>
+        demanda.value?.status === 'EM_EXECUCAO' &&
+        !podeScatterGather.value &&
+        demandaScatterReferenciaId.value != null
+);
+const nosUsuarioScatter = computed(() => estadoOperacional.value?.nos_usuario || []);
+const destinosOcupadosScatter = computed(
+    () => estadoOperacional.value?.destinos_nos_ativos || []
+);
+const gruposNosScatter = computed(
+    () => estadoOperacional.value?.grupos_nos_usuario || []
+);
+const gruposNosPainelScatter = computed(
+    () => estadoOperacional.value?.grupos_nos_painel || []
+);
+
+const orgaoLiderImediatoNome = computed(() => {
+    const ctx = estadoOperacional.value?.contexto_secretaria;
+    if (ctx?.orgao_lider_imediato_nome) return ctx.orgao_lider_imediato_nome;
+    return orgaoLiderTransversalNome.value;
+});
+
+const tipoOperacionalEspecial = computed(() =>
+    [TIPO_DEVOLUCAO_PROTOCOLO, TIPO_CONCLUSAO_PARCIAL].includes(formAndamento.value.tipo)
+);
+
+const exibirDestinosForm = computed(
+    () => demanda.value?.status === 'EM_EXECUCAO' && !tipoOperacionalEspecial.value
+);
+
+const podeOperarTramitacao = computed(
+    () =>
+        !bloqueioOperacaoAguardandoGestor.value &&
+        !somenteAcompanhamento.value &&
+        !isDevolutivaAlertaLeitura.value &&
+        !processoScatterGatherAtivo.value &&
+        !(usaFluxoOperacional.value && demanda.value?.status === 'EM_EXECUCAO') &&
+        (podeRegistrarAndamento.value ||
+            podeAbrirPernasTransversal.value ||
+            podeDevolverProtocolo.value ||
+            podeConclusaoParcial.value)
+);
+
+const formTemIntegrados = computed(() =>
+    temIntegradosDestinos(formAndamento.value.destinos, orgaoIdDemanda.value)
+);
+
+const labelBotaoTramitacao = computed(() => {
+    if (formAndamento.value.tipo === TIPO_DEVOLUCAO_PROTOCOLO) return 'Devolver ao Protocolo';
+    if (formAndamento.value.tipo === TIPO_CONCLUSAO_PARCIAL) return 'Registrar conclusão parcial';
+    if (formAndamento.value.tipo === 'CONCLUSAO') return 'Concluir operação (assinatura)';
+    if (formTemIntegrados.value && formAndamento.value.tipo) {
+        return 'Registrar andamento e abrir tramitação transversal';
+    }
+    if (formTemIntegrados.value) return 'Abrir tramitação transversal';
+    return 'Adicionar andamento';
+});
+
+const usaFluxoOperacional = computed(() =>
+    Boolean(demanda.value?.fluxo_roteamento || estadoOperacional.value?.fluxo_roteamento)
+);
+
+const superOsSeguidoraSemFluxoLocal = computed(
+    () =>
+        Boolean(superOs.value?.ativo && !superOs.value?.eh_lider && !demanda.value?.fluxo_roteamento)
+);
+
+const ehEntradaTendencia = computed(
+    () => estadoOperacional.value?.tipo_entrada === 'TENDENCIA' || demanda.value?.origem_vinculo === 'TENDENCIA'
+);
+
+const rotuloServicoOuTendencia = computed(() => {
+    if (ehEntradaTendencia.value) {
+        return demanda.value?.tendencia?.titulo || 'Demanda por tendência (fora da carta)';
+    }
+    return demanda.value?.servico?.nome || 'Serviço não vinculado';
+});
+
+const tiposTramitacaoFiltrados = computed(() => {
+    const tipos = [];
+    if (podeDevolverProtocolo.value) {
+        tipos.push({ label: 'Devolver ao Protocolo', value: TIPO_DEVOLUCAO_PROTOCOLO });
+    }
+    if (demanda.value?.status === 'EM_EXECUCAO') {
+        const base = tiposTramitacao.value.filter((t) => {
+            if (demanda.value?.fluxo_roteamento === FLUXO_TRANSVERSAL && t.value === 'CONCLUSAO') {
+                return false;
+            }
+            return true;
+        });
+        tipos.push(...base);
+        if (podeConclusaoParcial.value) {
+            tipos.push({ label: 'Conclusão parcial', value: TIPO_CONCLUSAO_PARCIAL });
+        }
+    }
+    return tipos;
+});
+
+const historicoTecnicoOperacional = computed(
+    () => estadoOperacional.value?.historico_tecnico || null
+);
+const conclusaoDialog = ref(false);
+const conclusaoPreview = ref(null);
+const conclusaoAssinatura = ref({ declaracaoAceita: false });
+const conclusaoResultado = ref(estadoInicialResultadoOperacional());
+const carregandoConclusaoPreview = ref(false);
 const pacoteDevolutiva = ref(null);
-const textoRespostaCidadao = ref('');
 
 const isVereadorAutor = computed(
     () =>
@@ -120,33 +449,156 @@ const isVereadorAutor = computed(
         demanda.value?.autor?.id === userStore.currentUser?.id
 );
 
-const podeConfirmarCiencia = computed(
-    () => demanda.value?.status === 'DEVOLVIDO_VEREADOR' && isVereadorAutor.value
+const mostrarConclusaoDigitalVereador = computed(
+    () =>
+        isVereadorAutor.value &&
+        pacoteDevolutiva.value &&
+        ['DEVOLVIDO_VEREADOR', 'FINALIZADO'].includes(demanda.value?.status)
 );
+
+const usaTimelineOperacional = computed(() => {
+    if (mostrarConclusaoDigitalVereador.value) return false;
+    const temTimeline = (estadoOperacional.value?.timeline?.length ?? 0) > 0;
+    if (isVereador.value) return temTimeline || usaFluxoOperacional.value;
+    return usaFluxoOperacional.value || temTimeline;
+});
+
+/** Timeline operacional — estado API (cluster unificado) ou tramitações locais / fallback vereador. */
+const timelineOperacionalExibicao = computed(() => {
+    const estado = estadoOperacional.value?.timeline;
+    if (!isVereador.value && Array.isArray(estado) && estado.length) {
+        return estado;
+    }
+    if (!isVereador.value && demanda.value?.tramitacoes?.length) {
+        return tramitacoesParaTimelineOperacional(
+            demanda.value.tramitacoes,
+            demanda.value.id
+        );
+    }
+    if (Array.isArray(estado) && estado.length) return estado;
+    if (!demanda.value?.tramitacoes?.length) return [];
+    return filtrarTramitacoesVereador(demanda.value.tramitacoes, demanda.value.status).map((t) => ({
+        id: t.id,
+        demanda_id: demanda.value.id,
+        tipo: t.tipo,
+        descricao: t.descricao,
+        metadata: {},
+        orgao_nome: t.orgao_nome,
+        orgao_id: null,
+        responsavel: null,
+        timestamp: t.timestamp,
+        ramificacao: null
+    }));
+});
+
+const timelineVereadorVisivel = computed(() =>
+    montarTimelineVereador(
+        timelineOperacionalExibicao.value,
+        historicoTecnicoOperacional.value || pacoteDevolutiva.value?.historico_tecnico,
+        demanda.value?.status,
+        demanda.value?.id,
+        estadoOperacional.value?.demanda_lider_id ||
+            demanda.value?.super_os?.lider_id ||
+            demanda.value?.id,
+        (items) => items,
+        true
+    )
+);
+
+const mostrarOperacionalTimeline = computed(() => {
+    if (isVereador.value) {
+        return timelineVereadorVisivel.value.length > 0;
+    }
+    if (mostrarConclusaoDigitalVereador.value) return false;
+    if (timelineOperacionalExibicao.value.length > 0) return true;
+    return (
+        usaFluxoOperacional.value &&
+        (estadoOperacional.value?.timeline?.length ?? 0) > 0
+    );
+});
+
+const descricaoExibicao = computed(() => {
+    const raw = demanda.value?.descricao || '';
+    if (!raw) return '';
+    if (usarDescricaoEstruturada.value || mostrarConclusaoDigitalVereador.value || isVereador.value) {
+        if (pareceHtmlRico(raw)) return raw;
+        return descricaoParaHtml(raw);
+    }
+    return raw;
+});
 
 const carregarPacoteDevolutiva = async () => {
     if (!demanda.value?.id) return;
-    if (!['DEVOLVIDO_VEREADOR', 'FINALIZADO', 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO'].includes(demanda.value.status)) {
+    const status = demanda.value.status;
+    const statusesPermitidos = isVereador.value
+        ? ['DEVOLVIDO_VEREADOR', 'FINALIZADO']
+        : ['DEVOLVIDO_VEREADOR', 'FINALIZADO', 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO'];
+    if (!statusesPermitidos.includes(status)) {
         pacoteDevolutiva.value = null;
         return;
     }
     try {
         const { data } = await ApiService.getPacoteDevolutiva(demanda.value.id);
         pacoteDevolutiva.value = data;
-        if (data?.texto_resposta_cidadao) {
-            textoRespostaCidadao.value = data.texto_resposta_cidadao;
-        }
     } catch {
         pacoteDevolutiva.value = demanda.value.pacote_devolutiva || null;
     }
 };
 
 const superOs = computed(() => demanda.value?.super_os || null);
+const orgaosIntegrados = computed(() => demanda.value?.orgaos_integrados || []);
+const temGeolocalizacaoDemanda = computed(
+    () => demanda.value?.latitude != null && demanda.value?.longitude != null
+);
+
+const verDemandaNoMapa = () => {
+    if (!demanda.value?.id || !temGeolocalizacaoDemanda.value) return;
+    router.push({ name: 'mapa-calor', query: { demanda_id: String(demanda.value.id) } });
+};
+
+const assinaturasParaTimelineOperacional = computed(() => {
+    if (isVereador.value && !mostrarConclusaoDigitalVereador.value) {
+        return pacoteDevolutiva.value?.assinaturas || demanda.value?.assinaturas || [];
+    }
+    return demanda.value?.assinaturas || [];
+});
+
+const gestorDespachoSelecionado = computed(() =>
+    gestorPorId(gestoresProtocolo.value, despachoAssinatura.value.gestor_protocolo_id)
+);
+const gestorDevolutivaSelecionado = computed(() =>
+    gestorPorId(gestoresProtocolo.value, formDevolutiva.value.gestor_protocolo_id)
+);
+
+const modoAssinaturaDespachoInicial = computed(() =>
+    modoPainelAssinaturaProtocolo(CONTEXTO_ASSINATURA.DESPACHO_INICIAL, userStore.currentUser, userStore)
+);
+
+const modoAssinaturaDevolutiva = computed(() => {
+    const ctx = usaEndpointConclusaoFinal.value
+        ? CONTEXTO_ASSINATURA.CONCLUSAO_FINAL
+        : CONTEXTO_ASSINATURA.DEVOLUTIVA;
+    const previewModo = devolutivaPreview.value?.modo_assinatura;
+    if (previewModo) return previewModo;
+    return modoPainelAssinaturaProtocolo(ctx, userStore.currentUser, userStore);
+});
+
+const exibirDescricaoTramitacao = (item) => descricaoTramitacaoParaExibicao(item?.descricao);
 
 const ehLiderSuperOs = computed(() => {
     if (!superOs.value?.ativo) return true;
     return superOs.value.eh_lider === true;
 });
+
+/** Super OS: secretaria deve operar na demanda líder (protocolada), não na seguidora. */
+const idDemandaOperacionalSuperOs = (d) => {
+    const so = d?.super_os;
+    if (!so?.ativo || !so.tramitacao_apenas_lider) return null;
+    if (so.eh_lider) return null;
+    const lid = so.lider_id;
+    if (!lid || Number(lid) === Number(d.id)) return null;
+    return Number(lid);
+};
 
 const podeAgirNaDemanda = computed(() => {
     if (!demanda.value || !userStore.currentUser) return false;
@@ -164,7 +616,11 @@ const podeAgirNaDemanda = computed(() => {
 });
 
 const podeIniciarExecucao = computed(
-    () => isSecretaria.value && demanda.value?.status === 'PROTOCOLADO' && ehLiderSuperOs.value
+    () =>
+        isSecretaria.value &&
+        demanda.value?.status === 'PROTOCOLADO' &&
+        ehLiderSuperOs.value &&
+        !usaFluxoOperacional.value
 );
 
 const abrirProcessoVinculado = (vincId) => {
@@ -188,18 +644,26 @@ const labelProcessoVinculado = (vinc) => {
 
 const iniciarExecucao = () => {
     confirm.require({
-        message: 'Deseja alterar o status da demanda para "Em Execução"? Um registro será adicionado ao histórico.',
-        header: 'Iniciar Execução',
+        message: 'A secretaria responsável iniciará a execução operacional deste processo.',
+        header: 'Iniciar execução',
         icon: 'pi pi-play',
         accept: async () => {
             try {
-                await ApiService.atualizarStatusDemanda(demanda.value.id, 'EM_EXECUCAO');
+                if (usaFluxoOperacional.value) {
+                    await ApiService.iniciarExecucaoOperacional(demanda.value.id);
+                } else {
+                    await ApiService.atualizarStatusDemanda(demanda.value.id, 'EM_EXECUCAO');
+                }
                 toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Execução iniciada.', life: 3000 });
-                // Recarrega a demanda para refletir a mudança de status e a nova tramitação
-                const response = await ApiService.getDemandaById(demanda.value.id);
-                demanda.value = response.data;
+                await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
             } catch (error) {
-                toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível iniciar a execução.', life: 3000 });
+                toast.add({
+                    severity: 'error',
+                    summary: 'Erro',
+                    detail: error?.response?.data?.detail || 'Não foi possível iniciar a execução.',
+                    life: 4000
+                });
             }
         }
     });
@@ -209,16 +673,18 @@ const timelineOrdenada = computed(() => {
     if (!demanda.value?.tramitacoes?.length) {
         return [];
     }
-    let items = [...demanda.value.tramitacoes];
-    if (isVereador.value) {
-        items = items.filter((t) => tramitacaoVisivelParaVereador(t.tipo));
-    }
+    let items = isVereador.value
+        ? filtrarTramitacoesVereador(demanda.value.tramitacoes, demanda.value.status)
+        : [...demanda.value.tramitacoes];
     return items.reverse();
 });
 
 const orgaoIdDemanda = computed(() => {
     const d = demanda.value;
     if (!d) return null;
+    if (isSecretaria.value && userStore.currentUser?.sinapse_orgao_id) {
+        return Number(userStore.currentUser.sinapse_orgao_id);
+    }
     return (
         d.sinapse_orgao_id ||
         d.secretaria_destino?.id ||
@@ -228,25 +694,90 @@ const orgaoIdDemanda = computed(() => {
     );
 });
 
+const orgaoAndamentoNome = computed(() => {
+    const id = orgaoIdDemanda.value;
+    if (!id) return '';
+    const perna = (estadoOperacional.value?.pernas_operacionais || []).find(
+        (p) => Number(p.sinapse_orgao_id) === Number(id)
+    );
+    if (perna?.orgao_nome) return perna.orgao_nome;
+    const o = orgaosCatalogo.value.find((item) => Number(item.id) === Number(id));
+    return o?.nome || '';
+});
+
+const podeRegistrarAndamento = computed(() => {
+    if (processoScatterGatherAtivo.value || podeScatterGather.value) return false;
+    if (!isSecretaria.value || demanda.value?.status !== 'EM_EXECUCAO') return false;
+    if (ehLiderSuperOs.value) return true;
+    const orgUser = userStore.currentUser?.sinapse_orgao_id;
+    if (!orgUser || !estadoOperacional.value?.usa_pernas_operacionais) return false;
+    const pernas =
+        estadoOperacional.value?.pernas_operacionais ||
+        estadoOperacional.value?.participantes_transversal ||
+        [];
+    return pernas.some(
+        (p) => Number(p.sinapse_orgao_id) === Number(orgUser) && !p.concluida && !p.conclusao_parcial
+    );
+});
+
 const carregarUnidadesSetor = async () => {
     const orgaoId = orgaoIdDemanda.value;
-    if (!orgaoId) {
-        unidadesSetor.value = [];
+    if (orgaoId && !formAndamento.value.destinos?.length) {
+        formAndamento.value.destinos = inicializarDestinosAndamento(orgaoId);
+    }
+};
+
+const carregarOrgaos = async () => {
+    if (orgaosCatalogo.value.length) return orgaosCatalogo.value;
+    try {
+        const { data } = await ApiService.getSecretarias();
+        orgaosCatalogo.value = Array.isArray(data) ? data : [];
+    } catch {
+        orgaosCatalogo.value = [];
+    }
+    return orgaosCatalogo.value;
+};
+
+const carregarEstadoOperacional = async () => {
+    if (!demanda.value?.id) {
+        estadoOperacional.value = null;
         return;
     }
+    carregandoEstadoOperacional.value = true;
     try {
-        const { data } = await ApiService.listarUnidadesAdministrativas({
-            sinapse_orgao_id: orgaoId,
-            ativo: true
-        });
-        const lista = Array.isArray(data) ? data : data?.results || [];
-        unidadesSetor.value = lista.map((u) => ({
-            label: u.sigla ? `${u.sigla} — ${u.nome}` : u.nome,
-            value: u.id
-        }));
+        const { data } = await ApiService.getEstadoOperacional(demanda.value.id);
+        estadoOperacional.value = data;
+        if (data?.status && demanda.value && demanda.value.status !== data.status) {
+            demanda.value = { ...demanda.value, status: data.status };
+        }
+        if (
+            data?.fluxo_roteamento &&
+            demanda.value &&
+            !demanda.value.fluxo_roteamento
+        ) {
+            const refreshed = await ApiService.getDemandaById(demanda.value.id);
+            demanda.value = refreshed.data;
+        }
     } catch {
-        unidadesSetor.value = [];
+        estadoOperacional.value = null;
+    } finally {
+        carregandoEstadoOperacional.value = false;
     }
+};
+
+const recarregarDemandaCompleta = async () => {
+    const id = demanda.value?.id || route.params.id;
+    if (!id) return;
+    const response = await ApiService.getDemandaById(id);
+    demanda.value = response.data;
+    await Promise.all([
+        carregarPacoteDevolutiva(),
+        carregarUnidadesSetor(),
+        carregarEstadoOperacional(),
+        isSecretaria.value || isGestor.value || podeOperarProtocoloCentral.value
+            ? carregarOrgaos()
+            : Promise.resolve()
+    ]);
 };
 
 const carregarDemanda = async (demandaId) => {
@@ -257,8 +788,22 @@ const carregarDemanda = async (demandaId) => {
     loading.value = true;
     try {
         const response = await ApiService.getDemandaById(demandaId);
+        const alvoOperacional = isSecretaria.value
+            ? idDemandaOperacionalSuperOs(response.data)
+            : null;
+        if (alvoOperacional) {
+            router.replace({ name: 'demandas-detalhes', params: { id: String(alvoOperacional) } });
+            return;
+        }
         demanda.value = response.data;
-        await Promise.all([carregarPacoteDevolutiva(), carregarUnidadesSetor()]);
+        await Promise.all([
+            carregarPacoteDevolutiva(),
+            carregarUnidadesSetor(),
+            carregarEstadoOperacional(),
+            isSecretaria.value || isGestor.value || podeOperarProtocoloCentral.value
+            ? carregarOrgaos()
+            : Promise.resolve()
+        ]);
     } catch (error) {
         console.error('Erro ao buscar detalhes da demanda:', error);
         toast.add({
@@ -281,34 +826,234 @@ watch(
 
 const carregarSecretarias = async () => {
     if (!isProtocoloPerfil.value) return;
-    try {
-        const { data } = await ApiService.getSecretarias();
-        todasSecretarias.value = data;
-    } catch {
-        todasSecretarias.value = [];
-    }
+    await carregarOrgaos();
+    todasSecretarias.value = orgaosCatalogo.value;
 };
 
-const abrirDialogoDespacho = () => {
+const despachoMultiOrgao = computed(() => despachoEhTransversal(formDespacho.value.destinos));
+
+const montarPayloadDespacho = () =>
+    payloadDespachoDestinos(formDespacho.value, orgaoCompetenteDespacho.value);
+
+const onAnexosRejeitadosForm = (msg) => {
+    toast.add({ severity: 'warn', summary: 'Anexos', detail: msg, life: 4000 });
+};
+
+const resumoDestinosAndamento = computed(() =>
+    resumoDestinosTexto(formAndamento.value.destinos, orgaosCatalogo.value)
+);
+
+const resumoDestinosDespacho = computed(() =>
+    resumoDestinosTexto(formDespacho.value.destinos, orgaosCatalogo.value)
+);
+
+
+
+const orgaoCompetenteDespacho = computed(() => {
     const d = demanda.value;
-    despachoData.value = {
-        secretaria_id:
-            d?.servico?.secretaria_responsavel?.id ||
-            d?.secretaria_destino?.id ||
-            d?.sinapse_orgao_id ||
-            null
-    };
+    if (!d) return null;
+    return (
+        d.servico?.secretaria_responsavel?.id ||
+        d.secretaria_destino?.id ||
+        d.sinapse_orgao_id ||
+        despachoPreview.value?.orgao_competente_id ||
+        null
+    );
+});
+
+const orgaoCompetenteNome = computed(() => {
+    const d = demanda.value;
+    const nome =
+        d?.servico?.secretaria_responsavel?.nome ||
+        d?.secretaria_destino?.nome ||
+        despachoPreview.value?.orgao_competente_nome;
+    if (nome) return nome;
+    const id = orgaoCompetenteDespacho.value;
+    const sec = todasSecretarias.value.find((s) => s.id === id);
+    return sec?.nome || (id ? `Órgão #${id}` : '—');
+});
+
+const secretariasIntegraveis = computed(() => {
+    const excluir = orgaoCompetenteDespacho.value;
+    if (!excluir) return todasSecretarias.value;
+    return todasSecretarias.value.filter((s) => s.id !== excluir);
+});
+
+const podeMontarDespacho = () => {
+    const payload = montarPayloadDespacho();
+    if (!payload.destinos?.length && !payload.secretaria_id) return false;
+    const validacao = formDespachoRef.value?.validarDestinos?.();
+    if (validacao && !validacao.ok) return false;
+    const totalPernas =
+        formDespachoRef.value?.contarPernasValidas?.() ??
+        contarPernasDestinos(formDespacho.value.destinos);
+    return totalPernas > 0 && totalPernas <= MAX_PERNAS_DESPACHO;
+};
+
+const detalheErroDespachoSetores = () =>
+    formDespachoRef.value?.validarDestinos?.()?.mensagem ||
+    'Informe o órgão competente e selecione os setores de destino.';
+
+const abrirDialogoDespachoInterno = async () => {
+    formDespacho.value = estadoFormularioTramitacao({
+        destinos: inicializarDestinosDespacho(orgaoCompetenteDespacho.value)
+    });
+    despachoPreview.value = null;
+    despachoAssinatura.value = { declaracaoOperador: false, declaracaoGestor: false, gestor_protocolo_id: null };
+    await carregarOrgaos();
+    todasSecretarias.value = orgaosCatalogo.value;
+    try {
+        const { data } = await ApiService.getGestoresProtocolo();
+        gestoresProtocolo.value = Array.isArray(data) ? data : [];
+    } catch {
+        gestoresProtocolo.value = [];
+    }
     despachoDialog.value = true;
 };
 
-const confirmarDespacho = async () => {
-    if (!despachoData.value.secretaria_id) {
-        toast.add({ severity: 'warn', summary: 'Atenção', detail: 'Selecione a secretaria de destino.', life: 3000 });
+const abrirDialogoDespacho = async () => {
+    if (isProtocoloPerfil.value && demanda.value?.cluster?.id) {
+        try {
+            const { data } = await ApiService.getClusterSituacaoAderencia(demanda.value.id);
+            if (data?.exibir_decisao) {
+                clusterAderenciaSituacao.value = data;
+                clusterAderenciaDialog.value = true;
+                return;
+            }
+        } catch {
+            /* segue fluxo unitário */
+        }
+    }
+    await abrirDialogoDespachoInterno();
+};
+
+const confirmarAderenciaCluster = async () => {
+    if (!demanda.value?.id) return;
+    clusterAderenciaLoading.value = true;
+    try {
+        const { data } = await ApiService.aderirClusterLider(demanda.value.id);
+        demanda.value = data;
+        toast.add({
+            severity: 'success',
+            summary: 'Integrada ao líder',
+            detail: `Demanda integrada ao processo líder. Protocolo executivo: ${data?.protocolo_executivo || '—'}.`,
+            life: 5000
+        });
+        clusterAderenciaDialog.value = false;
+        clusterAderenciaSituacao.value = null;
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível integrar ao processo líder.',
+            life: 4000
+        });
+    } finally {
+        clusterAderenciaLoading.value = false;
+    }
+};
+
+const confirmarDesvincularClusterDespacho = async () => {
+    if (!demanda.value?.id) return;
+    clusterAderenciaLoading.value = true;
+    try {
+        const { data } = await ApiService.desvincularDemandaClusterIndividual(demanda.value.id);
+        demanda.value = data;
+        clusterAderenciaDialog.value = false;
+        clusterAderenciaSituacao.value = null;
+        await abrirDialogoDespachoInterno();
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível desvincular a demanda do cluster.',
+            life: 4000
+        });
+    } finally {
+        clusterAderenciaLoading.value = false;
+    }
+};
+
+const gerarPreviewDespacho = async () => {
+    if (!podeMontarDespacho()) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Atenção',
+            detail: detalheErroDespachoSetores(),
+            life: 4000
+        });
         return;
     }
+    carregandoDespachoPreview.value = true;
     try {
-        await ApiService.despacharDemanda(demanda.value.id, despachoData.value);
-        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Demanda despachada.', life: 3000 });
+        const { data } = await ApiService.previewDespachoDemanda(demanda.value.id, montarPayloadDespacho());
+        despachoPreview.value = data;
+        if (data.gestores_protocolo?.length) {
+            gestoresProtocolo.value = data.gestores_protocolo;
+        }
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível gerar a prévia de assinatura.',
+            life: 4000
+        });
+    } finally {
+        carregandoDespachoPreview.value = false;
+    }
+};
+
+const confirmarDespacho = async () => {
+    if (!podeMontarDespacho()) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Atenção',
+            detail: detalheErroDespachoSetores(),
+            life: 4000
+        });
+        return;
+    }
+    const textoDespacho = (formDespacho.value.descricao || '').trim();
+    if (textoDespacho.length < 10) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Despacho',
+            detail: 'Informe o texto do despacho do protocolo (mínimo 10 caracteres).',
+            life: 4000
+        });
+        return;
+    }
+    if (!despachoPreview.value?.hash_documento) {
+        await gerarPreviewDespacho();
+        if (!despachoPreview.value?.hash_documento) return;
+    }
+    assinaturaDespachoDialogVisible.value = true;
+};
+
+const executarDespachoComAssinatura = async (payloadAssinatura) => {
+    executandoAssinatura.value = true;
+    try {
+        const { data } = await ApiService.despacharDemanda(
+            demanda.value.id,
+            {
+                ...montarPayloadDespacho(),
+                ...payloadAssinatura
+            },
+            despachoAnexos.value
+        );
+        let detail =
+            data.mensagem ||
+            (data.aguardando_validacao_gestor
+                ? 'Assinatura registrada. O despacho só será executado após validação do gestor em Assinaturas pendentes.'
+                : 'Demanda despachada com assinatura eletrônica.');
+        if (data.demandas_desdobradas?.length) {
+            const extras = data.demandas_desdobradas.map((d) => d.protocolo_executivo).join(', ');
+            detail += ` Desdobramentos: ${extras}.`;
+        }
+        toast.add({ severity: 'success', summary: 'Sucesso', detail, life: 5000 });
+        assinaturaDespachoDialogVisible.value = false;
         despachoDialog.value = false;
         await carregarDemanda(demanda.value.id);
     } catch (error) {
@@ -318,6 +1063,8 @@ const confirmarDespacho = async () => {
             detail: error?.response?.data?.detail || 'Não foi possível despachar.',
             life: 4000
         });
+    } finally {
+        executandoAssinatura.value = false;
     }
 };
 
@@ -389,112 +1136,500 @@ const formatarData = (timestamp) => {
 };
 
 const limparFormularioTramitacao = () => {
-    novaTramitacao.value.tipo = null;
-    novaTramitacao.value.descricao = '';
-    novaTramitacao.value.anexos_arquivos = [];
-    novaTramitacao.value.unidade_destino_id = null;
-};
-
-const adicionarTramitacao = () => {
-    if (!novaTramitacao.value.tipo || !novaTramitacao.value.descricao) {
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Preencha o tipo e a descrição da tramitação.', life: 3000 });
-        return;
-    }
-
-    const tipoLabel = tiposTramitacao.value.find((t) => t.value === novaTramitacao.value.tipo)?.label || 'Andamento';
-    const mensagemConclusao =
-        'A conclusão operacional encaminha automaticamente a demanda ao Protocolo para devolutiva ao(s) vereador(es). O processo seguirá até o encerramento legislativo. Confirma o envio?';
-    const mensagemPadrao =
-        'Após registrar, este andamento não poderá ser editado. Confirma o envio para a timeline da demanda?';
-
-    confirm.require({
-        message: novaTramitacao.value.tipo === 'CONCLUSAO' ? mensagemConclusao : mensagemPadrao,
-        header: novaTramitacao.value.tipo === 'CONCLUSAO' ? 'Confirmar conclusão operacional' : 'Confirmar andamento',
-        icon: 'pi pi-send',
-        acceptLabel: 'Sim, enviar',
-        rejectLabel: 'Cancelar',
-        accept: () => {
-            if (novaTramitacao.value.tipo === 'CONCLUSAO') {
-                salvarTramitacaoESolicitarDevolutiva();
-            } else {
-                salvarTramitacaoEFinalizar(false);
-            }
-        }
+    formAndamento.value = estadoFormularioTramitacao({
+        destinos: inicializarDestinosAndamento(orgaoIdDemanda.value)
     });
 };
 
-const salvarTramitacaoESolicitarDevolutiva = async () => {
-    const formData = new FormData();
-    formData.append('demanda', demanda.value.id);
-    formData.append('tipo', 'CONCLUSAO');
-    formData.append('descricao', novaTramitacao.value.descricao);
-    novaTramitacao.value.anexos_arquivos.forEach((file) => {
-        formData.append('arquivos_anexos', file);
-    });
-    if (novaTramitacao.value.unidade_destino_id) {
-        formData.append('unidade_destino_id', novaTramitacao.value.unidade_destino_id);
+const parecerOperacionalTexto = () => {
+    const raw = formAndamento.value.descricao || '';
+    if (typeof document !== 'undefined') {
+        const el = document.createElement('div');
+        el.innerHTML = raw;
+        return (el.textContent || el.innerText || '').replace(/\s+/g, ' ').trim();
     }
-    try {
-        await ApiService.createTramitacao(formData);
-        await ApiService.solicitarDevolutiva(demanda.value.id, {
-            parecer_operacional: novaTramitacao.value.descricao
-        });
+    return raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+};
+
+const abrirDialogoConclusao = () => {
+    if (parecerOperacionalTexto().length < 10) {
         toast.add({
-            severity: 'success',
-            summary: 'Devolutiva solicitada',
-            detail: 'O Protocolo receberá a demanda para despacho ao vereador.',
+            severity: 'warn',
+            summary: 'Parecer obrigatório',
+            detail: 'Informe o parecer operacional na descrição (mín. 10 caracteres).',
             life: 4000
         });
-        const response = await ApiService.getDemandaById(demanda.value.id);
-        demanda.value = response.data;
+        return;
+    }
+    conclusaoPreview.value = null;
+    conclusaoAssinatura.value = { declaracaoAceita: false };
+    conclusaoResultado.value = estadoInicialResultadoOperacional();
+    conclusaoDialog.value = true;
+};
+
+const gerarPreviewConclusao = async () => {
+    const parecer = parecerOperacionalTexto();
+    if (parecer.length < 10) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Parecer obrigatório',
+            detail: 'Informe o parecer operacional (mín. 10 caracteres).',
+            life: 4000
+        });
+        return false;
+    }
+    carregandoConclusaoPreview.value = true;
+    try {
+        const { data } = await ApiService.previewConclusaoSecretaria(demanda.value.id, {
+            parecer_operacional: parecer
+        });
+        conclusaoPreview.value = data;
+        return true;
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível gerar a prévia de assinatura.',
+            life: 4000
+        });
+        return false;
+    } finally {
+        carregandoConclusaoPreview.value = false;
+    }
+};
+
+const confirmarConclusaoComAssinatura = async () => {
+    const parecer = parecerOperacionalTexto();
+    if (parecer.length < 10) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Parecer obrigatório',
+            detail: 'Informe o parecer operacional (mín. 10 caracteres).',
+            life: 4000
+        });
+        return;
+    }
+    const erroResultado = validarResultadoOperacional(conclusaoResultado.value);
+    if (erroResultado) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Resultado operacional',
+            detail: erroResultado,
+            life: 4000
+        });
+        return;
+    }
+    if (!conclusaoPreview.value?.hash_documento) {
+        const ok = await gerarPreviewConclusao();
+        if (!ok) return;
+    }
+    assinaturaConclusaoDialogVisible.value = true;
+};
+
+const executarConclusaoComAssinatura = async (payloadAssinatura) => {
+    const parecer = parecerOperacionalTexto();
+    const payloadResultado = payloadResultadoOperacional(conclusaoResultado.value);
+    executandoAssinatura.value = true;
+    try {
+        if (demanda.value?.fluxo_roteamento === 'FLUXO_DIRETO') {
+            if (formAndamento.value.anexos?.length) {
+                const formData = new FormData();
+                formData.append('demanda', demanda.value.id);
+                formData.append('tipo', 'COMENTARIO');
+                formData.append('descricao', formAndamento.value.descricao || 'Anexos da conclusão operacional.');
+                formAndamento.value.anexos.forEach((file) => {
+                    formData.append('arquivos_anexos', file);
+                });
+                await ApiService.createTramitacao(formData);
+            }
+            await ApiService.conclusaoTecnicaOperacional(demanda.value.id, {
+                parecer_operacional: parecer,
+                hash_documento: payloadAssinatura.hash_documento,
+                declaracao: payloadAssinatura.declaracao || DECLARACAO_CONCLUSAO,
+                ...payloadResultado
+            });
+        } else {
+            const formData = new FormData();
+            formData.append('demanda', demanda.value.id);
+            formData.append('tipo', 'CONCLUSAO');
+            formData.append('descricao', formAndamento.value.descricao);
+            formAndamento.value.anexos?.forEach((file) => {
+                formData.append('arquivos_anexos', file);
+            });
+            if (formAndamento.value.unidade_destino_id) {
+                formData.append('unidade_destino_id', formAndamento.value.unidade_destino_id);
+            }
+            await ApiService.createTramitacao(formData);
+            await ApiService.solicitarDevolutiva(demanda.value.id, {
+                parecer_operacional: parecer,
+                hash_documento: payloadAssinatura.hash_documento,
+                declaracao: payloadAssinatura.declaracao || DECLARACAO_CONCLUSAO,
+                ...payloadResultado
+            });
+        }
+        toast.add({
+            severity: 'success',
+            summary: 'Conclusão assinada',
+            detail:
+                'Assinatura registrada. A conclusão só será encaminhada após validação do gestor do setor em Assinaturas pendentes.',
+            life: 5000
+        });
+        assinaturaConclusaoDialogVisible.value = false;
+        conclusaoDialog.value = false;
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
         limparFormularioTramitacao();
     } catch (error) {
         toast.add({
             severity: 'error',
             summary: 'Erro',
-            detail: error?.response?.data?.detail || 'Não foi possível solicitar a devolutiva.',
+            detail: error?.response?.data?.detail || 'Não foi possível concluir.',
+            life: 4000
+        });
+    } finally {
+        executandoAssinatura.value = false;
+    }
+};
+
+const adicionarTramitacao = () => {
+    const descricao = (formAndamento.value.descricao || '').trim();
+    const temIntegrados = formTemIntegrados.value;
+    const tipo = formAndamento.value.tipo;
+
+    if (tipo === TIPO_DEVOLUCAO_PROTOCOLO) {
+        if (descricao.length < 10) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Justificativa',
+                detail: 'Informe a justificativa (mín. 10 caracteres).',
+                life: 3000
+            });
+            return;
+        }
+        confirm.require({
+            message:
+                'Devolver ao Protocolo para novo roteamento? A secretaria deixará de operar este processo até novo despacho.',
+            header: 'Devolução ao Protocolo',
+            icon: 'pi pi-replay',
+            accept: () => executarTramitacaoConfirmada({ assinar_eletronicamente: false })
+        });
+        return;
+    }
+
+    if (tipo === TIPO_CONCLUSAO_PARCIAL) {
+        if (descricao.length < 10) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Parecer',
+                detail: 'Informe o parecer parcial (mín. 10 caracteres).',
+                life: 3000
+            });
+            return;
+        }
+        confirm.require({
+            message: `Registrar conclusão parcial encaminhada a ${orgaoLiderImediatoNome.value || 'secretaria líder'}?`,
+            header: 'Conclusão parcial',
+            icon: 'pi pi-check',
+            accept: () => executarTramitacaoConfirmada({ assinar_eletronicamente: false })
+        });
+        return;
+    }
+
+    if (temIntegrados && !descricao) {
+        toast.add({
+            severity: 'error',
+            summary: 'Descrição obrigatória',
+            detail: 'Descreva o encaminhamento transversal ou o andamento.',
+            life: 3000
+        });
+        return;
+    }
+    if (!temIntegrados && (!formAndamento.value.tipo || !descricao)) {
+        toast.add({ severity: 'error', summary: 'Erro', detail: 'Preencha o tipo e a descrição da tramitação.', life: 3000 });
+        return;
+    }
+    if (temIntegrados && contarPernasDestinos(formAndamento.value.destinos) > MAX_PERNAS_DESPACHO) {
+        toast.add({
+            severity: 'error',
+            summary: 'Limite excedido',
+            detail: `Máximo de ${MAX_PERNAS_DESPACHO} pernas por tramitação.`,
+            life: 4000
+        });
+        return;
+    }
+    if (temIntegrados) {
+        const validacao = formAndamentoRef.value?.validarDestinos?.();
+        if (validacao && !validacao.ok) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Setor obrigatório',
+                detail: validacao.mensagem || 'Selecione o setor de cada órgão integrado.',
+                life: 4000
+            });
+            return;
+        }
+        const totalPernas = formAndamentoRef.value?.contarPernasValidas?.() ?? 0;
+        if (totalPernas <= 0) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Setor obrigatório',
+                detail: 'Selecione ao menos um setor para cada órgão integrado.',
+                life: 4000
+            });
+            return;
+        }
+    }
+
+    if (formAndamento.value.tipo === 'CONCLUSAO') {
+        if (temIntegrados) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Ação inválida',
+                detail: 'Remova os órgãos integrados antes de registrar conclusão.',
+                life: 4000
+            });
+            return;
+        }
+        abrirDialogoConclusao();
+        return;
+    }
+
+    confirmTramitacaoVisible.value = true;
+};
+
+const executarTramitacaoConfirmada = async ({ assinar_eletronicamente }) => {
+    pendingAssinarTramitacao.value = assinar_eletronicamente;
+    formAndamento.value.assinar_eletronicamente = assinar_eletronicamente;
+    await salvarTramitacaoEFinalizar();
+};
+
+const salvarTramitacaoEFinalizar = async () => {
+    const temIntegrados = formTemIntegrados.value;
+    const descricao = formAndamento.value.descricao;
+    const tipo = formAndamento.value.tipo;
+
+    try {
+        if (tipo === TIPO_DEVOLUCAO_PROTOCOLO) {
+            await ApiService.devolverProtocoloOperacional(demanda.value.id, {
+                justificativa: descricao
+            });
+            toast.add({
+                severity: 'success',
+                summary: 'Devolvido',
+                detail: 'Processo retornou à fila do Protocolo.',
+                life: 4000
+            });
+            await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+            limparFormularioTramitacao();
+            return;
+        }
+
+        if (tipo === TIPO_CONCLUSAO_PARCIAL) {
+            const anexos = formAndamento.value.anexos || [];
+            if (anexos.length) {
+                const formData = new FormData();
+                formData.append('demanda', demanda.value.id);
+                formData.append('tipo', 'COMENTARIO');
+                formData.append('descricao', 'Anexos da conclusão parcial operacional.');
+                anexos.forEach((file) => formData.append('arquivos_anexos', file));
+                await ApiService.createTramitacao(formData);
+            }
+            const { data } = await ApiService.conclusaoParcialOperacional(demanda.value.id, {
+                parecer_operacional: descricao
+            });
+            toast.add({
+                severity: 'success',
+                summary: 'Conclusão parcial',
+                detail: data?.operacional?.processo_avancou
+                    ? 'Todas as secretarias concluíram — processo encaminhado ao Protocolo para conclusão final.'
+                    : 'Conclusão parcial registrada para sua secretaria. O processo aguarda as demais secretarias integradas.',
+                life: 5000
+            });
+            await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+            limparFormularioTramitacao();
+            return;
+        }
+
+        if (temIntegrados) {
+            const payload = destinosParaPayload(formAndamento.value, orgaoIdDemanda.value);
+            await ApiService.abrirPernasTransversal(demanda.value.id, {
+                ...payload,
+                observacao: descricao
+            });
+        }
+
+        if (formAndamento.value.tipo) {
+            const formData = new FormData();
+            formData.append('demanda', demanda.value.id);
+            formData.append('tipo', formAndamento.value.tipo);
+            formData.append('descricao', descricao);
+            formAndamento.value.anexos?.forEach((file) => {
+                formData.append('arquivos_anexos', file);
+            });
+            const destino = destinoAndamentoPayload(formAndamento.value);
+            if (destino.unidade_destino_id) {
+                formData.append('unidade_destino_id', destino.unidade_destino_id);
+            }
+            await ApiService.createTramitacao(formData);
+        }
+
+        const msg =
+            temIntegrados && formAndamento.value.tipo
+                ? 'Tramitação transversal e andamento registrados!'
+                : temIntegrados
+                  ? 'Tramitação transversal aberta — secretarias integradas notificadas na timeline.'
+                  : 'Andamento registrado!';
+        toast.add({ severity: 'success', summary: 'Sucesso', detail: msg, life: 4000 });
+
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+        limparFormularioTramitacao();
+    } catch (error) {
+        console.error('Erro ao salvar tramitação:', error);
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível registrar a tramitação.',
             life: 4000
         });
     }
 };
 
-const salvarTramitacaoEFinalizar = async (finalizarDemanda = false) => {
-    const formData = new FormData();
-    formData.append('demanda', demanda.value.id);
-    formData.append('tipo', novaTramitacao.value.tipo);
-    formData.append('descricao', novaTramitacao.value.descricao);
-    novaTramitacao.value.anexos_arquivos.forEach((file) => {
-        formData.append('arquivos_anexos', file);
-    });
-    if (novaTramitacao.value.unidade_destino_id) {
-        formData.append('unidade_destino_id', novaTramitacao.value.unidade_destino_id);
+const onScatterGatherSuccess = async (data) => {
+    const avancou = data?.processo_avancou;
+    const aguardandoGestor = data?.aguardando_validacao_gestor;
+    const parcial = data?.encerramento_parcial;
+    const bloqueados = data?.nos_bloqueados || [];
+    const encerrados = data?.nos_encerrados || [];
+    const houveEncerramento = Array.isArray(encerrados) && encerrados.length > 0;
+
+    if (parcial && bloqueados.length) {
+        const idsEnc = encerrados.map((n) => n.id).join(', #');
+        const idsBloc = bloqueados.map((b) => b.no_id).join(', #');
+        toast.add({
+            severity: 'warn',
+            summary: 'Encerramento parcial',
+            detail: idsEnc
+                ? `Encerrado(s): #${idsEnc}. Permanece(m) aberto(s): #${idsBloc} — há encaminhamentos filhos em outras secretarias.`
+                : `Alguns nós não puderam ser encerrados (#${idsBloc}).`,
+            life: 8000
+        });
+    } else {
+        toast.add({
+            severity: 'success',
+            summary: 'Operação registrada',
+            detail: aguardandoGestor
+                ? 'Assinatura registrada. O encerramento só será concluído após validação do gestor em Assinaturas pendentes.'
+                : avancou
+                  ? 'Todos os nós encerrados — processo aguardando conclusão final do Protocolo.'
+                  : 'Ação scatter-gather registrada na timeline.',
+            life: 5000
+        });
     }
+    if (data?.operacional) {
+        estadoOperacional.value = data.operacional;
+    }
+    await recarregarDemandaCompleta();
 
-    try {
-        await ApiService.createTramitacao(formData);
-
-        if (finalizarDemanda) {
-            await ApiService.solicitarDevolutiva(demanda.value.id, {
-                parecer_operacional: novaTramitacao.value.descricao
-            });
-        }
-
-        toast.add({ severity: 'success', summary: 'Sucesso', detail: 'Andamento registrado!', life: 3000 });
-
-        // Recarrega os dados da demanda para mostrar a nova tramitação e o novo status (se aplicável)
-        const response = await ApiService.getDemandaById(demanda.value.id);
-        demanda.value = response.data;
-
-        limparFormularioTramitacao();
-        await carregarUnidadesSetor();
-    } catch (error) {
-        console.error('Erro ao salvar andamento:', error);
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível salvar o andamento.', life: 3000 });
+    if (houveEncerramento && podeGerenciarAcompanhamento.value && !acompanhandoDemanda.value) {
+        confirm.require({
+            header: 'Acompanhar processo',
+            message:
+                'Deseja fixar este processo para acompanhamento gerencial? Você receberá alertas de prazo e marcos até a finalização.',
+            icon: 'pi pi-bookmark',
+            acceptLabel: 'Sim, acompanhar',
+            rejectLabel: 'Agora não',
+            accept: async () => {
+                try {
+                    const noId = encerrados[0]?.id;
+                    await ApiService.acompanharDemanda(demanda.value.id, {
+                        origem: 'ENCERRAMENTO',
+                        no_operacional_id: noId || undefined
+                    });
+                    await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+                    toast.add({
+                        severity: 'success',
+                        summary: 'Acompanhamento',
+                        detail: 'Processo fixado. Veja em «Acompanhando» na lista de protocolos.',
+                        life: 5000
+                    });
+                } catch (err) {
+                    toast.add({
+                        severity: 'warn',
+                        summary: 'Acompanhamento',
+                        detail: err?.response?.data?.detail || 'Não foi possível fixar o processo.',
+                        life: 4000
+                    });
+                }
+            }
+        });
     }
 };
 
-const onTramitacaoFilesSelected = (event) => {
-    novaTramitacao.value.anexos_arquivos = event.files;
+const onScatterGatherError = (msg) => {
+    toast.add({
+        severity: 'error',
+        summary: 'Scatter-gather',
+        detail: msg || 'Não foi possível registrar a operação.',
+        life: 4000
+    });
+};
+
+const fixarAcompanhamento = async () => {
+    if (!demanda.value?.id) return;
+    try {
+        await ApiService.acompanharDemanda(demanda.value.id, { origem: 'MANUAL' });
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+        toast.add({
+            severity: 'success',
+            summary: 'Acompanhamento',
+            detail: 'Processo fixado para acompanhamento.',
+            life: 4000
+        });
+    } catch (err) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Acompanhamento',
+            detail: err?.response?.data?.detail || 'Não foi possível fixar o processo.',
+            life: 4000
+        });
+    }
+};
+
+const desfixarAcompanhamento = () => {
+    if (!demanda.value?.id) return;
+    confirm.require({
+        header: 'Desfixar processo',
+        message: 'Deseja parar de acompanhar este processo? Você deixará de receber alertas de prazo e marcos.',
+        icon: 'pi pi-bookmark',
+        acceptLabel: 'Desfixar',
+        rejectLabel: 'Cancelar',
+        acceptClass: 'p-button-danger',
+        accept: async () => {
+            try {
+                await ApiService.desacompanharDemanda(demanda.value.id);
+                await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+                toast.add({
+                    severity: 'info',
+                    summary: 'Acompanhamento',
+                    detail: 'Processo desfixado.',
+                    life: 4000
+                });
+            } catch (err) {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Acompanhamento',
+                    detail: err?.response?.data?.detail || 'Não foi possível desfixar.',
+                    life: 4000
+                });
+            }
+        }
+    });
 };
 
 const getTimelineIcon = (tipoDisplay) => {
@@ -517,19 +1652,114 @@ const getTimelineIcon = (tipoDisplay) => {
     return map[tipoDisplay] || { icon: 'pi pi-info-circle', color: 'avatar-gray' };
 };
 
+const textoDevolutivaLimpo = (html) => (html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+
+const invalidarPreviewDevolutiva = () => {
+    devolutivaPreview.value = null;
+    devolutivaAssinatura.value = {
+        declaracaoOperador: false,
+        declaracaoGestor: false,
+        gestor_protocolo_id: null
+    };
+};
+
 const despacharDevolutiva = async () => {
-    if ((devolutivaResposta.value || '').trim().length < 10) {
-        toast.add({ severity: 'warn', summary: 'Resposta obrigatória', detail: 'Informe a devolutiva ao vereador (mín. 10 caracteres).', life: 3000 });
+    const parecer = formDevolutiva.value.parecer_resposta || '';
+    const validacaoAlerta = formDevolutivaRef.value?.validarAlertaDestinos?.();
+    if (validacaoAlerta && !validacaoAlerta.ok) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Alerta de devolutiva',
+            detail: validacaoAlerta.mensagem || 'Selecione o setor de cada órgão no alerta.',
+            life: 4000
+        });
         return;
     }
-    try {
-        await ApiService.despacharDevolutiva(demanda.value.id, {
-            parecer_resposta: devolutivaResposta.value
+    if (textoDevolutivaLimpo(parecer).length < 10) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Resposta obrigatória',
+            detail: 'Informe a devolutiva ao vereador (mín. 10 caracteres).',
+            life: 3000
         });
-        toast.add({ severity: 'success', summary: 'Devolutiva enviada', detail: 'Vereador notificado.', life: 3000 });
-        devolutivaResposta.value = '';
-        const response = await ApiService.getDemandaById(demanda.value.id);
-        demanda.value = response.data;
+        return;
+    }
+    if (!devolutivaPreview.value?.hash_documento) {
+        carregandoDevolutivaPreview.value = true;
+        try {
+            const previewFn = usaEndpointConclusaoFinal.value
+                ? () =>
+                      ApiService.previewConclusaoFinalOperacional(demanda.value.id, {
+                          parecer_resposta: parecer
+                      })
+                : () =>
+                      ApiService.previewDespachoDevolutiva(demanda.value.id, {
+                          parecer_resposta: parecer
+                      });
+            const { data } = await previewFn();
+            devolutivaPreview.value = data;
+            if (data.gestores_protocolo?.length) {
+                gestoresProtocolo.value = data.gestores_protocolo;
+            }
+        } catch (error) {
+            toast.add({
+                severity: 'error',
+                summary: 'Erro',
+                detail: error?.response?.data?.detail || 'Não foi possível gerar a prévia.',
+                life: 4000
+            });
+            return;
+        } finally {
+            carregandoDevolutivaPreview.value = false;
+        }
+    }
+    assinaturaDevolutivaDialogVisible.value = true;
+};
+
+const executarDevolutivaComAssinatura = async (payloadAssinatura) => {
+    executandoAssinatura.value = true;
+    try {
+        const formComGestor = {
+            ...formDevolutiva.value,
+            gestor_protocolo_id: payloadAssinatura.gestor_protocolo_id
+        };
+        const declaracaoOp = usaEndpointConclusaoFinal.value ? DECLARACAO_CONCLUSAO_FINAL : DECLARACAO_DEVOLUTIVA;
+        const payload = {
+            ...buildDevolutivaPayload(
+                formComGestor,
+                payloadAssinatura.hash_documento || devolutivaPreview.value.hash_documento,
+                {
+                    declaracaoOperadorText: declaracaoOp,
+                    declaracaoGestorText: DECLARACAO_GESTOR_PROTOCOLO
+                },
+                modoAssinaturaDevolutiva.value
+            ),
+            ...payloadAssinatura
+        };
+        const arquivos = formDevolutiva.value.anexos_novos || [];
+        if (usaEndpointConclusaoFinal.value) {
+            await ApiService.conclusaoFinalOperacional(demanda.value.id, payload, arquivos);
+        } else {
+            await ApiService.despacharDevolutiva(demanda.value.id, payload, arquivos);
+        }
+        toast.add({
+            severity: 'success',
+            summary: usaEndpointConclusaoFinal.value ? 'Conclusão final registrada' : 'Devolutiva enviada',
+            detail: usaEndpointConclusaoFinal.value
+                ? 'Assinatura registrada. A conclusão final só será enviada ao vereador após validação do gestor em Assinaturas pendentes.'
+                : 'Demanda finalizada e vereador notificado.',
+            life: 5000
+        });
+        assinaturaDevolutivaDialogVisible.value = false;
+        formDevolutiva.value = estadoFormularioDevolutiva();
+        devolutivaPreview.value = null;
+        devolutivaAssinatura.value = {
+            declaracaoOperador: false,
+            declaracaoGestor: false,
+            gestor_protocolo_id: null
+        };
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
     } catch (error) {
         toast.add({
             severity: 'error',
@@ -537,6 +1767,39 @@ const despacharDevolutiva = async () => {
             detail: error?.response?.data?.detail || 'Não foi possível despachar a devolutiva.',
             life: 4000
         });
+    } finally {
+        executandoAssinatura.value = false;
+    }
+};
+
+const gerarPreviewDevolutivaDialog = async () => {
+    const parecer = formDevolutiva.value.parecer_resposta || '';
+    if (textoDevolutivaLimpo(parecer).length < 10) return;
+    carregandoDevolutivaPreview.value = true;
+    try {
+        const previewFn = usaEndpointConclusaoFinal.value
+            ? () =>
+                  ApiService.previewConclusaoFinalOperacional(demanda.value.id, {
+                      parecer_resposta: parecer
+                  })
+            : () =>
+                  ApiService.previewDespachoDevolutiva(demanda.value.id, {
+                      parecer_resposta: parecer
+                  });
+        const { data } = await previewFn();
+        devolutivaPreview.value = data;
+        if (data.gestores_protocolo?.length) {
+            gestoresProtocolo.value = data.gestores_protocolo;
+        }
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível gerar a prévia.',
+            life: 4000
+        });
+    } finally {
+        carregandoDevolutivaPreview.value = false;
     }
 };
 
@@ -563,46 +1826,124 @@ const encerrarDevolutiva = () => {
     });
 };
 
-const previewRespostaCidadao = async () => {
+const goBack = () => {
+    router.back();
+};
+
+const abrirVincularServico = async () => {
+    servicoVinculoId.value = demanda.value?.sinapse_servico_id || null;
+    vincularServicoDialog.value = true;
+    carregandoServicosCarta.value = true;
     try {
-        const { data } = await ApiService.previewRespostaCidadao(
-            demanda.value.id,
-            textoRespostaCidadao.value
-        );
-        const blob = new Blob([data], { type: 'application/pdf' });
-        window.open(URL.createObjectURL(blob), '_blank');
+        const { data } = await ApiService.getServicos();
+        const lista = Array.isArray(data) ? data : data?.results || [];
+        servicosCarta.value = lista.map((s) => ({
+            ...s,
+            label: s.nome || s.titulo || s.service_name || `Serviço #${s.id}`
+        }));
     } catch {
-        toast.add({ severity: 'error', summary: 'Erro', detail: 'Não foi possível gerar a pré-visualização.', life: 3000 });
+        servicosCarta.value = [];
+    } finally {
+        carregandoServicosCarta.value = false;
     }
 };
 
-const confirmarCienciaEncerramento = () => {
+const confirmarVincularServico = async () => {
+    if (!servicoVinculoId.value) {
+        toast.add({ severity: 'warn', summary: 'Serviço', detail: 'Selecione um serviço da carta.', life: 3000 });
+        return;
+    }
+    try {
+        await ApiService.vincularServicoOperacional(demanda.value.id, servicoVinculoId.value);
+        toast.add({ severity: 'success', summary: 'Vinculado', detail: 'Serviço associado — prossiga com o despacho.', life: 4000 });
+        vincularServicoDialog.value = false;
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível vincular o serviço.',
+            life: 4000
+        });
+    }
+};
+
+const confirmarRecusaProtocolo = async () => {
+    if ((recusaParecer.value || '').trim().length < 10) {
+        toast.add({ severity: 'warn', summary: 'Parecer', detail: 'Informe a justificativa (mín. 10 caracteres).', life: 3000 });
+        return;
+    }
+    try {
+        await ApiService.recusaProtocoloOperacional(demanda.value.id, { parecer: recusaParecer.value });
+        toast.add({ severity: 'success', summary: 'Recusa registrada', detail: 'Demanda devolvida ao vereador.', life: 4000 });
+        recusaDialog.value = false;
+        recusaParecer.value = '';
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível registrar a recusa.',
+            life: 4000
+        });
+    }
+};
+
+const emitirConclusaoParcial = async () => {
+    if ((parecerParcial.value || '').trim().length < 10) {
+        toast.add({ severity: 'warn', summary: 'Parecer', detail: 'Informe o parecer parcial (mín. 10 caracteres).', life: 3000 });
+        return;
+    }
+    try {
+        const { data } = await ApiService.conclusaoParcialOperacional(demanda.value.id, {
+            parecer_operacional: parecerParcial.value
+        });
+        toast.add({
+            severity: 'success',
+            summary: 'Conclusão parcial',
+            detail: data?.operacional?.processo_avancou
+                ? 'Todas as secretarias concluíram — aguardando Protocolo.'
+                : 'Parecer registrado nesta secretaria.',
+            life: 4000
+        });
+        parecerParcial.value = '';
+        await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível registrar a conclusão parcial.',
+            life: 4000
+        });
+    }
+};
+
+const devolverAoProtocolo = async () => {
+    if ((justificativaDevolucao.value || '').trim().length < 10) {
+        toast.add({ severity: 'warn', summary: 'Justificativa', detail: 'Informe a justificativa (mín. 10 caracteres).', life: 3000 });
+        return;
+    }
     confirm.require({
-        message:
-            'Confirma ciência da devolutiva, gera o ofício de resposta ao cidadão e encerra a demanda?',
-        header: 'Ciência e encerramento',
-        icon: 'pi pi-check-circle',
+        message: 'Devolver ao Protocolo para novo roteamento? A secretaria deixará de operar este processo até novo despacho.',
+        header: 'Devolução ao Protocolo',
+        icon: 'pi pi-replay',
         accept: async () => {
             try {
-                await ApiService.confirmarCiencia(demanda.value.id, {
-                    texto_resposta_cidadao: textoRespostaCidadao.value,
-                    gerar_oficio: true,
-                    encerrar: true
+                await ApiService.devolverProtocoloOperacional(demanda.value.id, {
+                    justificativa: justificativaDevolucao.value
                 });
-                toast.add({
-                    severity: 'success',
-                    summary: 'Ciclo concluído',
-                    detail: 'Ciência registrada e ofício ao cidadão gerado.',
-                    life: 4000
-                });
-                const response = await ApiService.getDemandaById(demanda.value.id);
-                demanda.value = response.data;
-                await carregarPacoteDevolutiva();
+                toast.add({ severity: 'success', summary: 'Devolvido', detail: 'Processo retornou à fila do Protocolo.', life: 4000 });
+                justificativaDevolucao.value = '';
+                await recarregarDemandaCompleta();
+        validacaoGestorBannerRef.value?.recarregar?.();
             } catch (error) {
                 toast.add({
                     severity: 'error',
                     summary: 'Erro',
-                    detail: error?.response?.data?.detail || 'Não foi possível concluir.',
+                    detail: error?.response?.data?.detail || 'Não foi possível devolver ao Protocolo.',
                     life: 4000
                 });
             }
@@ -610,9 +1951,9 @@ const confirmarCienciaEncerramento = () => {
     });
 };
 
-const goBack = () => {
-    router.back();
-};
+
+
+
 </script>
 
 <template>
@@ -629,6 +1970,13 @@ const goBack = () => {
                 <Message severity="secondary" icon="pi pi-file-check">
                     {{ demanda.protocolo_executivo || demanda.protocolo_legislativo || 'Rascunho' }}
                     <Tag :value="demanda.status_display" :severity="getStatusSeverity(demanda.status)" class="ml-2" />
+                    <Tag
+                        v-if="podeVerStandByExecutivo && demanda.stand_by_estudo_viabilidade"
+                        value="Stand-by (estudo)"
+                        severity="warn"
+                        icon="pi pi-pause-circle"
+                        class="ml-1"
+                    />
                 </Message>
                 <Button
                     v-if="podeDespacharProtocolo"
@@ -639,14 +1987,6 @@ const goBack = () => {
                     size="small"
                 />
                 <Button v-if="podeIniciarExecucao" label="Iniciar Execução" icon="pi pi-play" severity="success" @click="iniciarExecucao" size="small" />
-                <Button
-                    v-if="podeConfirmarCiencia"
-                    label="Confirmar ciência e encerrar"
-                    icon="pi pi-check-circle"
-                    severity="success"
-                    @click="confirmarCienciaEncerramento"
-                    size="small"
-                />
                 <Button
                     v-if="podeEncerrarDevolutiva && isProtocolo"
                     label="Encerrar (Protocolo)"
@@ -673,24 +2013,18 @@ const goBack = () => {
             </div>
         </div>
 
-        <Message
-            v-if="superOs?.ativo && isVereador"
-            severity="info"
-            class="mb-4"
-            :closable="false"
-        >
-            Seu processo integra a Super OS
-            <strong v-if="superOs.protocolo_super_os">{{ superOs.protocolo_super_os }}</strong>.
-            Acompanhe os andamentos da secretaria na linha do tempo abaixo.
-        </Message>
-
         <div v-if="mostrarCardSuperOs" class="card mb-4 super-os-card">
             <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
                 <div class="flex flex-wrap items-center gap-2">
                     <Tag
+                        v-if="superOs.tipo_display"
+                        :value="superOs.tipo_display"
+                        :severity="ehClusterMultiDestino ? 'help' : 'info'"
+                    />
+                    <Tag
                         v-if="superOs.protocolo_super_os"
                         :value="superOs.protocolo_super_os"
-                        severity="info"
+                        severity="secondary"
                     />
                     <span class="super-os-total">{{ superOs.total_vinculados }}</span>
                     <span class="text-sm text-muted-color">processos vinculados</span>
@@ -704,26 +2038,46 @@ const goBack = () => {
                     @click="router.push({ name: 'clusters', query: { id: String(superOs.cluster_id) } })"
                 />
             </div>
+            <p v-if="superOs.orgao_competente_nome || superOs.orgaos_envolvidos?.length" class="text-xs text-muted-color m-0 mb-2">
+                <template v-if="superOs.orgao_competente_nome">
+                    Órgão competente (carta): <strong>{{ superOs.orgao_competente_nome }}</strong>.
+                </template>
+                <template v-if="superOs.orgaos_envolvidos?.length > 1">
+                    Órgãos no grupo:
+                    {{ superOs.orgaos_envolvidos.map((o) => o.orgao_nome).join(', ') }}.
+                </template>
+            </p>
             <p class="text-xs text-muted-color m-0 mb-3">
-                <template v-if="superOs.eh_lider && isSecretaria">
+                <template v-if="ehClusterMultiDestino && isSecretaria">
+                    Despacho integrado multi-órgão — cada secretaria opera seu processo vinculado.
+                </template>
+                <template v-else-if="superOs.eh_lider && isSecretaria && superOs.ativo">
                     Andamentos registrados aqui são replicados nos processos abaixo.
                 </template>
-                <template v-else-if="!superOs.eh_lider && isSecretaria">
+                <template v-else-if="!superOs.eh_lider && isSecretaria && superOs.ativo && !podeScatterGather">
                     Processo vinculado — a tramitação operacional é feita na demanda líder
                     (#{{ superOs.lider_id }}).
+                    <Button
+                        v-if="demandaScatterReferenciaId && demandaScatterReferenciaId !== demanda.id"
+                        label="Abrir demanda operacional"
+                        icon="pi pi-external-link"
+                        link
+                        class="p-0 ml-1"
+                        @click="router.push({ name: 'demandas-detalhes', params: { id: String(demandaScatterReferenciaId) } })"
+                    />
                 </template>
                 <template v-else-if="isProtocoloPerfil">
                     Clique em um processo para abrir os detalhes. A demanda atual está destacada.
                 </template>
                 <template v-else>
-                    Processos agrupados nesta Super OS.
+                    Processos agrupados neste {{ tituloCardCluster.toLowerCase() }}.
                 </template>
             </p>
             <div class="flex flex-wrap gap-2">
                 <template v-for="vinc in superOs.demandas_vinculadas" :key="vinc.id">
                     <Button
                         v-if="processoVinculadoClicavel(vinc)"
-                        :label="`${vinc.id === superOs.lider_id ? 'Líder · ' : ''}${labelProcessoVinculado(vinc)}`"
+                        :label="`${vinc.id === superOs.lider_id ? 'Líder · ' : ''}${labelProcessoVinculado(vinc)}${vinc.orgao_nome && ehClusterMultiDestino ? ` · ${vinc.orgao_nome}` : ''}`"
                         size="small"
                         outlined
                         severity="secondary"
@@ -733,7 +2087,7 @@ const goBack = () => {
                     />
                     <Tag
                         v-else
-                        :value="`${vinc.id === demanda.id ? 'Atual · ' : ''}${vinc.id === superOs.lider_id ? 'Líder · ' : ''}${labelProcessoVinculado(vinc)}`"
+                        :value="`${vinc.id === demanda.id ? 'Atual · ' : ''}${vinc.id === superOs.lider_id ? 'Líder · ' : ''}${labelProcessoVinculado(vinc)}${vinc.orgao_nome && ehClusterMultiDestino ? ` · ${vinc.orgao_nome}` : ''}`"
                         :severity="vinc.id === demanda.id ? 'success' : vinc.id === superOs.lider_id ? 'info' : 'secondary'"
                         v-tooltip.top="vinc.status_display || vinc.status"
                     />
@@ -745,62 +2099,203 @@ const goBack = () => {
             Esta demanda está aguardando a análise do Protocolo para ser transferida para outra secretaria. Nenhuma outra ação pode ser realizada no momento.
         </Message>
 
-        <Message v-if="demanda.status === 'AGUARDANDO_PROTOCOLO' && isProtocoloPerfil" severity="warn" class="mb-4">
+        <ValidacaoGestorDemandaBanner
+            v-if="demanda"
+            ref="validacaoGestorBannerRef"
+            :demanda-id="demanda.id"
+            :assinaturas-resumo="assinaturasResumo"
+            :auto-abrir-validacao-id="route.query.validacao_assinatura"
+            @validated="recarregarDemandaCompleta"
+        />
+
+        <Message v-if="demanda.status === 'AGUARDANDO_PROTOCOLO' && isProtocoloPerfil && ehEntradaTendencia && !despachoAguardandoGestor" severity="warn" class="mb-4">
+            <div class="flex flex-col gap-3">
+                <span>
+                    Tendência aguardando triagem — vincule a um serviço da carta, despache manualmente ou recuse ao vereador.
+                </span>
+                <div class="flex flex-wrap gap-2">
+                    <Button v-if="podeVincularServico" label="Vincular serviço" icon="pi pi-link" size="small" @click="abrirVincularServico" />
+                    <Button v-if="podeRecusaProtocolo" label="Recusar ao vereador" icon="pi pi-times" severity="danger" size="small" outlined @click="recusaDialog = true" />
+                    <Button v-if="podeDespacharProtocolo" label="Despachar manualmente" icon="pi pi-send" severity="success" size="small" @click="abrirDialogoDespacho" />
+                </div>
+            </div>
+        </Message>
+
+        <Message v-else-if="demanda.status === 'AGUARDANDO_PROTOCOLO' && isProtocoloPerfil && !despachoAguardandoGestor" severity="warn" class="mb-4">
             Ofício aguardando despacho — use <strong>Enviar / Despachar</strong> para encaminhar à secretaria.
         </Message>
 
         <Message v-if="demanda.status === 'AGUARDANDO_DEVOLUTIVA_PROTOCOLO' && isProtocolo" severity="info" class="mb-4">
-            Devolutiva operacional recebida — despache a resposta ao vereador abaixo.
+            <template v-if="usaFluxoOperacional">
+                Conclusão técnica consolidada.
+            </template>
+            <template v-else>
+                Devolutiva operacional recebida.
+            </template>
         </Message>
 
-        <Message v-if="demanda.status === 'DEVOLVIDO_VEREADOR' && isVereadorAutor" severity="success" class="mb-4">
-            Devolutiva recebida do Protocolo. Revise o parecer abaixo, redija a resposta ao cidadão e confirme ciência para encerrar.
+        <Message v-if="mostrarConclusaoDigitalVereador" severity="success" class="mb-4">
+            O Protocolo concluiu este processo. Revise o laudo digital abaixo e, se desejar, responda à
+            pesquisa de satisfação.
         </Message>
 
-        <div v-if="pacoteDevolutiva && demanda.status === 'DEVOLVIDO_VEREADOR'" class="card mb-4">
-            <h5 class="mt-0">Pacote de devolutiva</h5>
-            <div v-if="pacoteDevolutiva.parecer_operacional" class="mb-3">
-                <span class="font-semibold block mb-1">Parecer da secretaria</span>
-                <p class="m-0 whitespace-pre-wrap text-sm">{{ pacoteDevolutiva.parecer_operacional }}</p>
-            </div>
-            <div v-if="pacoteDevolutiva.resposta_protocolo" class="mb-3">
-                <span class="font-semibold block mb-1">Resposta do Protocolo</span>
-                <p class="m-0 whitespace-pre-wrap text-sm">{{ pacoteDevolutiva.resposta_protocolo }}</p>
-            </div>
-            <div v-if="podeConfirmarCiencia" class="flex flex-col gap-2 mt-4">
-                <label class="font-semibold">Resposta ao cidadão (ofício final)</label>
-                <Textarea
-                    v-model="textoRespostaCidadao"
-                    rows="5"
-                    class="w-full"
-                    placeholder="Texto que constará no ofício de resposta ao cidadão..."
+        <ConclusaoDigitalVereador
+            v-if="mostrarConclusaoDigitalVereador"
+            class="mb-4"
+            :pacote="pacoteDevolutiva"
+            :mostrar-historico-tecnico="!mostrarOperacionalTimeline"
+        />
+
+        <div v-if="isDevolutivaAlertaLeitura" class="card mb-4">
+            <Message severity="info" :closable="false" class="m-0 mb-3">
+                Sua secretaria foi informada sobre a devolutiva final deste processo.
+                <strong>Somente leitura</strong> — não é possível registrar tramitações.
+            </Message>
+            <div v-if="pacoteDevolutiva?.resposta_protocolo" class="mt-3">
+                <span class="font-semibold block mb-2">Resposta do Protocolo ao vereador</span>
+                <div
+                    class="demanda-descricao-html p-3 surface-ground border-round"
+                    v-html="pacoteDevolutiva.resposta_protocolo"
                 />
-                <div class="flex flex-wrap gap-2">
-                    <Button label="Pré-visualizar PDF" icon="pi pi-file-pdf" outlined @click="previewRespostaCidadao" />
+            </div>
+            <div v-if="pacoteDevolutiva?.anexos_devolutiva?.length" class="mt-3">
+                <span class="font-semibold block mb-2">Anexos da devolutiva</span>
+                <div class="flex flex-col gap-2">
+                    <a
+                        v-for="anexo in pacoteDevolutiva.anexos_devolutiva"
+                        :key="anexo.id"
+                        :href="anexo.arquivo"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="text-primary text-sm"
+                    >
+                        {{ anexo.nome || anexo.arquivo?.split('/').pop() }}
+                    </a>
                 </div>
             </div>
         </div>
 
         <div v-if="podeDespacharDevolutiva" class="card mb-4">
-            <h5 class="mt-0">Despachar devolutiva ao vereador</h5>
-            <Textarea v-model="devolutivaResposta" rows="4" class="w-full" placeholder="Resposta / parecer do Protocolo ao vereador..." />
-            <Button label="Enviar devolutiva" icon="pi pi-reply" class="mt-3" @click="despacharDevolutiva" />
+            <h5 class="mt-0">
+                {{ usaEndpointConclusaoFinal ? 'Conclusão final' : 'Despachar devolutiva' }}
+            </h5>
+            <FormularioDevolutivaProtocolo
+                ref="formDevolutivaRef"
+                v-model="formDevolutiva"
+                :demanda-id="demanda.id"
+                :orgaos="orgaosCatalogo"
+                :usa-fluxo-operacional="usaFluxoOperacional"
+                :historico-tecnico="historicoTecnicoOperacional"
+                :preview-ativa="Boolean(devolutivaPreview?.hash_documento)"
+                @invalidar-preview="invalidarPreviewDevolutiva"
+                @anexos-rejeitados="(msg) => toast.add({ severity: 'warn', summary: 'Anexos', detail: msg, life: 4000 })"
+            />
+            <Button
+                :label="
+                    usaEndpointConclusaoFinal
+                        ? 'Assinar e concluir processo'
+                        : 'Assinar e enviar devolutiva'
+                "
+                icon="pi pi-verified"
+                class="mt-4"
+                :loading="carregandoDevolutivaPreview"
+                @click="despacharDevolutiva"
+            />
         </div>
 
-        <div class="card !m-0">
-            <Tag class="mb-3">
-                <small class="font-semibold">Criado em:</small>
-                <small>{{ dataCriacaoFormatada }}</small>
-            </Tag>
+        <Message v-if="somenteAcompanhamento" severity="info" class="mb-4" :closable="false">
+            Você acompanha este processo em modo <strong>somente leitura</strong> — sem ações operacionais.
+        </Message>
+
+        <div class="card mb-1">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <Tag class="m-0">
+                    <small class="font-semibold">Criado em:</small>
+                    <small>{{ dataCriacaoFormatada }}</small>
+                </Tag>
+                <div v-if="podeGerenciarAcompanhamento" class="flex gap-2">
+                    <Button
+                        v-if="acompanhandoDemanda"
+                        label="Desfixar"
+                        icon="pi pi-bookmark-fill"
+                        severity="secondary"
+                        outlined
+                        size="small"
+                        @click="desfixarAcompanhamento"
+                    />
+                    <Button
+                        v-else-if="podeAcompanharDemanda"
+                        label="Fixar acompanhamento"
+                        icon="pi pi-bookmark"
+                        severity="help"
+                        outlined
+                        size="small"
+                        @click="fixarAcompanhamento"
+                    />
+                </div>
+            </div>
+            <Message
+                v-if="podeVerStandByExecutivo && demanda.referencias_stand_by?.length"
+                severity="warn"
+                :closable="false"
+                class="mb-4"
+            >
+                <p class="m-0 mb-2 font-medium">Referências na base stand-by (estudo/viabilidade)</p>
+                <ul class="m-0 pl-4 text-sm">
+                    <li v-for="ref in demanda.referencias_stand_by" :key="ref.id">
+                        <router-link
+                            :to="{ name: 'demandas-detalhes', params: { id: String(ref.demanda_id) } }"
+                            class="text-primary"
+                        >
+                            Demanda #{{ ref.demanda_id }}
+                        </router-link>
+                        — {{ ref.resultado_operacional_label }}
+                        <span v-if="ref.escopo_geografico"> · escopo: {{ ref.escopo_geografico }}</span>
+                    </li>
+                </ul>
+            </Message>
+            <Message
+                v-if="podeVerStandByExecutivo && demanda.registro_estudo_viabilidade"
+                severity="info"
+                :closable="false"
+                class="mb-4"
+            >
+                <p class="m-0 font-medium">Registro stand-by (estudo/viabilidade)</p>
+                <p class="m-0 mt-1 text-sm">
+                    {{ demanda.registro_estudo_viabilidade.resultado_operacional_label }}
+                    <span v-if="demanda.registro_estudo_viabilidade.motivo_nao_execucao_label">
+                        — {{ demanda.registro_estudo_viabilidade.motivo_nao_execucao_label }}
+                    </span>
+                    <span v-if="demanda.registro_estudo_viabilidade.escopo_geografico">
+                        · Escopo: {{ demanda.registro_estudo_viabilidade.escopo_geografico }}
+                    </span>
+                </p>
+            </Message>
             <h4 class="mt-1">{{ demanda.titulo }}</h4>
             <div class="flex items-center gap-6 mb-4">
-                <div class="flex items-center gap-2">
-                    <i class="pi pi-check-square text-primary-500"></i>
-                    <span>{{ demanda.servico?.nome }}</span>
+                <div class="flex items-center gap-2 flex-wrap">
+                    <i
+                        :class="ehEntradaTendencia ? 'pi pi-chart-line text-primary-400' : 'pi pi-check-square text-primary-400'"
+                    ></i>
+                    <Tag v-if="ehEntradaTendencia" value="Tendência" severity="info" class="text-xs" />
+                    <span>{{ rotuloServicoOuTendencia }}</span>
+                    <span
+                        v-if="ehEntradaTendencia && demanda.tendencia?.volume_total != null"
+                        class="text-sm text-muted-color"
+                    >
+                        · volume {{ demanda.tendencia.volume_total }}
+                    </span>
                 </div>
                 <div class="flex items-center gap-2">
-                    <i class="pi pi-sitemap text-primary-500"></i>
+                    <i class="pi pi-sitemap text-primary-400"></i>
                     <span>{{ demanda.secretaria_destino?.nome || 'Aguardando despacho' }}</span>
+                </div>
+                <div v-if="orgaosIntegrados.length && !mostrarCardSuperOs" class="flex items-center gap-2">
+                    <i class="pi pi-share-alt text-primary-400"></i>
+                    <span>
+                        Órgãos integrados:
+                        {{ orgaosIntegrados.map((o) => o.orgao_nome).join(', ') }}
+                    </span>
                 </div>
             </div>
             <Divider />
@@ -813,11 +2308,24 @@ const goBack = () => {
             </div>
             <Divider />
             <div class="mb-4">
-                <span class="text-primary-500"><i class="pi pi-map-marker"></i> Endereço:</span>
-                <p class="mt-2">{{ demanda.logradouro || 'Não informado' }}, Nº {{ demanda.numero || 'S/N' }} - {{ demanda.bairro || 'Não informado' }}</p>
+                <span class="text-primary-400"><i class="pi pi-map-marker"></i> Endereço:</span>
+                <p class="mt-2 flex flex-wrap items-center gap-2 m-0">
+                    <span>
+                        {{ demanda.logradouro || 'Não informado' }}, Nº {{ demanda.numero || 'S/N' }} - {{ demanda.bairro || 'Não informado' }}
+                    </span>
+                    <Button
+                        v-if="temGeolocalizacaoDemanda"
+                        label="Ver no mapa de calor"
+                        icon="pi pi-map"
+                        link
+                        size="small"
+                        class="p-0"
+                        @click="verDemandaNoMapa"
+                    />
+                </p>
             </div>
             <div v-if="demanda.anexos && demanda.anexos.length > 0" class="field col-12">
-                <span class="text-primary-500"><i class="pi pi-paperclip"></i> Anexos:</span>
+                <span class="text-primary-400"><i class="pi pi-paperclip"></i> Anexos:</span>
                 <a
                     v-for="anexo in demanda.anexos"
                     :key="anexo.id"
@@ -833,7 +2341,7 @@ const goBack = () => {
         </div>
 
         <Message
-            v-if="isVereador && demanda.status === 'EM_EXECUCAO' && timelineOrdenada.length === 0"
+            v-if="isVereador && demanda.status === 'EM_EXECUCAO' && !mostrarOperacionalTimeline && !mostrarConclusaoDigitalVereador"
             severity="info"
             class="mb-4"
             :closable="false"
@@ -841,7 +2349,24 @@ const goBack = () => {
             A secretaria está executando o serviço. Você será notificado quando houver conclusão ou devolutiva.
         </Message>
 
-        <div v-if="timelineOrdenada.length > 0" class="pt-6 pb-6 timeline-container">
+        <OperacionalTimeline
+            v-if="mostrarOperacionalTimeline"
+            :timeline="timelineOperacionalExibicao"
+            :fluxo-roteamento="demanda.fluxo_roteamento || estadoOperacional?.fluxo_roteamento || ''"
+            :participantes="estadoOperacional?.participantes_transversal || []"
+            :pendencias="estadoOperacional?.pendencias_parciais || []"
+            :demanda-lider-id="estadoOperacional?.demanda_lider_id || demanda.super_os?.lider_id"
+            :modo-vereador="isVereador"
+            :status-demanda="demanda.status"
+            :assinaturas="assinaturasParaTimelineOperacional"
+            :arvore-nos="estadoOperacional?.arvore_nos || []"
+            :nos-ativos="estadoOperacional?.nos_ativos ?? 0"
+            :historico-tecnico="historicoTecnicoOperacional || pacoteDevolutiva?.historico_tecnico || null"
+            :demanda-atual-id="demanda.id"
+            class="mb-4"
+        />
+
+        <div v-else-if="timelineOrdenada.length > 0 && !isVereador" class="pt-6 pb-6 timeline-container">
             <div class="flex flex-col gap-6">
                 <div v-for="item in timelineOrdenada" :key="item.id" class="flex gap-3">
                     <div class="flex flex-col items-center timeline-icon-container">
@@ -850,7 +2375,8 @@ const goBack = () => {
                     <div class="card flex-1">
                         <div class="flex justify-between items-center">
                             <span class="font-bold gap-3">
-                                {{ item.responsavel?.first_name || item.responsavel?.username || 'Sistema' }}
+                                <template v-if="isVereador">{{ rotuloInstitucionalTramitacao(item) }}</template>
+                                <template v-else>{{ item.responsavel?.first_name || item.responsavel?.username || 'Sistema' }}</template>
                                 <small class="text-color-secondary font-normal"> registrou um andamento em {{ formatarData(item.timestamp) }}</small>
                             </span>
                             <Tag
@@ -860,12 +2386,37 @@ const goBack = () => {
                             />
                         </div>
                         <Divider />
-                        <div v-html="item.descricao" class="mb-6"></div>
+                        <p
+                            v-if="isVereador && item.tipo === 'DEVOLUTIVA_PROTOCOLO' && (item.orgao_nome || item.unidade_nome)"
+                            class="text-sm text-muted-color m-0 mb-3"
+                        >
+                            <i class="pi pi-building mr-1"></i>
+                            Executado por: {{ item.orgao_nome }}
+                            <template v-if="item.unidade_nome"> — {{ item.unidade_nome }}</template>
+                        </p>
+                        <div class="mb-6 tramitacao-descricao">
+                            <template v-if="isVereador">
+                                <p class="m-0 whitespace-pre-wrap">{{ descricaoTramitacaoVereador(item) }}</p>
+                            </template>
+                            <template v-else>
+                                <div
+                                    v-if="exibirDescricaoTramitacao(item).modo === 'html'"
+                                    class="tramitacao-descricao-html"
+                                    v-html="exibirDescricaoTramitacao(item).html"
+                                />
+                                <p
+                                    v-else-if="exibirDescricaoTramitacao(item).modo === 'texto'"
+                                    class="m-0 tramitacao-descricao-texto"
+                                >
+                                    {{ exibirDescricaoTramitacao(item).texto }}
+                                </p>
+                            </template>
+                        </div>
                         <p v-if="!isVereador && item.unidade_destino" class="text-sm text-muted-color m-0 mb-3">
                             <i class="pi pi-sitemap mr-1"></i>
                             Setor destino: {{ item.unidade_destino.sigla || item.unidade_destino.nome }}
                         </p>
-                        <div v-if="item.anexos && item.anexos.length > 0" class="flex gap-2 mt-3 text-sm">
+                        <div v-if="!isVereador && item.anexos && item.anexos.length > 0" class="flex gap-2 mt-3 text-sm">
                             <i class="pi pi-paperclip"></i>
                             <div class="flex flex-column gap-2">
                                 <a v-for="anexo in item.anexos" :key="anexo.id" :href="anexo.arquivo" target="_blank" rel="noopener noreferrer" class="no-underline text-color hover:text-primary flex align-items-center">
@@ -879,63 +2430,119 @@ const goBack = () => {
             </div>
         </div>
 
-        <div v-if="isSecretaria && demanda.status === 'EM_EXECUCAO' && ehLiderSuperOs">
+        <div v-if="podeScatterGather && !somenteAcompanhamento" class="flex flex-col gap-8 mb-8">
+            <div class="flex gap-3">
+                <div class="flex flex-col items-center">
+                    <Avatar icon="pi pi-sitemap" size="large" class="avatar-primary" shape="circle" />
+                </div>
+                <div class="card flex-1">
+                    <span class="font-semibold mb-2 block">Tramitação operacional</span>
+                    <Divider />
+                    <FormularioScatterGather
+                        :demanda-id="demanda.id"
+                        :nos-usuario="nosUsuarioScatter"
+                        :acoes-disponiveis="acoesOperacionais"
+                        :orgaos="orgaosCatalogo"
+                        :destinos-ocupados="destinosOcupadosScatter"
+                        :grupos-nos-usuario="gruposNosScatter"
+                        :grupos-nos-painel="gruposNosPainelScatter"
+                        :endereco-sugerido="enderecoSugeridoDemanda"
+                        @success="onScatterGatherSuccess"
+                        @error="onScatterGatherError"
+                    />
+                </div>
+            </div>
+        </div>
+
+        <Message
+            v-else-if="exibirAvisoDemandaScatterParalela"
+            severity="warn"
+            :closable="false"
+            class="mb-8"
+        >
+            A tramitação scatter-gather deste processo está na demanda
+            <strong>#{{ demandaScatterReferenciaId }}</strong>
+            (protocolo vinculado ao cluster). O formulário aqui usa regras legadas e não permite
+            encaminhar a outros órgãos.
+            <Button
+                label="Abrir demanda operacional"
+                icon="pi pi-external-link"
+                link
+                class="p-0 ml-1"
+                @click="router.push({ name: 'demandas-detalhes', params: { id: String(demandaScatterReferenciaId) } })"
+            />
+        </Message>
+
+        <div v-if="podeOperarTramitacao">
             <div class="flex flex-col gap-8">
                 <div class="flex gap-3">
                     <div class="flex flex-col items-center">
-                        <Avatar label="+" size="large" :style="{ 'background-color': '#10b981', color: '#ffffff' }" shape="circle"></Avatar>
+                        <Avatar label="+" size="large" class="avatar-primary" shape="circle"></Avatar>
                     </div>
                     <div class="card flex-1">
-                        <span class="font-semibold mb-3 block">Adicionar Andamento</span>
+                        <span class="font-semibold mb-2 block">Tramitação operacional</span>
+                        <Message
+                            v-if="podeDevolverProtocolo && demanda.status === 'PROTOCOLADO'"
+                            severity="warn"
+                            :closable="false"
+                            class="text-sm m-0 mb-3"
+                        >
+                            Antes de iniciar a execução, você pode
+                            <strong>devolver ao Protocolo</strong> escolhendo esse tipo de andamento.
+                        </Message>
+                        <Message
+                            v-if="formAndamento.tipo === TIPO_CONCLUSAO_PARCIAL"
+                            severity="info"
+                            :closable="false"
+                            class="text-sm m-0 mb-3"
+                        >
+                            A conclusão parcial será registrada para
+                            <strong>{{ orgaoLiderImediatoNome || 'secretaria líder' }}</strong>
+                            (líder imediato no fluxo transversal).
+                        </Message>
+                        <Message
+                            v-else-if="podeAbrirPernasTransversal"
+                            severity="info"
+                            :closable="false"
+                            class="text-sm m-0 mb-3"
+                        >
+                            Registre andamentos internos (setor) e, quando necessário, abra
+                            <strong>órgãos integrados</strong> (subpastas) — conclusões sobem ao líder imediato.
+                        </Message>
                         <Divider />
-                        <div class="grid grid-cols-12 gap-8">
-                            <div class="col-span-full lg:col-span-3">
-                                <div class="mb-3">
-                                    <label for="tipoTramitacao" class="block mb-3">Tipo de Andamento</label>
-                                    <Select id="tipoTramitacao" v-model="novaTramitacao.tipo" :options="tiposTramitacao" optionLabel="label" optionValue="value" placeholder="Selecione o tipo" fluid />
-                                </div>
-                                <div class="mb-3">
-                                    <label for="setorDestino" class="block mb-3">Setor de tramitação</label>
-                                    <Select
-                                        v-if="unidadesSetor.length"
-                                        id="setorDestino"
-                                        v-model="novaTramitacao.unidade_destino_id"
-                                        :options="unidadesSetor"
-                                        optionLabel="label"
-                                        optionValue="value"
-                                        placeholder="Selecione o setor de destino"
-                                        showClear
-                                        fluid
-                                    />
-                                    <small v-else class="text-muted-color block">
-                                        Nenhum setor cadastrado para este órgão.
-                                        <router-link to="/gestao-setores" class="text-primary ml-1">
-                                            Cadastrar em Gestão de Setores
-                                        </router-link>
-                                    </small>
-                                </div>
-                                <div>
-                                    <label class="block mb-3"><i class="pi pi-paperclip"></i> Anexos</label>
-                                    <FileUpload name="anexos" :multiple="true" accept="image/*,application/pdf" :maxFileSize="2000000" chooseLabel="Selecionar Anexos" :auto="false" :showUploadButton="false" @select="onTramitacaoFilesSelected" />
-                                    <div v-if="novaTramitacao.anexos_arquivos.length > 0" class="mt-2 flex flex-wrap gap-2">
-                                        <Tag
-                                            v-for="file in novaTramitacao.anexos_arquivos"
-                                            :key="file.name"
-                                            :value="file.name"
-                                            icon="pi pi-paperclip"
-                                            removable
-                                            @remove="novaTramitacao.anexos_arquivos = novaTramitacao.anexos_arquivos.filter((f) => f.name !== file.name)"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="col-span-full lg:col-span-9">
-                                <div class="mb-3">
-                                    <label for="descricaoTramitacao" class="block mb-3">Descrição do Andamento</label>
-                                    <Editor id="descricaoTramitacao" v-model="novaTramitacao.descricao" editorStyle="height: 150px" />
-                                </div>
-                                <Button label="Adicionar Andamento" icon="pi pi-plus" @click="adicionarTramitacao" />
-                            </div>
+                        <FormularioTramitacao
+                            ref="formAndamentoRef"
+                            v-model="formAndamento"
+                            :modo="MODO_ANDAMENTO"
+                            layout="card"
+                            :orgaos="orgaosCatalogo"
+                            :orgao-fixo-id="orgaoIdDemanda"
+                            :orgao-competente-nome="orgaoAndamentoNome"
+                            :orgaos-integraveis="secretariasIntegraveisTransversal"
+                            :permitir-integrados="podeAbrirPernasTransversal && !tipoOperacionalEspecial"
+                            :exibir-destinos="exibirDestinosForm"
+                            :tipos-andamento="tiposTramitacaoFiltrados"
+                            @anexos-rejeitados="onAnexosRejeitadosForm"
+                            @anexo-invalido="onAnexosRejeitadosForm"
+                        />
+                        <div class="mt-4">
+                            <Button
+                                :label="labelBotaoTramitacao"
+                                :icon="
+                                    formAndamento.tipo === TIPO_DEVOLUCAO_PROTOCOLO
+                                        ? 'pi pi-replay'
+                                        : formAndamento.tipo === TIPO_CONCLUSAO_PARCIAL
+                                          ? 'pi pi-check'
+                                          : formTemIntegrados
+                                            ? 'pi pi-share-alt'
+                                            : formAndamento.tipo === 'CONCLUSAO'
+                                              ? 'pi pi-check-square'
+                                              : 'pi pi-plus'
+                                "
+                                :severity="formAndamento.tipo === TIPO_DEVOLUCAO_PROTOCOLO ? 'warn' : undefined"
+                                :outlined="formAndamento.tipo === TIPO_DEVOLUCAO_PROTOCOLO"
+                                @click="adicionarTramitacao"
+                            />
                         </div>
                     </div>
                 </div>
@@ -944,31 +2551,213 @@ const goBack = () => {
 
         <Button v-else-if="podeIniciarExecucao" label="Iniciar Execução" icon="pi pi-play" severity="success" @click="iniciarExecucao" />
 
-        <Button v-else icon="pi pi-arrow-left" @click="router.push('/demandas')" label="Voltar" />
+        <Button
+            v-else-if="!podeScatterGather && !podeOperarTramitacao"
+            icon="pi pi-arrow-left"
+            @click="router.push('/demandas')"
+            label="Voltar"
+        />
 
-        <Dialog v-model:visible="despachoDialog" header="Despachar demanda" :modal="true" style="width: 450px">
+        <Dialog v-model:visible="conclusaoDialog" header="Conclusão operacional (assinatura eletrônica)" :modal="true" style="width: 520px">
+            <div class="flex flex-col gap-4">
+                <Message severity="info" :closable="false" class="text-sm m-0">
+                    A conclusão assinada encaminha a demanda ao Protocolo para devolutiva ao vereador.
+                    Podem assinar a <strong>secretaria responsável</strong> ou o <strong>gestor setorial</strong> do setor.
+                </Message>
+                <p v-if="demanda" class="m-0 text-sm text-muted-color">
+                    {{ demanda.protocolo_executivo || demanda.protocolo_legislativo || `#${demanda.id}` }} — {{ demanda.titulo }}
+                </p>
+                <p class="m-0 text-sm tramitacao-descricao-texto">
+                    <span class="font-medium">Parecer operacional:</span>
+                    {{ parecerOperacionalTexto() }}
+                </p>
+                <FormularioResultadoOperacional
+                    v-model="conclusaoResultado"
+                    :endereco-sugerido="enderecoSugeridoDemanda"
+                />
+            </div>
+            <template #footer>
+                <Button label="Cancelar" icon="pi pi-times" text @click="conclusaoDialog = false" />
+                <Button
+                    label="Assinar e concluir"
+                    icon="pi pi-verified"
+                    severity="success"
+                    :loading="carregandoConclusaoPreview"
+                    @click="confirmarConclusaoComAssinatura"
+                />
+            </template>
+        </Dialog>
+
+        <DialogClusterAderencia
+            v-model:visible="clusterAderenciaDialog"
+            :demanda="demanda"
+            :situacao="clusterAderenciaSituacao"
+            :carregando="clusterAderenciaLoading"
+            @aderir="confirmarAderenciaCluster"
+            @desvincular="confirmarDesvincularClusterDespacho"
+        />
+
+        <Dialog v-model:visible="despachoDialog" header="Despachar demanda (assinatura eletrônica)" :modal="true" style="width: 640px">
             <div class="flex flex-col gap-4">
                 <p v-if="demanda" class="m-0 text-sm text-muted-color">
                     {{ demanda.protocolo_legislativo || `#${demanda.id}` }} — {{ demanda.titulo }}
                 </p>
-                <div>
-                    <label for="secretariaDespacho" class="block mb-3">Enviar para a Secretaria</label>
-                    <Select
-                        id="secretariaDespacho"
-                        v-model="despachoData.secretaria_id"
-                        :options="todasSecretarias"
-                        optionLabel="nome"
-                        optionValue="id"
-                        placeholder="Selecione uma secretaria"
-                        fluid
-                    />
-                </div>
+                <FormularioTramitacao
+                    v-if="despachoDialog"
+                    ref="formDespachoRef"
+                    v-model="formDespacho"
+                    :modo="MODO_DESPACHO"
+                    layout="dialog"
+                    :exibir-assinatura-formulario="false"
+                    :orgaos="orgaosCatalogo"
+                    :orgao-competente-id="orgaoCompetenteDespacho"
+                    :orgao-competente-nome="orgaoCompetenteNome"
+                    :orgaos-integraveis="secretariasIntegraveis"
+                    @invalidar-preview="despachoPreview = null"
+                    @anexos-rejeitados="onAnexosRejeitadosForm"
+                    @anexo-invalido="onAnexosRejeitadosForm"
+                >
+                    <template #extra>
+                        <Message
+                            v-if="despachoMultiOrgao"
+                            severity="info"
+                            :closable="false"
+                            class="m-0 text-sm"
+                        >
+                            Após o despacho, todas as secretarias envolvidas entram na etapa
+                            <strong>Operação</strong> com nós abertos — cada uma despacha ou encerra sua
+                            participação até o Protocolo concluir o processo.
+                        </Message>
+                        <Message
+                            v-if="despachoPreview?.multi_secretaria"
+                            severity="info"
+                            :closable="false"
+                            class="m-0"
+                        >
+                            Despacho integrado — o processo principal permanece no órgão competente
+                            <strong v-if="despachoPreview.orgao_competente_nome">
+                                ({{ despachoPreview.orgao_competente_nome }})
+                            </strong>.
+                            <span v-if="despachoPreview.orgaos_integrados?.length">
+                                Integrados:
+                                {{ despachoPreview.orgaos_integrados.map((o) => o.orgao_nome).join(', ') }}.
+                            </span>
+                        </Message>
+                    </template>
+                </FormularioTramitacao>
             </div>
             <template #footer>
                 <Button label="Cancelar" icon="pi pi-times" text @click="despachoDialog = false" />
-                <Button label="Confirmar despacho" icon="pi pi-check" @click="confirmarDespacho" />
+                <Button
+                    label="Assinar e despachar"
+                    icon="pi pi-verified"
+                    :loading="carregandoDespachoPreview"
+                    @click="confirmarDespacho"
+                />
             </template>
         </Dialog>
+
+        <Dialog v-model:visible="recusaDialog" header="Recusa ao vereador" :modal="true" style="width: 520px">
+            <div class="flex flex-col gap-3">
+                <Message severity="warn" :closable="false" class="m-0 text-sm">
+                    A demanda será devolvida ao vereador com parecer justificado. Use apenas para tendências fora da competência municipal.
+                </Message>
+                <Textarea v-model="recusaParecer" rows="5" class="w-full" placeholder="Parecer de recusa (mín. 10 caracteres)..." />
+            </div>
+            <template #footer>
+                <Button label="Cancelar" icon="pi pi-times" text @click="recusaDialog = false" />
+                <Button label="Confirmar recusa" icon="pi pi-times-circle" severity="danger" @click="confirmarRecusaProtocolo" />
+            </template>
+        </Dialog>
+
+        <Dialog v-model:visible="vincularServicoDialog" header="Vincular serviço da carta" :modal="true" style="width: 520px">
+            <div class="flex flex-col gap-3">
+                <Message severity="info" :closable="false" class="m-0 text-sm">
+                    Associe esta tendência a um serviço Sinapse antes do despacho.
+                </Message>
+                <Select
+                    v-model="servicoVinculoId"
+                    :options="servicosCarta"
+                    optionLabel="label"
+                    optionValue="id"
+                    placeholder="Selecione o serviço"
+                    filter
+                    :loading="carregandoServicosCarta"
+                    class="w-full"
+                />
+            </div>
+            <template #footer>
+                <Button label="Cancelar" icon="pi pi-times" text @click="vincularServicoDialog = false" />
+                <Button label="Vincular" icon="pi pi-link" @click="confirmarVincularServico" />
+            </template>
+        </Dialog>
+
+        <DialogConfirmacaoTramitacao
+            v-model:visible="confirmTramitacaoVisible"
+            titulo="Confirmar andamento"
+            mensagem="Após registrar, este andamento não poderá ser editado. Deseja enviar para a timeline da demanda?"
+            :resumo-destinos="resumoDestinosAndamento"
+            :modo="MODO_ANDAMENTO"
+            :assinar-no-formulario="formAndamento.assinar_eletronicamente"
+            @confirmar="executarTramitacaoConfirmada"
+        />
+
+        <DialogAssinaturaEletronica
+            v-model:visible="assinaturaDespachoDialogVisible"
+            titulo="Assinatura eletrônica — despacho inicial"
+            :preview="despachoPreview"
+            :gestores="gestoresProtocolo"
+            :modo="modoAssinaturaDespachoInicial"
+            :declaracao-operador-texto="DECLARACAO_DESPACHO"
+            label-confirmar="Assinar e despachar"
+            :loading="executandoAssinatura"
+            :loading-preview="carregandoDespachoPreview"
+            mensagem-intro="Assine como operador do protocolo. O gestor validará a assinatura em seguida."
+            @confirmar="executarDespachoComAssinatura"
+            @gerar-preview="gerarPreviewDespacho"
+        />
+
+        <DialogAssinaturaEletronica
+            v-model:visible="assinaturaConclusaoDialogVisible"
+            titulo="Assinatura eletrônica — conclusão operacional"
+            :preview="conclusaoPreview"
+            :modo="MODO_PAINEL_ASSINATURA.OPERADOR_APENAS"
+            :declaracao-operador-texto="DECLARACAO_CONCLUSAO"
+            label-confirmar="Assinar e concluir"
+            :loading="executandoAssinatura"
+            :loading-preview="carregandoConclusaoPreview"
+            mensagem-intro="Assine a conclusão operacional. O gestor do setor validará em seguida."
+            @confirmar="executarConclusaoComAssinatura"
+            @gerar-preview="gerarPreviewConclusao"
+        />
+
+        <DialogAssinaturaEletronica
+            v-model:visible="assinaturaDevolutivaDialogVisible"
+            :titulo="
+                usaEndpointConclusaoFinal
+                    ? 'Assinatura eletrônica — conclusão final'
+                    : 'Assinatura eletrônica — devolutiva'
+            "
+            :preview="devolutivaPreview"
+            :gestores="gestoresProtocolo"
+            :modo="modoAssinaturaDevolutiva"
+            :declaracao-operador-texto="
+                usaEndpointConclusaoFinal ? DECLARACAO_CONCLUSAO_FINAL : DECLARACAO_DEVOLUTIVA
+            "
+            :declaracao-gestor-texto="DECLARACAO_GESTOR_PROTOCOLO"
+            :label-confirmar="
+                usaEndpointConclusaoFinal ? 'Assinar e concluir processo' : 'Assinar e enviar devolutiva'
+            "
+            :loading="executandoAssinatura"
+            :loading-preview="carregandoDevolutivaPreview"
+            :mensagem-intro="
+                usaEndpointConclusaoFinal
+                    ? 'Assine como operador. O gestor do protocolo validará em seguida.'
+                    : 'Revise a devolutiva e confirme a assinatura eletrônica.'
+            "
+            @confirmar="executarDevolutivaComAssinatura"
+            @gerar-preview="gerarPreviewDevolutivaDialog"
+        />
     </div>
 </template>
 
@@ -1004,8 +2793,30 @@ const goBack = () => {
     border: 1px solid var(--surface-border);
     box-shadow: var(--card-shadow);
 }
+
+.tramitacao-descricao-texto {
+    white-space: pre-line;
+    line-height: 1.6;
+}
+
+.tramitacao-descricao-html :deep(p) {
+    margin: 0 0 0.75rem;
+    line-height: 1.6;
+}
+
+.tramitacao-descricao-html :deep(p:last-child) {
+    margin-bottom: 0;
+}
+
+.tramitacao-descricao-html :deep(br) {
+    display: block;
+    content: '';
+    margin-top: 0.35rem;
+}
+
+.avatar-primary,
 .avatar-blue {
-    background: var(--p-blue-500) !important;
+    background: var(--p-primary-500) !important;
     color: white !important;
 }
 .avatar-gray {

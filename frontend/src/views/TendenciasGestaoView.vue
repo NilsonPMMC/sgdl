@@ -376,32 +376,32 @@ watch(
                                 />
                             </div>
 
-                            <div class="grid grid-cols-2 gap-2 p-3 rounded-lg bg-surface-50 border border-surface-200">
+                            <div class="grid grid-cols-2 gap-2 p-3 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-900">
                                 <div>
-                                    <span class="font-semibold text-surface-700">Volume</span>
-                                    <p class="m-0">{{ detalhe.volume_total ?? 0 }}</p>
+                                    <span class="font-semibold text-surface-700 dark:text-surface-200">Volume</span>
+                                    <p class="m-0 text-surface-900 dark:text-surface-0">{{ detalhe.volume_total ?? 0 }}</p>
                                 </div>
                                 <div>
-                                    <span class="font-semibold text-surface-700">Órgão sugerido</span>
-                                    <p class="m-0">{{ detalhe.sinapse_orgao_nome || '—' }}</p>
+                                    <span class="font-semibold text-surface-700 dark:text-surface-200">Órgão sugerido</span>
+                                    <p class="m-0 text-surface-900 dark:text-surface-0">{{ detalhe.sinapse_orgao_nome || '—' }}</p>
                                 </div>
                                 <div v-if="detalhe.sinapse_servico_nome" class="col-span-2">
-                                    <span class="font-semibold text-surface-700">Serviço na carta</span>
-                                    <p class="m-0">{{ detalhe.sinapse_servico_nome }}</p>
+                                    <span class="font-semibold text-surface-700 dark:text-surface-200">Serviço na carta</span>
+                                    <p class="m-0 text-surface-900 dark:text-surface-0">{{ detalhe.sinapse_servico_nome }}</p>
                                 </div>
                                 <div>
-                                    <span class="font-semibold text-surface-700">Primeira</span>
-                                    <p class="m-0 text-xs">{{ formatarData(detalhe.primeira_ocorrencia) }}</p>
+                                    <span class="font-semibold text-surface-700 dark:text-surface-200">Primeira</span>
+                                    <p class="m-0 text-xs text-surface-600 dark:text-surface-300">{{ formatarData(detalhe.primeira_ocorrencia) }}</p>
                                 </div>
                                 <div>
-                                    <span class="font-semibold text-surface-700">Última</span>
-                                    <p class="m-0 text-xs">{{ formatarData(detalhe.ultima_ocorrencia) }}</p>
+                                    <span class="font-semibold text-surface-700 dark:text-surface-200">Última</span>
+                                    <p class="m-0 text-xs text-surface-600 dark:text-surface-300">{{ formatarData(detalhe.ultima_ocorrencia) }}</p>
                                 </div>
                             </div>
 
                             <div v-if="detalhe.descricao_resumo">
-                                <span class="font-semibold text-surface-700">Resumo</span>
-                                <p class="m-0 mt-1 whitespace-pre-wrap">{{ detalhe.descricao_resumo }}</p>
+                                <span class="font-semibold text-surface-700 dark:text-surface-200">Resumo</span>
+                                <p class="m-0 mt-1 whitespace-pre-wrap text-surface-900 dark:text-surface-0">{{ detalhe.descricao_resumo }}</p>
                             </div>
 
                             <div class="flex flex-wrap gap-2">

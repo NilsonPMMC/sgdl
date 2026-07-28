@@ -57,6 +57,9 @@ class UsuarioVinculoGestorTests(SinapseCatalogTestMixin, APITestCase):
         user.refresh_from_db()
         self.assertEqual(user.sinapse_orgao_id, SINAPSE_ORGAO_A)
         self.assertTrue(info["referencia_unidades"])
+        self.assertEqual(info["tipo_gestor"], "SETORIAL")
+        self.assertTrue(user.is_staff)
+        self.assertFalse(user.is_superuser)
 
     def test_signal_gestor_aplica_privilegios(self):
         user = Usuario.objects.create_user(
@@ -101,7 +104,11 @@ class GestaoUsuarioGestorAPITests(SinapseCatalogTestMixin, APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = Usuario.objects.get(username="novo_gestor")
         self.assertTrue(user.is_staff)
-        self.assertTrue(user.is_superuser)
+        self.assertFalse(user.is_superuser)
+        self.assertEqual(
+            UsuarioVinculoService().status_vinculo_gestor(user)["tipo_gestor"],
+            "SETORIAL",
+        )
 
     def test_protocolo_nao_gerencia_gestores(self):
         self.client.force_authenticate(user=self.protocolo)

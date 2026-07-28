@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import logging
 import re
+from html import unescape
 from typing import Any
 
 from django.utils import timezone
+from django.utils.html import strip_tags
 
 from core.models import Demanda, Tramitacao
 from core.models_encerramento_legislativo import EncerramentoLegislativo
@@ -45,22 +47,235 @@ class EncerramentoLegislativoService:
             return m.group(1).strip()
         return (tram.descricao or "").strip()
 
+    def _html_para_texto(self, valor: str) -> str:
+        texto = unescape(strip_tags(valor or "")).replace("\xa0", " ")
+        return re.sub(r"\s+", " ", texto).strip()
+
+    def _demandas_fonte_devolutiva(self, demanda: Demanda) -> list[Demanda]:
+        from core.services.operacional_estado_service import OperacionalEstadoService
+
+        ids: set[int] = {demanda.pk}
+        lider = OperacionalEstadoService().demanda_processo_lider(demanda)
+        ids.add(lider.pk)
+        if demanda.cluster_id:
+            ids.update(
+                Demanda.objects.filter(cluster_id=demanda.cluster_id).values_list("pk", flat=True)
+            )
+        return list(Demanda.objects.filter(pk__in=ids).select_related("autor").order_by("pk"))
+
+    def _tramitacao_devolutiva_final(self, demanda: Demanda) -> Tramitacao | None:
+        for fonte in self._demandas_fonte_devolutiva(demanda):
+            trams = list(
+                fonte.tramitacoes.filter(
+                    tipo__in=("DEVOLUTIVA_PROTOCOLO", "CONCLUSAO_FINAL")
+                ).order_by("-timestamp")
+            )
+            for tram in trams:
+                meta = tram.metadata if isinstance(tram.metadata, dict) else {}
+                if meta.get("parecer") or _RESPOSTA_RE.search(tram.descricao or ""):
+                    return tram
+            if trams:
+                return trams[0]
+        return None
+
+    def _laudo_despacho_final(self, demanda: Demanda, dev: Tramitacao | None) -> str:
+        candidatos: list[Tramitacao] = []
+        if dev:
+            candidatos.append(dev)
+        for fonte in self._demandas_fonte_devolutiva(demanda):
+            candidatos.extend(
+                list(
+                    fonte.tramitacoes.filter(
+                        tipo__in=("DEVOLUTIVA_PROTOCOLO", "CONCLUSAO_FINAL")
+                    ).order_by("-timestamp")
+                )
+            )
+        vistos: set[int] = set()
+        for tram in candidatos:
+            if tram.pk in vistos:
+                continue
+            vistos.add(tram.pk)
+            meta = tram.metadata if isinstance(tram.metadata, dict) else {}
+            parecer = (meta.get("parecer") or "").strip()
+            if parecer:
+                return parecer
+            extraido = self._extrair_resposta_protocolo(tram)
+            if extraido:
+                return extraido
+        return ""
+
+    def _anexos_despacho_final(self, demanda: Demanda) -> list[dict[str, Any]]:
+        from core.services.tramitacao_anexo_service import serializar_anexos_tramitacao
+
+        vistos: set[int] = set()
+        anexos: list[dict[str, Any]] = []
+        for fonte in self._demandas_fonte_devolutiva(demanda):
+            for tram in fonte.tramitacoes.filter(
+                tipo__in=("DEVOLUTIVA_PROTOCOLO", "CONCLUSAO_FINAL")
+            ).order_by("-timestamp"):
+                for item in serializar_anexos_tramitacao(tram):
+                    aid = item.get("id")
+                    if aid in vistos:
+                        continue
+                    vistos.add(aid)
+                    anexos.append(item)
+        return anexos
+
+    def _signatarios_despacho_final(
+        self, assinaturas: list[dict[str, Any]]
+    ) -> tuple[str | None, str | None]:
+        """Operador e gestor do protocolo na devolutiva/conclusão final assinada eletronicamente."""
+        etapas = {"DESPACHO_DEVOLUTIVA", "CONCLUSAO_FINAL"}
+        operador: str | None = None
+        gestor: str | None = None
+        for item in assinaturas:
+            if (item.get("etapa") or "") not in etapas:
+                continue
+            papel = item.get("papel") or ""
+            nome = (item.get("signatario") or "").strip()
+            if not nome:
+                continue
+            if papel == "OPERADOR":
+                operador = nome
+            elif papel == "GESTOR_PROTOCOLO":
+                gestor = nome
+        return operador, gestor
+
+    def _assinaturas_processo(
+        self, demanda: Demanda, historico_tecnico: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+        svc = AssinaturaEletronicaService()
+        assinaturas: list[dict[str, Any]] = []
+        vistos: set[tuple[str, ...]] = set()
+
+        def add(item: dict[str, Any], *, chave: tuple[str, ...] | None = None) -> None:
+            key = chave or (
+                item.get("etapa") or "",
+                item.get("papel") or "",
+                item.get("codigo_validacao") or item.get("signatario") or "",
+            )
+            if key in vistos:
+                return
+            vistos.add(key)
+            assinaturas.append(item)
+
+        for item in svc.serializar_assinaturas_demanda(demanda):
+            add(item)
+
+        dev = self._tramitacao_devolutiva_final(demanda)
+        if dev and dev.demanda_id != demanda.pk:
+            from core.models import Demanda as DemandaModel
+
+            fonte_dev = DemandaModel.objects.filter(pk=dev.demanda_id).first()
+            if fonte_dev:
+                for item in svc.serializar_assinaturas_demanda(fonte_dev):
+                    if item.get("etapa") in ("DESPACHO_DEVOLUTIVA", "CONCLUSAO_FINAL"):
+                        add(item)
+
+        eletronicas_conclusao = {
+            (a.get("signatario") or "", a.get("etapa") or "")
+            for a in assinaturas
+            if a.get("etapa") == "CONCLUSAO_SECRETARIA"
+        }
+
+        for ev in (historico_tecnico or {}).get("eventos_tecnicos") or []:
+            if not isinstance(ev, dict):
+                continue
+            signatario = (ev.get("responsavel") or "").strip() or "—"
+            if ("CONCLUSAO_SECRETARIA", signatario) in eletronicas_conclusao:
+                continue
+            orgao = ev.get("orgao_nome") or "Secretaria"
+            parcial = ev.get("parcial") or ev.get("tipo") == "CONCLUSAO_PARCIAL"
+            add(
+                {
+                    "etapa": "CONCLUSAO_PARCIAL" if parcial else "CONCLUSAO_SECRETARIA",
+                    "etapa_display": f"Conclusão operacional — {orgao}",
+                    "papel": "CHEFIA_SETOR",
+                    "papel_display": "Gestor / chefia da secretaria",
+                    "signatario": signatario,
+                    "cargo": ev.get("setor_nome") or orgao,
+                    "assinado_em": ev.get("timestamp"),
+                    "codigo_validacao": None,
+                    "declaracao": None,
+                },
+                chave=("HISTORICO", str(ev.get("tramitacao_id") or ""), signatario),
+            )
+
+        def _ts(item: dict[str, Any]) -> str:
+            raw = item.get("assinado_em")
+            if raw is None:
+                return ""
+            if hasattr(raw, "isoformat"):
+                return raw.isoformat()
+            return str(raw)
+
+        assinaturas.sort(key=_ts)
+        return assinaturas
+
+    def _sanitizar_historico_tecnico(self, historico: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not historico:
+            return historico
+        eventos = []
+        for ev in historico.get("eventos_tecnicos") or []:
+            if not isinstance(ev, dict):
+                continue
+            limpo = dict(ev)
+            limpo["parecer"] = self._html_para_texto(limpo.get("parecer") or "")
+            eventos.append(limpo)
+        return {**historico, "eventos_tecnicos": eventos}
+
     def montar_pacote_devolutiva(self, demanda: Demanda) -> dict[str, Any]:
-        sol = self._tramitacao_por_tipo(demanda, "SOLICITACAO_DEVOLUTIVA")
-        dev = self._tramitacao_por_tipo(demanda, "DEVOLUTIVA_PROTOCOLO")
+        dev = self._tramitacao_devolutiva_final(demanda)
         enc = getattr(demanda, "encerramento_legislativo", None)
+
+        laudo_final = self._laudo_despacho_final(demanda, dev)
+
+        historico_tecnico = None
+        if dev and isinstance(dev.metadata, dict):
+            historico_tecnico = dev.metadata.get("historico_tecnico")
+        if not (historico_tecnico or {}).get("eventos_tecnicos") and demanda.fluxo_roteamento:
+            from core.services.operacional_estado_service import OperacionalEstadoService
+
+            historico_tecnico = OperacionalEstadoService().compilar_historico_tecnico(demanda)
+        historico_tecnico = self._sanitizar_historico_tecnico(historico_tecnico)
+
+        assinaturas = self._assinaturas_processo(demanda, historico_tecnico)
+
+        conclusao_em = dev.timestamp.isoformat() if dev and dev.timestamp else None
+        operador_ass, gestor_ass = self._signatarios_despacho_final(assinaturas)
+        if gestor_ass:
+            conclusao_responsavel = gestor_ass
+        elif dev and dev.responsavel:
+            conclusao_responsavel = dev.responsavel.get_full_name() or dev.responsavel.username
+        else:
+            conclusao_responsavel = operador_ass
+
         return {
             "demanda_id": demanda.pk,
             "status": demanda.status,
             "protocolo_executivo": demanda.protocolo_executivo,
             "protocolo_legislativo": demanda.protocolo_legislativo,
             "titulo": demanda.titulo,
-            "relato_demanda": demanda.descricao,
-            "parecer_operacional": self._extrair_parecer_operacional(sol),
-            "resposta_protocolo": self._extrair_resposta_protocolo(dev),
+            "oficio_original": demanda.descricao or "",
+            "laudo_final": laudo_final,
+            "anexos_devolutiva": self._anexos_despacho_final(demanda),
             "orgao_nome": sinapse_catalog.get_orgao_nome(demanda.sinapse_orgao_id) or "",
-            "solicitacao_em": sol.timestamp.isoformat() if sol else None,
-            "devolutiva_em": dev.timestamp.isoformat() if dev else None,
+            "conclusao_em": conclusao_em,
+            "conclusao_responsavel": conclusao_responsavel,
+            "conclusao_operador": operador_ass,
+            "conclusao_gestor_protocolo": gestor_ass,
+            "historico_tecnico": historico_tecnico,
+            "assinaturas": assinaturas,
+            "pesquisa_satisfacao_habilitada": False,
+            # Campos legados (API interna / PDF futuro)
+            "relato_demanda": demanda.descricao,
+            "parecer_operacional": "",
+            "resposta_protocolo": self._html_para_texto(laudo_final),
+            "devolutiva_em": conclusao_em,
+            "devolutiva_responsavel": conclusao_responsavel,
+            "solicitacao_em": None,
             "ciencia_em": enc.ciencia_em.isoformat() if enc and enc.ciencia_em else None,
             "texto_resposta_cidadao": enc.texto_resposta_cidadao if enc else "",
             "oficio_resposta_url": self._url_oficio_resposta(demanda),
@@ -131,7 +346,9 @@ class EncerramentoLegislativoService:
         gerar_oficio: bool = True,
         encerrar: bool = True,
     ) -> Demanda:
-        if demanda.status != "DEVOLVIDO_VEREADOR":
+        if demanda.status == "FINALIZADO":
+            encerrar = False
+        elif demanda.status != "DEVOLVIDO_VEREADOR":
             raise ValueError("Ciência só pode ser registrada com devolutiva pendente ao vereador.")
 
         perfil = getattr(usuario, "perfil", None)

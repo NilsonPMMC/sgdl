@@ -108,6 +108,7 @@ class ClusterDespachoService:
                 ]
                 if unidade:
                     update_fields.append("unidade_administrativa")
+                demanda._notificacao_super_os_lote = True  # noqa: SLF001
                 demanda.save(update_fields=update_fields)
                 desc = (
                     f"Despacho Super OS {protocolo_super} — secretaria {orgao_nome}. "
@@ -123,6 +124,14 @@ class ClusterDespachoService:
                     descricao=desc,
                     unidade_destino=unidade,
                 )
+                if usuario is None:
+                    from core.services.assinatura_eletronica_service import (
+                        AssinaturaEletronicaService,
+                    )
+
+                    AssinaturaEletronicaService().registrar_assinatura_despacho_automatico(
+                        demanda
+                    )
                 protocolados.append(int(demanda.pk))
 
             cluster.protocolo_super_os = protocolo_super
@@ -147,6 +156,13 @@ class ClusterDespachoService:
             protocolo_super,
             cluster.pk,
             protocolados,
+        )
+        from core.services.notificacao_service import NotificacaoService
+
+        NotificacaoService().notificar_despacho_inicial_super_os(
+            cluster,
+            pendentes,
+            orgao_nome=orgao_nome,
         )
         return {
             "cluster_id": cluster.pk,

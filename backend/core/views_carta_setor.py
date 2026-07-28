@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from core.services.carta_setor_service import CartaSetorService
 from core.services.fluxo_protocolo_service import FluxoProtocoloService
+from core.services.gestor_escopo import gestor_pode_crud_admin
 
 _PERFIS = frozenset({"GESTOR", "PROTOCOLO"})
 
@@ -15,7 +16,10 @@ def _pode_gerir_carta_setor(user) -> bool:
     return bool(
         user
         and user.is_authenticated
-        and (getattr(user, "perfil", None) in _PERFIS or user.is_staff)
+        and (
+            getattr(user, "perfil", None) == "PROTOCOLO"
+            or gestor_pode_crud_admin(user)
+        )
     )
 
 

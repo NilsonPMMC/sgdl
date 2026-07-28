@@ -43,6 +43,18 @@ class CartaUtilizacaoServiceTests(SinapseCatalogTestMixin, TestCase):
         self.assertEqual(info["heranca"], "ASSUNTO")
         self.assertTrue(info["somente_orientacao"])
 
+    def test_desvincular_assunto(self):
+        CartaUtilizacaoService().vincular(
+            SINAPSE_SERVICO_ID,
+            assunto_id=None,
+            atualizar_assunto=True,
+        )
+        self.svc.refresh_from_db()
+        self.assertIsNone(self.svc.assunto_id)
+        info = CartaUtilizacaoService().resolver(SINAPSE_SERVICO_ID)
+        self.assertIsNone(info["assunto_id"])
+        self.assertEqual(info["heranca"], "GLOBAL")
+
     def test_override_por_servico(self):
         self.svc.modo_utilizacao_sgdl = ModoUtilizacaoSgdl.PROTOCOLAVEL
         self.svc.save(update_fields=["modo_utilizacao_sgdl"])
@@ -96,3 +108,21 @@ class AssuntoCartaAPITests(SinapseCatalogTestMixin, APITestCase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertIn("utilizacao_sgdl", r.data)
         self.assertEqual(r.data["utilizacao_sgdl"]["assunto_id"], self.assunto.pk)
+
+    def test_upsert_remove_assunto_com_null(self):
+        ServicoOtimizado.objects.filter(sinapse_servico_id=SINAPSE_SERVICO_ID).delete()
+        ServicoOtimizado.objects.create(
+            sinapse_servico_id=SINAPSE_SERVICO_ID,
+            titulo_otimizado="Serviço API",
+            descricao_objetiva="Desc",
+            intencao_servico="",
+            texto_rag_otimizado="texto",
+            assunto=self.assunto,
+        )
+        r = self.client.post(
+            "/api/carta-assuntos/upsert/",
+            {"sinapse_servico_id": SINAPSE_SERVICO_ID, "assunto_id": None},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIsNone(r.data["utilizacao_sgdl"]["assunto_id"])

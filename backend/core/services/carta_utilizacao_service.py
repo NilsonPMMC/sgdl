@@ -112,7 +112,8 @@ class CartaUtilizacaoService:
         self,
         sinapse_servico_id: int,
         *,
-        assunto_id: int | None = None,
+        assunto_id=None,
+        atualizar_assunto: bool = False,
         modo_utilizacao_sgdl: str | None = None,
         mensagem_orientacao: str | None = None,
     ) -> ServicoOtimizado:
@@ -124,8 +125,8 @@ class CartaUtilizacaoService:
                 "Sincronize ou otimize a base antes de classificar."
             )
 
-        if assunto_id is not None:
-            if assunto_id == 0 or assunto_id == "":
+        if atualizar_assunto:
+            if assunto_id is None or assunto_id == 0 or assunto_id == "":
                 svc.assunto = None
             else:
                 try:

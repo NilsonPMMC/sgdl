@@ -122,6 +122,24 @@ class AnexoSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['id', 'data_upload']
 
+    def validate(self, attrs):
+        arquivo = attrs.get("arquivo") or getattr(self.instance, "arquivo", None)
+        demanda = attrs.get("demanda") or getattr(self.instance, "demanda", None)
+        if arquivo and demanda:
+            from pathlib import Path
+
+            from core.services.anexo_validacao_service import (
+                coletar_nomes_anexos_demanda,
+                normalizar_nome_arquivo,
+                validar_nome_arquivo_novo,
+            )
+
+            nomes = coletar_nomes_anexos_demanda(demanda)
+            if self.instance and self.instance.pk and self.instance.arquivo:
+                nomes.discard(normalizar_nome_arquivo(Path(self.instance.arquivo.name).name))
+            validar_nome_arquivo_novo(nomes, getattr(arquivo, "name", ""))
+        return attrs
+
 
 class AnexoTramitacaoSerializer(serializers.ModelSerializer):
     class Meta:
@@ -138,6 +156,12 @@ class TramitacaoSerializer(serializers.ModelSerializer):
     )
     unidade_destino_id = serializers.IntegerField(write_only=True, required=False, allow_null=True)
     unidade_destino = serializers.SerializerMethodField()
+    acao_no = serializers.SerializerMethodField()
+    orgao_id = serializers.SerializerMethodField()
+    orgao_nome = serializers.SerializerMethodField()
+    setor_nome = serializers.SerializerMethodField()
+    no_id = serializers.SerializerMethodField()
+    destinos = serializers.SerializerMethodField()
 
     class Meta:
         model = Tramitacao
@@ -153,10 +177,56 @@ class TramitacaoSerializer(serializers.ModelSerializer):
             'arquivos_anexos',
             'unidade_destino_id',
             'unidade_destino',
+            'acao_no',
+            'orgao_id',
+            'orgao_nome',
+            'setor_nome',
+            'no_id',
+            'destinos',
         ]
         extra_kwargs = {
             'demanda': {'write_only': True},
         }
+
+    def _meta_tramitacao(self, obj: Tramitacao) -> dict:
+        raw = obj.metadata
+        return raw if isinstance(raw, dict) else {}
+
+    def get_acao_no(self, obj: Tramitacao):
+        return self._meta_tramitacao(obj).get("acao_no")
+
+    def get_orgao_id(self, obj: Tramitacao):
+        meta = self._meta_tramitacao(obj)
+        oid = meta.get("orgao_id")
+        return int(oid) if oid not in (None, "") else None
+
+    def get_orgao_nome(self, obj: Tramitacao):
+        return self._meta_tramitacao(obj).get("orgao_nome")
+
+    def get_setor_nome(self, obj: Tramitacao):
+        meta = self._meta_tramitacao(obj)
+        sid = meta.get("setor_id")
+        if sid in (None, ""):
+            return None
+        from core.models_unidade_administrativa import UnidadeAdministrativa
+
+        ua = UnidadeAdministrativa.objects.filter(pk=int(sid)).first()
+        if ua:
+            return ua.sigla or ua.nome
+        return meta.get("setor_nome")
+
+    def get_no_id(self, obj: Tramitacao):
+        meta = self._meta_tramitacao(obj)
+        nid = meta.get("no_id")
+        return int(nid) if nid not in (None, "") else None
+
+    def get_destinos(self, obj: Tramitacao):
+        from core.services.scatter_gather_service import _enriquecer_destinos_scatter
+
+        destinos = self._meta_tramitacao(obj).get("destinos")
+        if not isinstance(destinos, list) or not destinos:
+            return []
+        return _enriquecer_destinos_scatter(destinos)
 
     def get_unidade_destino(self, obj: Tramitacao):
         unidade = obj.unidade_destino
@@ -171,6 +241,7 @@ class TramitacaoSerializer(serializers.ModelSerializer):
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     remember_me = serializers.BooleanField(write_only=True, required=False)
+    portal = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     @classmethod
     def get_token(cls, user):
@@ -178,6 +249,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
+        from core.services.auth_portal_service import assert_portal_permitido
+
+        portal = self.initial_data.get("portal") or attrs.get("portal")
+        assert_portal_permitido(portal, self.user)
         remember_me = self.initial_data.get('remember_me', False)
         if remember_me:
             logger.debug("Autenticação com remember_me habilitado.")
@@ -223,6 +298,13 @@ class ClusterExecucaoSerializer(serializers.ModelSerializer):
     autores_distintos = serializers.SerializerMethodField()
     pendentes_protocolo = serializers.SerializerMethodField()
     servico_nome = serializers.SerializerMethodField()
+    tipo = serializers.SerializerMethodField()
+    tipo_display = serializers.SerializerMethodField()
+    orgaos_envolvidos = serializers.SerializerMethodField()
+    orgao_competente_id = serializers.SerializerMethodField()
+    orgao_competente_nome = serializers.SerializerMethodField()
+    lider_demanda_id = serializers.SerializerMethodField()
+    protocolados_count = serializers.SerializerMethodField()
 
     class Meta:
         model = ClusterExecucao
@@ -239,11 +321,59 @@ class ClusterExecucaoSerializer(serializers.ModelSerializer):
             "despachado_em",
             "demandas_count",
             "pendentes_protocolo",
+            "protocolados_count",
             "autores_distintos",
+            "tipo",
+            "tipo_display",
+            "orgaos_envolvidos",
+            "orgao_competente_id",
+            "orgao_competente_nome",
+            "lider_demanda_id",
             "criado_em",
             "atualizado_em",
         )
         read_only_fields = fields
+
+    def _metadata(self, obj: ClusterExecucao) -> dict:
+        cache = self.context.setdefault("_cluster_meta_cache", {})
+        key = obj.pk
+        if key not in cache:
+            from core.services.cluster_service import ClusterService
+
+            cache[key] = ClusterService().metadata_cluster(obj)
+        return cache[key]
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        meta = self._metadata(instance)
+        if not (data.get("descricao_resumo") or "").strip():
+            data["descricao_resumo"] = meta["descricao_resumo"]
+        if not (data.get("secretaria_responsavel") or "").strip():
+            data["secretaria_responsavel"] = meta["secretaria_responsavel"]
+        if not (data.get("bairro_referencia") or "").strip():
+            data["bairro_referencia"] = meta["bairro_referencia"]
+        return data
+
+    def get_tipo(self, obj: ClusterExecucao) -> str:
+        return self._metadata(obj)["tipo"]
+
+    def get_tipo_display(self, obj: ClusterExecucao) -> str:
+        return self._metadata(obj)["tipo_display"]
+
+    def get_orgaos_envolvidos(self, obj: ClusterExecucao) -> list:
+        return self._metadata(obj)["orgaos_envolvidos"]
+
+    def get_orgao_competente_id(self, obj: ClusterExecucao) -> int | None:
+        return self._metadata(obj)["orgao_competente_id"]
+
+    def get_orgao_competente_nome(self, obj: ClusterExecucao) -> str | None:
+        return self._metadata(obj)["orgao_competente_nome"]
+
+    def get_lider_demanda_id(self, obj: ClusterExecucao) -> int | None:
+        return self._metadata(obj)["lider_demanda_id"]
+
+    def get_protocolados_count(self, obj: ClusterExecucao) -> int:
+        return self._metadata(obj)["protocolados_count"]
 
     def get_pendentes_protocolo(self, obj: ClusterExecucao) -> int:
         return Demanda.objects.filter(
@@ -298,12 +428,24 @@ class DemandaSerializer(serializers.ModelSerializer):
     anexos = AnexoSerializer(many=True, read_only=True)
     tramitacoes = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    protocolo_executivo = serializers.SerializerMethodField()
     servico_carta_sinapse = serializers.SerializerMethodField()
     oficio_url = serializers.SerializerMethodField()
     pacote_devolutiva = serializers.SerializerMethodField()
     cluster = ClusterResumoSerializer(read_only=True)
     super_os = serializers.SerializerMethodField()
+    orgaos_integrados = serializers.SerializerMethodField()
     prazo_resolvido = serializers.SerializerMethodField()
+    assinaturas = serializers.SerializerMethodField()
+    assinaturas_resumo = serializers.SerializerMethodField()
+    devolutiva_alerta_leitura = serializers.SerializerMethodField()
+    acompanhando = serializers.SerializerMethodField()
+    pode_acompanhar = serializers.SerializerMethodField()
+    somente_acompanhamento = serializers.SerializerMethodField()
+    resultado_operacional_label = serializers.SerializerMethodField()
+    motivo_nao_execucao_label = serializers.SerializerMethodField()
+    registro_estudo_viabilidade = serializers.SerializerMethodField()
+    referencias_stand_by = serializers.SerializerMethodField()
     sinapse_servico_id = serializers.IntegerField(required=False, allow_null=True)
     servico_id = serializers.IntegerField(
         write_only=True,
@@ -321,6 +463,11 @@ class DemandaSerializer(serializers.ModelSerializer):
             'servico_id', 'sinapse_servico_id', 'sinapse_orgao_id',
             'unidade_administrativa_id',
             'origem_vinculo', 'tendencia',
+            'fluxo_roteamento', 'sinapse_orgao_lider_id',
+            'modo_entrada_processo', 'orquestrador_conclusao', 'inicio_execucao_automatico',
+            'nos_ativos',
+            'modo_entrada_processo', 'orquestrador_conclusao', 'inicio_execucao_automatico',
+            'nos_ativos',
             'servico_carta_sinapse', 'oficio_url',
             'pacote_devolutiva',
             'anexos', 'tramitacoes',
@@ -328,9 +475,24 @@ class DemandaSerializer(serializers.ModelSerializer):
             'ia_categoria', 'ia_sentimento', 'ia_processado',
             'cluster',
             'super_os',
+            'orgaos_integrados',
             'prazo_efetivo_dias',
             'prazo_origem',
             'prazo_resolvido',
+            'assinaturas',
+            'assinaturas_resumo',
+            'devolutiva_alerta_leitura',
+            'acompanhando',
+            'pode_acompanhar',
+            'somente_acompanhamento',
+            'resultado_operacional',
+            'resultado_operacional_label',
+            'motivo_nao_execucao',
+            'motivo_nao_execucao_label',
+            'escopo_geografico',
+            'stand_by_estudo_viabilidade',
+            'registro_estudo_viabilidade',
+            'referencias_stand_by',
         ]
         read_only_fields = [
             'protocolo_legislativo', 'protocolo_executivo', 'status', 'status_display',
@@ -339,36 +501,183 @@ class DemandaSerializer(serializers.ModelSerializer):
             'ia_categoria', 'ia_sentimento', 'ia_processado',
             'servico_carta_sinapse', 'oficio_url', 'sinapse_orgao_id',
             'unidade_administrativa_id',
+            'fluxo_roteamento', 'sinapse_orgao_lider_id',
+            'modo_entrada_processo', 'orquestrador_conclusao', 'inicio_execucao_automatico',
+            'nos_ativos',
             'pacote_devolutiva',
             'cluster',
             'super_os',
+            'orgaos_integrados',
             'prazo_efetivo_dias',
             'prazo_origem',
             'prazo_resolvido',
+            'assinaturas',
+            'assinaturas_resumo',
+            'devolutiva_alerta_leitura',
+            'acompanhando',
+            'pode_acompanhar',
+            'somente_acompanhamento',
+            'resultado_operacional',
+            'resultado_operacional_label',
+            'motivo_nao_execucao',
+            'motivo_nao_execucao_label',
+            'escopo_geografico',
+            'stand_by_estudo_viabilidade',
+            'registro_estudo_viabilidade',
+            'referencias_stand_by',
         ]
+
+    def get_protocolo_executivo(self, obj: Demanda) -> str | None:
+        from core.services.cluster_aderencia_service import protocolo_executivo_efetivo
+
+        return protocolo_executivo_efetivo(obj)
 
     def get_prazo_resolvido(self, obj: Demanda) -> dict:
         return obj.prazo_resolvido_dict()
+
+    def get_devolutiva_alerta_leitura(self, obj: Demanda) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return False
+        from core.services.devolutiva_alerta_service import usuario_tem_alerta_devolutiva_leitura
+
+        return usuario_tem_alerta_devolutiva_leitura(request.user, obj)
+
+    def _acompanhamento_svc(self):
+        from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
+
+        return AcompanhamentoDemandaService()
+
+    def get_acompanhando(self, obj: Demanda) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return False
+        return self._acompanhamento_svc().usuario_acompanha_ativo(request.user, obj.pk)
+
+    def get_pode_acompanhar(self, obj: Demanda) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return False
+        return self._acompanhamento_svc().pode_acompanhar(request.user, obj)
+
+    def get_somente_acompanhamento(self, obj: Demanda) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return False
+        return self._acompanhamento_svc().somente_acompanhamento(request.user, obj)
+
+    def get_resultado_operacional_label(self, obj: Demanda) -> str:
+        from core.models_estudo_viabilidade import ResultadoOperacional
+
+        valor = (obj.resultado_operacional or "").strip()
+        if not valor:
+            return ""
+        try:
+            return ResultadoOperacional(valor).label
+        except ValueError:
+            return valor
+
+    def get_motivo_nao_execucao_label(self, obj: Demanda) -> str:
+        from core.models_estudo_viabilidade import MotivoNaoExecucao
+
+        valor = (obj.motivo_nao_execucao or "").strip()
+        if not valor:
+            return ""
+        try:
+            return MotivoNaoExecucao(valor).label
+        except ValueError:
+            return valor
+
+    def _estudo_viabilidade_svc(self):
+        from core.services.estudo_viabilidade_service import EstudoViabilidadeService
+
+        return EstudoViabilidadeService()
+
+    def get_registro_estudo_viabilidade(self, obj: Demanda) -> dict | None:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return None
+        if not self._estudo_viabilidade_svc().usuario_ve_stand_by(request.user):
+            return None
+        from core.models_estudo_viabilidade import RegistroEstudoViabilidade
+
+        try:
+            registro = RegistroEstudoViabilidade.objects.get(demanda_id=obj.pk)
+        except RegistroEstudoViabilidade.DoesNotExist:
+            return None
+        return self._estudo_viabilidade_svc().serializar_registro(registro, demanda=obj)
+
+    def get_referencias_stand_by(self, obj: Demanda) -> list:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return []
+        svc = self._estudo_viabilidade_svc()
+        if not svc.usuario_ve_stand_by(request.user):
+            return []
+        lat = float(obj.latitude) if obj.latitude is not None else None
+        lon = float(obj.longitude) if obj.longitude is not None else None
+        return svc.buscar_referencias_stand_by(
+            request.user,
+            sinapse_servico_id=obj.sinapse_servico_id,
+            latitude=lat,
+            longitude=lon,
+            bairro=obj.bairro,
+            excluir_demanda_id=obj.pk,
+            limite=3,
+        )
 
     def get_super_os(self, obj: Demanda) -> dict:
         from core.services.cluster_service import ClusterService
 
         return ClusterService().info_operacional_super_os(obj)
 
+    def get_orgaos_integrados(self, obj: Demanda) -> list:
+        from core.services.demanda_despacho_destinos import orgaos_integrados_demanda
+
+        return orgaos_integrados_demanda(obj)
+
+    def get_assinaturas(self, obj: Demanda) -> list:
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+        return AssinaturaEletronicaService().serializar_assinaturas_demanda(obj)
+
+    def get_assinaturas_resumo(self, obj: Demanda) -> dict:
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+        return AssinaturaEletronicaService().resumo_assinaturas_demanda(obj)
+
     def get_tramitacoes(self, obj: Demanda):
         from core.services.tramitacao_visibilidade_service import (
             filtrar_tramitacoes_para_usuario,
+            perfil_usuario,
+            serializar_tramitacao_para_vereador,
         )
 
         request = self.context.get("request")
         usuario = request.user if request else None
         qs = (
-            obj.tramitacoes.select_related("responsavel", "unidade_destino")
+            obj.tramitacoes.select_related(
+                "responsavel",
+                "unidade_destino",
+                "unidade_origem",
+            )
             .prefetch_related("anexos")
             .order_by("timestamp")
         )
-        qs = filtrar_tramitacoes_para_usuario(qs, usuario)
-        return TramitacaoSerializer(qs, many=True, context=self.context).data
+        from core.services.scatter_gather_visibilidade import queryset_excluir_scatter_sistema
+
+        qs = queryset_excluir_scatter_sistema(qs)
+        qs = filtrar_tramitacoes_para_usuario(qs, usuario, demanda=obj)
+        tram_list = list(qs)
+        data = TramitacaoSerializer(tram_list, many=True, context=self.context).data
+        if perfil_usuario(usuario) == "VEREADOR":
+            return [
+                serializar_tramitacao_para_vereador(
+                    item, demanda=obj, tramitacao_obj=tram
+                )
+                for item, tram in zip(data, tram_list)
+            ]
+        return data
 
     def get_servico(self, obj: Demanda):
         return sinapse_catalog.servico_to_dict(
@@ -410,6 +719,16 @@ class DemandaSerializer(serializers.ModelSerializer):
         return anexo.arquivo.url
 
     def get_pacote_devolutiva(self, obj: Demanda):
+        from core.services.tramitacao_visibilidade_service import (
+            perfil_usuario,
+            status_permite_pacote_devolutiva_vereador,
+        )
+
+        request = self.context.get("request")
+        usuario = request.user if request else None
+
+        if perfil_usuario(usuario) == "VEREADOR" and not status_permite_pacote_devolutiva_vereador(obj.status):
+            return None
         if obj.status not in (
             "DEVOLVIDO_VEREADOR",
             "FINALIZADO",
@@ -474,6 +793,7 @@ class DemandaListSerializer(serializers.ModelSerializer):
     servico_nome = serializers.SerializerMethodField()
     secretaria_destino_nome = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    protocolo_executivo = serializers.SerializerMethodField()
     cluster = ClusterResumoSerializer(read_only=True)
     titulo = serializers.CharField(read_only=True)
 
@@ -492,6 +812,11 @@ class DemandaListSerializer(serializers.ModelSerializer):
         return sinapse_catalog.servico_to_dict(
             sinapse_catalog.get_servico(obj.sinapse_servico_id)
         )
+
+    def get_protocolo_executivo(self, obj: Demanda) -> str | None:
+        from core.services.cluster_aderencia_service import protocolo_executivo_efetivo
+
+        return protocolo_executivo_efetivo(obj)
 
     def get_servico_nome(self, obj: Demanda):
         catalog = sinapse_catalog.get_servico(obj.sinapse_servico_id)
@@ -629,6 +954,36 @@ class AssuntoCartaSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "slug", "criado_em", "atualizado_em")
 
 
+class DemandaPainelListListSerializer(serializers.ListSerializer):
+    """Pré-carrega encaminhamento pós-encerramento para listagem da secretaria."""
+
+    def to_representation(self, data):
+        request = self.context.get("request")
+        from core.services.demanda_listagem_secretaria import (
+            listagem_secretaria_encerrado,
+            map_encaminhamento_pos_encerramento,
+        )
+
+        if listagem_secretaria_encerrado(request):
+            orgao_id = getattr(request.user, "sinapse_orgao_id", None)
+            demanda_ids = [int(item.pk) for item in data]
+            self.context["encerramento_listagem_map"] = map_encaminhamento_pos_encerramento(
+                int(orgao_id), demanda_ids
+            )
+            self.context.pop("localizacao_operacional_map", None)
+        else:
+            self.context.pop("encerramento_listagem_map", None)
+            from core.services.demanda_localizacao_operacional_service import (
+                map_localizacao_operacional_aberta,
+            )
+
+            demanda_ids = [int(item.pk) for item in data]
+            self.context["localizacao_operacional_map"] = map_localizacao_operacional_aberta(
+                demanda_ids
+            )
+        return super().to_representation(data)
+
+
 class DemandaPainelListSerializer(serializers.ModelSerializer):
     """Lista enxuta para painéis do Protocolo (FIFO + temporizador)."""
 
@@ -636,16 +991,23 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
     servico = serializers.SerializerMethodField()
     secretaria_destino = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    protocolo_executivo = serializers.SerializerMethodField()
     cluster = ClusterResumoSerializer(read_only=True)
     tempo_parado_segundos = serializers.SerializerMethodField()
+    tempo_execucao_segundos = serializers.SerializerMethodField()
     cluster_acao_visivel = serializers.SerializerMethodField()
     fluxo_automatico = serializers.SerializerMethodField()
     unidade_administrativa = serializers.SerializerMethodField()
+    setores_operacionais_abertos = serializers.SerializerMethodField()
     super_os = serializers.SerializerMethodField()
     prazo_resolvido = serializers.SerializerMethodField()
+    assinaturas_resumo = serializers.SerializerMethodField()
+    acompanhando = serializers.SerializerMethodField()
+    pode_acompanhar = serializers.SerializerMethodField()
 
     class Meta:
         model = Demanda
+        list_serializer_class = DemandaPainelListListSerializer
         fields = [
             'id',
             'titulo',
@@ -656,7 +1018,9 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
             'data_criacao',
             'data_entrada_etapa',
             'data_inicio_prazo',
+            'data_finalizacao',
             'tempo_parado_segundos',
+            'tempo_execucao_segundos',
             'prazo_efetivo_dias',
             'prazo_origem',
             'prazo_resolvido',
@@ -670,11 +1034,41 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
             'cluster_acao_visivel',
             'fluxo_automatico',
             'unidade_administrativa',
+            'setores_operacionais_abertos',
             'super_os',
+            'assinaturas_resumo',
+            'acompanhando',
+            'pode_acompanhar',
         ]
+
+    def get_acompanhando(self, obj: Demanda) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return False
+        from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
+
+        return AcompanhamentoDemandaService().usuario_acompanha_ativo(request.user, obj.pk)
+
+    def get_pode_acompanhar(self, obj: Demanda) -> bool:
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return False
+        from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
+
+        return AcompanhamentoDemandaService().pode_acompanhar(request.user, obj)
 
     def get_prazo_resolvido(self, obj: Demanda) -> dict:
         return obj.prazo_resolvido_dict()
+
+    def get_protocolo_executivo(self, obj: Demanda) -> str | None:
+        from core.services.cluster_aderencia_service import protocolo_executivo_efetivo
+
+        return protocolo_executivo_efetivo(obj)
+
+    def get_assinaturas_resumo(self, obj: Demanda) -> dict:
+        from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+        return AssinaturaEletronicaService().resumo_assinaturas_demanda(obj)
 
     def get_super_os(self, obj: Demanda) -> dict:
         from core.services.cluster_service import ClusterService
@@ -686,7 +1080,13 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
             sinapse_catalog.get_servico(obj.sinapse_servico_id)
         )
 
+    def _contexto_encerrado_listagem(self, obj: Demanda) -> dict | None:
+        return (self.context.get("encerramento_listagem_map") or {}).get(int(obj.pk))
+
     def get_secretaria_destino(self, obj: Demanda):
+        ctx = self._contexto_encerrado_listagem(obj)
+        if ctx and ctx.get("secretaria_destino"):
+            return ctx["secretaria_destino"]
         return sinapse_catalog.orgao_to_dict(
             sinapse_catalog.get_orgao(obj.sinapse_orgao_id)
         )
@@ -696,6 +1096,15 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
         if not referencia:
             return None
         delta = timezone.now() - referencia
+        return max(0, int(delta.total_seconds()))
+
+    def get_tempo_execucao_segundos(self, obj: Demanda) -> int | None:
+        if obj.status != "FINALIZADO" or not obj.data_finalizacao:
+            return None
+        inicio = obj.data_inicio_prazo or obj.data_criacao
+        if not inicio:
+            return None
+        delta = obj.data_finalizacao - inicio
         return max(0, int(delta.total_seconds()))
 
     def get_cluster_acao_visivel(self, obj: Demanda) -> bool:
@@ -709,6 +1118,9 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
         return FluxoProtocoloService().despacho_automatico_habilitado(obj)
 
     def get_unidade_administrativa(self, obj: Demanda):
+        ctx = self._contexto_encerrado_listagem(obj)
+        if ctx and ctx.get("unidade_administrativa"):
+            return ctx["unidade_administrativa"]
         unidade = obj.unidade_administrativa
         if not unidade:
             return None
@@ -718,6 +1130,13 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
             "sigla": unidade.sigla,
             "sinapse_orgao_id": unidade.sinapse_orgao_id,
         }
+
+    def get_setores_operacionais_abertos(self, obj: Demanda) -> list[dict]:
+        ctx_enc = self._contexto_encerrado_listagem(obj)
+        if ctx_enc:
+            return []
+        itens = (self.context.get("localizacao_operacional_map") or {}).get(int(obj.pk), [])
+        return itens or []
 
 
 class ChatInteracaoSerializer(serializers.Serializer):
@@ -1021,7 +1440,7 @@ class UsuarioGestaoSerializer(serializers.ModelSerializer):
 
 class UsuarioSecretariaWriteSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     first_name = serializers.CharField(required=False, allow_blank=True, default="")
     last_name = serializers.CharField(required=False, allow_blank=True, default="")
     email = serializers.EmailField(required=False, allow_blank=True, default="")
@@ -1051,6 +1470,7 @@ class UsuarioSecretariaWriteSerializer(serializers.Serializer):
         return orgao_id
 
     def validate(self, attrs):
+        attrs = _normalizar_senha_opcional(attrs)
         if not self.instance and not attrs.get("password"):
             raise serializers.ValidationError({"password": "Senha é obrigatória na criação."})
         return attrs
@@ -1160,7 +1580,7 @@ class UsuarioGestorSerializer(serializers.ModelSerializer):
 
 class UsuarioGestorWriteSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, required=False, allow_blank=False)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     first_name = serializers.CharField(required=False, allow_blank=True, default="")
     last_name = serializers.CharField(required=False, allow_blank=True, default="")
     email = serializers.EmailField(required=False, allow_blank=True, default="")
@@ -1194,6 +1614,7 @@ class UsuarioGestorWriteSerializer(serializers.Serializer):
         return orgao_id
 
     def validate(self, attrs):
+        attrs = _normalizar_senha_opcional(attrs)
         if not self.instance and not attrs.get("password"):
             raise serializers.ValidationError({"password": "Senha é obrigatória na criação."})
         unidade_ids = attrs.get("unidade_ids") or []
@@ -1270,9 +1691,21 @@ def _validar_username_unico(username: str, instance: Usuario | None = None) -> s
     return username
 
 
+def _normalizar_senha_opcional(attrs: dict) -> dict:
+    """Em edição, ignora senha vazia ou só espaços (H3-14)."""
+    if "password" not in attrs:
+        return attrs
+    pwd = (attrs.get("password") or "").strip()
+    if not pwd:
+        attrs.pop("password")
+    else:
+        attrs["password"] = pwd
+    return attrs
+
+
 class UsuarioVereadorWriteSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     first_name = serializers.CharField(required=False, allow_blank=True, default="")
     last_name = serializers.CharField(required=False, allow_blank=True, default="")
     email = serializers.EmailField(required=False, allow_blank=True, default="")
@@ -1285,6 +1718,7 @@ class UsuarioVereadorWriteSerializer(serializers.Serializer):
         return _validar_username_unico(value, self.instance)
 
     def validate(self, attrs):
+        attrs = _normalizar_senha_opcional(attrs)
         if not self.instance and not attrs.get("password"):
             raise serializers.ValidationError({"password": "Senha é obrigatória na criação."})
         return attrs
@@ -1305,7 +1739,7 @@ class UsuarioVereadorWriteSerializer(serializers.Serializer):
 
 class UsuarioProtocoloWriteSerializer(serializers.Serializer):
     username = serializers.CharField(max_length=150)
-    password = serializers.CharField(write_only=True, required=False)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     first_name = serializers.CharField(required=False, allow_blank=True, default="")
     last_name = serializers.CharField(required=False, allow_blank=True, default="")
     email = serializers.EmailField(required=False, allow_blank=True, default="")
@@ -1315,6 +1749,7 @@ class UsuarioProtocoloWriteSerializer(serializers.Serializer):
         return _validar_username_unico(value, self.instance)
 
     def validate(self, attrs):
+        attrs = _normalizar_senha_opcional(attrs)
         if not self.instance and not attrs.get("password"):
             raise serializers.ValidationError({"password": "Senha é obrigatória na criação."})
         return attrs
@@ -1418,9 +1853,11 @@ class UsuarioGestaoUnificadoSerializer(serializers.ModelSerializer):
             return "completo" if self.get_vinculo_protocolo(obj).get("completo") else "incompleto"
         if perfil == "GESTOR":
             v = self.get_vinculo_gestor(obj)
+            if v.get("tipo_gestor") == "SETORIAL":
+                return "completo"
             if not v.get("admin_pleno"):
                 return "incompleto"
-            return "referencia_pendente" if v.get("recomendado_pendente") else "completo"
+            return "completo"
         return "ok"
 
     def get_atuacao_sgdl(self, obj: Usuario) -> dict:

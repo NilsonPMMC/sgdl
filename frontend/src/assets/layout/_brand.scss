@@ -1,0 +1,29 @@
+/* Tokens de marca SGDL — complementam --p-primary-* do PrimeVue */
+:root {
+    --sgdl-brand: #213a8f;
+    --sgdl-brand-light: #4d6db8;
+    --sgdl-brand-dark: #152861;
+    --sgdl-brand-muted: #d5dcf0;
+    --sgdl-brand-gradient: linear-gradient(
+        145deg,
+        var(--p-primary-800, #101e4a) 0%,
+        var(--p-primary-600, #1b3178) 35%,
+        var(--p-primary-500, #213a8f) 70%,
+        var(--p-primary-400, #4d6db8) 100%
+    );
+}
+
+.app-dark {
+    --sgdl-brand-gradient: linear-gradient(
+        145deg,
+        var(--sgdl-dark-ground, #0a1628) 0%,
+        var(--sgdl-dark-elevated, #1e293b) 50%,
+        var(--p-primary-700, #152861) 100%
+    );
+}
+
+.sgdl-auth-panel {
+    background: var(--sgdl-brand-gradient);
+    background-position: center;
+    background-size: cover;
+}

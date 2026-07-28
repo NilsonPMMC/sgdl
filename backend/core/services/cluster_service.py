@@ -34,6 +34,9 @@ DEMANDA_STATUS_ELEGIVEIS = frozenset(
 
 DEMANDA_STATUS_CLUSTERIZAVEL = frozenset({"AGUARDANDO_PROTOCOLO"})
 
+# Rascunhos nunca participam de cluster (nem como líder, nem como par).
+DEMANDA_STATUS_BLOQUEIA_CLUSTER = frozenset({"RASCUNHO", "CANCELADO"})
+
 # Status em que uma demanda solta ainda pode formar par (inclui protocoladas sem cluster).
 DEMANDA_STATUS_PAR_FORMACAO = frozenset(
     {
@@ -126,6 +129,21 @@ class ClusterService:
             return None
         return self.atribuir_demanda(demanda)
 
+    def _membros_cluster_validos(self, cluster: ClusterExecucao):
+        """Demandas que contam para formação/Super OS — exclui rascunho e cancelado."""
+        return Demanda.objects.filter(cluster=cluster).exclude(
+            status__in=DEMANDA_STATUS_BLOQUEIA_CLUSTER
+        )
+
+    def _contar_membros_cluster_validos(self, cluster: ClusterExecucao) -> int:
+        return self._membros_cluster_validos(cluster).count()
+
+    def demanda_pode_participar_cluster(self, demanda: Demanda) -> bool:
+        return (
+            demanda.status not in DEMANDA_STATUS_BLOQUEIA_CLUSTER
+            and demanda.status in DEMANDA_STATUS_ELEGIVEIS
+        )
+
     def atribuir_demanda(self, demanda: Demanda) -> ClusterExecucao | None:
         if not self.enabled:
             return None
@@ -133,7 +151,7 @@ class ClusterService:
             return None
         if not demanda.sinapse_servico_id:
             return None
-        if demanda.status not in DEMANDA_STATUS_ELEGIVEIS:
+        if not self.demanda_pode_participar_cluster(demanda):
             return None
 
         if demanda.cluster_id:
@@ -156,6 +174,8 @@ class ClusterService:
                 cluster.titulo[:60],
             )
             self.garantir_protocolo_super_os_cluster(cluster)
+            self._disparar_integracao_automatica_cluster(demanda)
+            self._notificar_cluster_protocolo(cluster, demanda)
             return cluster
 
         par = self._buscar_demanda_solta_compativel(demanda, vetor)
@@ -179,7 +199,13 @@ class ClusterService:
         cluster = demanda.cluster
         if cluster is not None:
             self.garantir_protocolo_super_os_cluster(cluster)
+            self._notificar_cluster_protocolo(cluster, demanda)
         return cluster
+
+    def _notificar_cluster_protocolo(self, cluster, demanda: Demanda) -> None:
+        from core.services.notificacao_service import NotificacaoService
+
+        NotificacaoService().notificar_cluster_detectado(cluster, demanda)
 
     def deve_aguardar_par_para_demanda(self, demanda: Demanda) -> bool:
         """Evita despacho solo enquanto houver rascunho ou embedding pendente do mesmo serviço."""
@@ -235,8 +261,8 @@ class ClusterService:
         """Atribui protocolo Super OS a clusters retroativos (≥2 demandas, sem SUPER ainda)."""
         if cluster.protocolo_super_os:
             return cluster.protocolo_super_os
-        membros = Demanda.objects.filter(cluster=cluster)
-        if membros.count() < CLUSTER_MIN_DEMANDAS:
+        membros = list(self._membros_cluster_validos(cluster))
+        if len(membros) < CLUSTER_MIN_DEMANDAS:
             return None
         from core.services.cluster_despacho_service import _proximo_protocolo_super_os
 
@@ -262,7 +288,7 @@ class ClusterService:
             "Super OS retroativa %s atribuída ao cluster pk=%s (%s demandas).",
             protocolo,
             cluster.pk,
-            membros.count(),
+            len(membros),
         )
         return protocolo
 
@@ -311,6 +337,10 @@ class ClusterService:
     ) -> ClusterExecucao:
         if cluster.status == CLUSTER_STATUS_RESOLVIDO:
             raise ValueError("Cluster encerrado não aceita novas demandas.")
+        if not self.demanda_pode_participar_cluster(demanda):
+            raise ValueError(
+                "Apenas demandas enviadas ao protocolo podem ser vinculadas a clusters."
+            )
         if not demanda.sinapse_servico_id:
             raise ValueError("Demanda sem serviço Sinapse vinculado.")
         servico_cluster = self._servico_id_do_cluster(cluster)
@@ -346,6 +376,7 @@ class ClusterService:
             cluster.pk,
             getattr(usuario, "pk", None),
         )
+        self._disparar_integracao_automatica_cluster(demanda)
         return cluster
 
     def desvincular_demanda_manual(self, demanda: Demanda, *, usuario) -> None:
@@ -373,20 +404,180 @@ class ClusterService:
         )
 
     def lider_cluster_pk(self, cluster_id: int) -> int | None:
-        return (
+        """
+        Demanda líder operacional do cluster.
+
+        Prioriza quem tem protocolo executivo (despacho real), depois status/nós ativos,
+        e por fim o menor pk (critério legado).
+        """
+        rows = list(
+            Demanda.objects.filter(cluster_id=cluster_id).values(
+                "pk", "protocolo_executivo", "status", "nos_ativos"
+            )
+        )
+        if not rows:
+            return None
+
+        def chave(row: dict) -> tuple:
+            tem_protocolo = 1 if (row.get("protocolo_executivo") or "").strip() else 0
+            ordem = STATUS_ORDEM_GRUPO.get(row.get("status") or "", 0)
+            nos = int(row.get("nos_ativos") or 0)
+            return (tem_protocolo, ordem, nos, -int(row["pk"]))
+
+        return max(rows, key=chave)["pk"]
+
+    def cluster_e_multi_destino_orgaos(self, cluster_id: int) -> bool:
+        """Desdobramento B5: demandas no mesmo cluster com órgãos distintos."""
+        org_count = (
             Demanda.objects.filter(cluster_id=cluster_id)
+            .exclude(sinapse_orgao_id__isnull=True)
+            .values("sinapse_orgao_id")
+            .distinct()
+            .count()
+        )
+        return org_count > 1
+
+    def metadata_cluster(self, cluster: ClusterExecucao) -> dict[str, Any]:
+        """Enriquece card de detalhe (Super OS semântica ou multi-órgão integrado)."""
+        multi = self.cluster_e_multi_destino_orgaos(int(cluster.pk))
+        demandas = list(
+            Demanda.objects.filter(cluster=cluster)
             .order_by("pk")
-            .values_list("pk", flat=True)
-            .first()
+            .values("pk", "sinapse_orgao_id", "bairro", "status")
+        )
+        lider_id = self.lider_cluster_pk(int(cluster.pk))
+
+        orgaos_map: dict[int, str] = {}
+        for row in demandas:
+            oid = row.get("sinapse_orgao_id")
+            if oid and int(oid) not in orgaos_map:
+                orgaos_map[int(oid)] = (
+                    sinapse_catalog.get_orgao_nome(int(oid)) or f"Órgão #{oid}"
+                )
+        orgaos_envolvidos = [
+            {"sinapse_orgao_id": oid, "orgao_nome": nome}
+            for oid, nome in sorted(orgaos_map.items(), key=lambda x: x[1])
+        ]
+
+        servico_nome = None
+        orgao_carta_id = None
+        orgao_carta_nome = None
+        if cluster.sinapse_servico_id:
+            svc = sinapse_catalog.get_servico(int(cluster.sinapse_servico_id))
+            servico_nome = (svc.titulo or "").strip() if svc else None
+            orgao_carta_id = sinapse_catalog.get_orgao_id_for_servico(
+                int(cluster.sinapse_servico_id)
+            )
+            if orgao_carta_id:
+                orgao_carta_nome = sinapse_catalog.get_orgao_nome(int(orgao_carta_id))
+
+        descricao = (cluster.descricao_resumo or "").strip()
+        if not descricao:
+            if multi:
+                nomes = ", ".join(o["orgao_nome"] for o in orgaos_envolvidos)
+                descricao = (
+                    "Despacho integrado multi-órgão — processos vinculados ao mesmo "
+                    f"atendimento ({nomes or 'órgãos distintos'})."
+                )
+            elif servico_nome:
+                descricao = (
+                    f"Agrupamento automático do serviço «{servico_nome}» "
+                    "no mesmo entorno geográfico."
+                )
+
+        secretaria = (cluster.secretaria_responsavel or "").strip()
+        if not secretaria:
+            secretaria = orgao_carta_nome or ""
+
+        bairro = (cluster.bairro_referencia or "").strip()
+        if not bairro:
+            for row in demandas:
+                b = (row.get("bairro") or "").strip()
+                if b:
+                    bairro = b
+                    break
+
+        pendentes = sum(1 for d in demandas if d["status"] == "AGUARDANDO_PROTOCOLO")
+        protocolados = sum(
+            1 for d in demandas if d["status"] in ("PROTOCOLADO", "EM_EXECUCAO")
+        )
+
+        tipo = "MULTI_DESTINO" if multi else "SUPER_OS"
+        tipo_display = (
+            "Multi-órgão integrado" if multi else "Super OS (mesmo serviço e local)"
+        )
+
+        return {
+            "tipo": tipo,
+            "tipo_display": tipo_display,
+            "orgaos_envolvidos": orgaos_envolvidos,
+            "orgao_competente_id": orgao_carta_id,
+            "orgao_competente_nome": orgao_carta_nome,
+            "lider_demanda_id": lider_id,
+            "descricao_resumo": descricao,
+            "secretaria_responsavel": secretaria,
+            "bairro_referencia": bairro,
+            "pendentes_protocolo": pendentes,
+            "protocolados_count": protocolados,
+        }
+
+    def cluster_ja_despachado(self, cluster: ClusterExecucao) -> bool:
+        """True se o cluster já teve despacho (total ou parcial)."""
+        if cluster.despachado_em:
+            return True
+        if not cluster.protocolo_super_os:
+            return False
+        return Demanda.objects.filter(
+            cluster=cluster,
+            status__in=("PROTOCOLADO", "EM_EXECUCAO", "AGUARDANDO_DEVOLUTIVA_PROTOCOLO"),
+        ).exists()
+
+    def _disparar_integracao_automatica_cluster(self, demanda: Demanda) -> None:
+        """Protocola automaticamente demandas novas em Super OS já despachada."""
+        if demanda.status != "AGUARDANDO_PROTOCOLO" or not demanda.cluster_id:
+            return
+        cluster = demanda.cluster
+        if cluster is None or not self.cluster_ja_despachado(cluster):
+            return
+        from core.services.fluxo_protocolo_service import FluxoProtocoloService
+
+        svc = FluxoProtocoloService()
+        if not svc.despacho_automatico_habilitado(demanda):
+            return
+        if not demanda.sinapse_servico_id:
+            return
+
+        servico_id = int(demanda.sinapse_servico_id)
+        pk = int(demanda.pk)
+
+        def _run() -> None:
+            try:
+                svc.processar_cohorte_servico(servico_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Integração automática cluster demanda pk=%s: %s", pk, exc
+                )
+
+        transaction.on_commit(_run)
+
+    def _cluster_ids_multi_destino(self) -> set[int]:
+        return set(
+            Demanda.objects.filter(cluster_id__isnull=False)
+            .values("cluster_id")
+            .annotate(org_count=Count("sinapse_orgao_id", distinct=True))
+            .filter(org_count__gt=1)
+            .values_list("cluster_id", flat=True)
         )
 
     def grupo_super_os_ativo(self, demanda: Demanda) -> bool:
         if not demanda.cluster_id:
             return False
-        return (
+        if (
             Demanda.objects.filter(cluster_id=demanda.cluster_id).count()
-            >= CLUSTER_MIN_DEMANDAS
-        )
+            < CLUSTER_MIN_DEMANDAS
+        ):
+            return False
+        return not self.cluster_e_multi_destino_orgaos(int(demanda.cluster_id))
 
     def eh_lider_super_os(self, demanda: Demanda) -> bool:
         if not self.grupo_super_os_ativo(demanda):
@@ -395,73 +586,103 @@ class ClusterService:
         return lider is not None and int(demanda.pk) == int(lider)
 
     def info_operacional_super_os(self, demanda: Demanda) -> dict[str, Any]:
+        base_vazio = {
+            "ativo": False,
+            "eh_lider": True,
+            "lider_id": demanda.pk,
+            "cluster_id": None,
+            "protocolo_super_os": None,
+            "total_vinculados": 0,
+            "demandas_vinculadas": [],
+            "tramitacao_apenas_lider": False,
+            "tipo": None,
+            "tipo_display": None,
+            "orgaos_envolvidos": [],
+            "orgao_competente_nome": None,
+        }
         if not demanda.cluster_id:
-            return {
-                "ativo": False,
-                "eh_lider": True,
-                "lider_id": demanda.pk,
-                "cluster_id": None,
-                "protocolo_super_os": None,
-                "total_vinculados": 0,
-                "demandas_vinculadas": [],
-                "tramitacao_apenas_lider": False,
-            }
+            return base_vazio
 
-        total = Demanda.objects.filter(cluster_id=demanda.cluster_id).count()
-        if total < CLUSTER_MIN_DEMANDAS:
-            return {
-                "ativo": False,
-                "eh_lider": True,
-                "lider_id": demanda.pk,
-                "cluster_id": demanda.cluster_id,
-                "protocolo_super_os": getattr(demanda.cluster, "protocolo_super_os", None),
-                "total_vinculados": total,
-                "demandas_vinculadas": [],
-                "tramitacao_apenas_lider": False,
-            }
-
-        lider_pk = self.lider_cluster_pk(int(demanda.cluster_id))
         cluster = demanda.cluster
-        vinculadas = []
-        for d in Demanda.objects.filter(cluster_id=demanda.cluster_id).order_by("pk"):
-            vinculadas.append(
-                {
-                    "id": d.pk,
-                    "protocolo_executivo": d.protocolo_executivo,
-                    "protocolo_legislativo": d.protocolo_legislativo,
-                    "titulo": d.titulo,
-                    "status": d.status,
-                    "status_display": d.get_status_display(),
-                }
-            )
+        total = Demanda.objects.filter(cluster_id=demanda.cluster_id).count()
+        lider_pk = self.lider_cluster_pk(int(demanda.cluster_id))
+        super_os_ativo = self.grupo_super_os_ativo(demanda)
+
+        vinculadas: list[dict[str, Any]] = []
+        if total >= CLUSTER_MIN_DEMANDAS:
+            for d in Demanda.objects.filter(cluster_id=demanda.cluster_id).order_by("pk"):
+                orgao_nome = None
+                if d.sinapse_orgao_id:
+                    orgao_nome = sinapse_catalog.get_orgao_nome(int(d.sinapse_orgao_id))
+                vinculadas.append(
+                    {
+                        "id": d.pk,
+                        "protocolo_executivo": d.protocolo_executivo,
+                        "protocolo_legislativo": d.protocolo_legislativo,
+                        "titulo": d.titulo,
+                        "status": d.status,
+                        "status_display": d.get_status_display(),
+                        "sinapse_orgao_id": d.sinapse_orgao_id,
+                        "orgao_nome": orgao_nome,
+                    }
+                )
+
+        meta: dict[str, Any] = {}
+        if cluster and total >= CLUSTER_MIN_DEMANDAS:
+            meta = self.metadata_cluster(cluster)
+
         return {
-            "ativo": True,
-            "eh_lider": int(demanda.pk) == int(lider_pk),
+            "ativo": super_os_ativo,
+            "eh_lider": int(demanda.pk) == int(lider_pk) if lider_pk else True,
             "lider_id": lider_pk,
             "cluster_id": cluster.pk if cluster else demanda.cluster_id,
             "protocolo_super_os": cluster.protocolo_super_os if cluster else None,
             "total_vinculados": total,
             "demandas_vinculadas": vinculadas,
-            "tramitacao_apenas_lider": True,
+            "tramitacao_apenas_lider": super_os_ativo,
+            "tipo": meta.get("tipo"),
+            "tipo_display": meta.get("tipo_display"),
+            "orgaos_envolvidos": meta.get("orgaos_envolvidos") or [],
+            "orgao_competente_nome": meta.get("orgao_competente_nome"),
         }
 
     def filtrar_listagem_apenas_lideres(self, qs: QuerySet) -> QuerySet:
         """Oculta filhos de Super OS na listagem operacional (secretaria vê só o líder)."""
-        agreg = (
+        cluster_ids = (
             Demanda.objects.filter(cluster_id__isnull=False)
             .values("cluster_id")
-            .annotate(total=Count("pk"), lider_pk=Min("pk"))
+            .annotate(total=Count("pk"))
             .filter(total__gte=CLUSTER_MIN_DEMANDAS)
+            .values_list("cluster_id", flat=True)
         )
+        multi_destino = self._cluster_ids_multi_destino()
         excluir: list[int] = []
-        for row in agreg:
+        for cluster_id in cluster_ids:
+            if cluster_id in multi_destino:
+                continue
+            lider_pk = self.lider_cluster_pk(int(cluster_id))
+            if not lider_pk:
+                continue
             excluir.extend(
-                Demanda.objects.filter(cluster_id=row["cluster_id"])
-                .exclude(pk=row["lider_pk"])
+                Demanda.objects.filter(cluster_id=cluster_id)
+                .exclude(pk=lider_pk)
                 .values_list("pk", flat=True)
             )
         if excluir:
             qs = qs.exclude(pk__in=excluir)
+        return qs
+
+    def filtrar_seguidoras_integradas(self, qs: QuerySet) -> QuerySet:
+        """Oculta seguidoras já integradas ao líder (acompanham via Super OS)."""
+        from core.models import Tramitacao
+
+        integradas = Tramitacao.objects.filter(
+            tipo="COMENTARIO",
+            metadata__acao="ADERIR_LIDER",
+        ).values_list("demanda_id", flat=True)
+        ids = list(integradas)
+        if ids:
+            qs = qs.exclude(pk__in=ids)
         return qs
 
     def exigir_lider_super_os(self, demanda: Demanda) -> None:
@@ -529,17 +750,49 @@ class ClusterService:
             return []
         if not demanda.cluster_id:
             return []
+
+        from core.services.cluster_aderencia_service import (
+            ClusterAderenciaService,
+            demanda_integrada_ao_lider,
+        )
+
+        aderencia = ClusterAderenciaService()
+        atualizados: list[int] = []
+        lider_pk = self.lider_cluster_pk(int(demanda.cluster_id))
+        if lider_pk is not None and int(demanda.pk) == int(lider_pk):
+            atualizados.extend(
+                aderencia.sincronizar_seguidoras_integradas(demanda, usuario=usuario)
+            )
+
         novo_status = demanda.status
         ordem_novo = STATUS_ORDEM_GRUPO.get(novo_status)
         if ordem_novo is None:
-            return []
+            return atualizados
 
-        atualizados: list[int] = []
         agora = timezone.now()
 
         for sib in Demanda.objects.filter(cluster_id=demanda.cluster_id).exclude(
             pk=demanda.pk
         ):
+            if demanda_integrada_ao_lider(sib):
+                if aderencia.ressincronizar_com_lider(sib, lider=demanda, usuario=usuario):
+                    atualizados.append(int(sib.pk))
+                continue
+
+            from core.services.cluster_aderencia_service import seguidora_pendente_integracao
+
+            lider_pk = self.lider_cluster_pk(int(demanda.cluster_id))
+            if (
+                lider_pk
+                and int(demanda.pk) == int(lider_pk)
+                and seguidora_pendente_integracao(sib, demanda)
+            ):
+                aderencia._aplicar_espelho_lider(
+                    sib, demanda, usuario=usuario, registrar_comentario=True
+                )
+                atualizados.append(int(sib.pk))
+                continue
+
             ordem_sib = STATUS_ORDEM_GRUPO.get(sib.status)
             if ordem_sib is not None and ordem_sib >= ordem_novo:
                 continue
@@ -648,6 +901,7 @@ class ClusterService:
                 cluster__isnull=True,
             )
             .exclude(pk=demanda.pk)
+            .exclude(status__in=DEMANDA_STATUS_BLOQUEIA_CLUSTER)
             .exclude(embedding__isnull=True)
         )
 
@@ -800,7 +1054,8 @@ class ClusterService:
         if restantes == 0:
             cluster.delete()
             return
-        if restantes < CLUSTER_MIN_DEMANDAS:
+        validos = self._contar_membros_cluster_validos(cluster)
+        if validos < CLUSTER_MIN_DEMANDAS:
             Demanda.objects.filter(cluster=cluster).update(cluster=None)
             cluster.delete()
             return
@@ -811,7 +1066,7 @@ class ClusterService:
             cluster = ClusterExecucao.objects.get(pk=cluster_id)
         except ClusterExecucao.DoesNotExist:
             return
-        if Demanda.objects.filter(cluster=cluster).count() < CLUSTER_MIN_DEMANDAS:
+        if self._contar_membros_cluster_validos(cluster) < CLUSTER_MIN_DEMANDAS:
             Demanda.objects.filter(cluster=cluster).update(cluster=None)
             cluster.delete()
 

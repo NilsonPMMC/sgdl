@@ -5,6 +5,7 @@ import importlib.util
 from django.test import TestCase, override_settings
 
 from core.models import Demanda
+from core.models import ClusterExecucao
 from core.services.cluster_service import CLUSTER_MIN_DEMANDAS, ClusterService
 
 _spec = importlib.util.spec_from_file_location("core_tests_legacy", "core/tests.py")
@@ -75,3 +76,40 @@ class ClusterParFormacaoTests(SinapseCatalogTestMixin, TestCase):
             vetor=self.vetor_similar,
         )
         self.assertTrue(self.svc.deve_aguardar_par_para_demanda(aguardando))
+
+    def test_rascunho_com_embedding_nao_recebe_cluster(self):
+        rascunho = self._demanda(
+            titulo="Só rascunho", status="RASCUNHO", vetor=self.vetor_base
+        )
+        self.assertIsNone(self.svc.atribuir_demanda(rascunho))
+        rascunho.refresh_from_db()
+        self.assertIsNone(rascunho.cluster_id)
+
+    def test_rascunho_nao_entra_como_par_na_formacao(self):
+        self._demanda(
+            titulo="Rascunho par", status="RASCUNHO", vetor=self.vetor_base
+        )
+        aguardando = self._demanda(
+            titulo="Na fila",
+            status="AGUARDANDO_PROTOCOLO",
+            vetor=self.vetor_similar,
+        )
+        self.assertIsNone(self.svc.atribuir_demanda(aguardando))
+        aguardando.refresh_from_db()
+        self.assertIsNone(aguardando.cluster_id)
+
+    def test_rascunho_perde_vinculo_cluster_ao_salvar(self):
+        cluster = ClusterExecucao.objects.create(
+            titulo="Cluster teste", status="ABERTO"
+        )
+        rascunho = self._demanda(
+            titulo="Rascunho vinculado",
+            status="AGUARDANDO_PROTOCOLO",
+            vetor=self.vetor_base,
+        )
+        rascunho.cluster = cluster
+        rascunho.save(update_fields=["cluster"])
+        rascunho.status = "RASCUNHO"
+        rascunho.save(update_fields=["status"])
+        rascunho.refresh_from_db()
+        self.assertIsNone(rascunho.cluster_id)

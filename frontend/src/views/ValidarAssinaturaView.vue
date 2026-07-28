@@ -51,8 +51,13 @@ onMounted(async () => {
                 <Message v-else-if="erro" severity="error" :closable="false">{{ erro }}</Message>
                 <div v-else-if="resultado?.valido" class="flex flex-col gap-3 text-sm">
                     <Tag value="Assinatura válida" severity="success" class="w-fit" />
-                    <p class="m-0"><strong>Ofício:</strong> {{ resultado.demanda_titulo }}</p>
+                    <p class="m-0"><strong>Etapa:</strong> {{ resultado.etapa_display || resultado.etapa || 'Envio oficial' }}</p>
+                    <p class="m-0"><strong>Signatário:</strong> {{ resultado.signatario }}</p>
+                    <p v-if="resultado.cargo" class="m-0"><strong>Cargo:</strong> {{ resultado.cargo }}</p>
+                    <p v-if="resultado.papel_display" class="m-0"><strong>Papel:</strong> {{ resultado.papel_display }}</p>
+                    <p class="m-0"><strong>Ofício / demanda:</strong> {{ resultado.demanda_titulo }}</p>
                     <p class="m-0"><strong>Protocolo legislativo:</strong> {{ resultado.protocolo_legislativo || '—' }}</p>
+                    <p class="m-0"><strong>Protocolo executivo:</strong> {{ resultado.protocolo_executivo || '—' }}</p>
                     <p class="m-0"><strong>Vereador:</strong> {{ resultado.vereador }}</p>
                     <p class="m-0"><strong>Assinado em:</strong> {{ formatarData(resultado.assinado_em) }}</p>
                     <p class="m-0 text-xs text-muted-color break-all">

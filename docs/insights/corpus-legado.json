@@ -1,0 +1,1140 @@
+{
+  "versao": 1,
+  "gerado_em": "2026-07-07T19:20:46.741020+00:00",
+  "checksum_csv": "4f72a62e73685477e59762a7fb9d7243acabd2749e8f4ad5b52104ae0938dde3",
+  "total_registros": 10230,
+  "periodo_referencia_meses": 17,
+  "nota": "Corpus de aprendizado — não substitui Demandas operacionais nem altera o fluxo do Copiloto.",
+  "tipos_pedido": [
+    {
+      "tipo": "SERVIÇO",
+      "volume": 6383,
+      "percentual": 62.39
+    },
+    {
+      "tipo": "IMPLANTAÇÃO",
+      "volume": 1840,
+      "percentual": 17.99
+    },
+    {
+      "tipo": "VISTORIA",
+      "volume": 875,
+      "percentual": 8.55
+    },
+    {
+      "tipo": "EVENTO",
+      "volume": 583,
+      "percentual": 5.7
+    },
+    {
+      "tipo": "ATENDIMENTO",
+      "volume": 547,
+      "percentual": 5.35
+    },
+    {
+      "tipo": "serviço",
+      "volume": 1,
+      "percentual": 0.01
+    },
+    {
+      "tipo": "Solicita serviços de roçagem e limpeza na Rua Nove - Vila Aparecida",
+      "volume": 1,
+      "percentual": 0.01
+    }
+  ],
+  "top_trends": [
+    {
+      "id": "limpeza-publica-smsuz",
+      "titulo": "Limpeza Pública (SMSUZ)",
+      "servico_legado": "Limpeza Pública",
+      "setor_legado": "SMSUZ",
+      "volume": 1675,
+      "percentual": 16.37,
+      "exemplos_assunto": [
+        "Limpeza e roçada da Rua Joaquim Fernandes Bonilha, Bairro – Alto da Boa Vista.",
+        "Solicitando a limpeza e roçagem por toda a extensão da Estrada Fugitaro Nagão, Bairro – Cocuera.",
+        "limpeza do Córrego Rio Negro nas imediações do Bairro Vila Natal."
+      ],
+      "atalho_sugerido": "Limpeza e roçada de via"
+    },
+    {
+      "id": "outros-geral",
+      "titulo": "Outros",
+      "servico_legado": "Outros",
+      "setor_legado": null,
+      "volume": 943,
+      "percentual": 9.22,
+      "exemplos_assunto": [
+        "solicitando o uso do Estádio Municipal Francisco Ribeiro Nogueira, às quintas ou sextas – feiras, sendo uma vez ao mês, no período noturno",
+        "solicitando a prorrogação do prazo de intimação número 16654.",
+        "solicitando o alteamento no trecho que ocorre alagamento do ramal da Estrada da Santa Catarina, ao lado do Núcleo de Bem-estar Animal – Distrito de Cesar de Souza."
+      ],
+      "atalho_sugerido": "Outros"
+    },
+    {
+      "id": "recapeamento-tapa-buraco-smsuz",
+      "titulo": "Recapeamento/Tapa Buraco (SMSUZ)",
+      "servico_legado": "Recapeamento/Tapa Buraco",
+      "setor_legado": "SMSUZ",
+      "volume": 916,
+      "percentual": 8.95,
+      "exemplos_assunto": [
+        "Tapa buraco na Rua Paulo Roberto Rodrigues Nahum, em frente ao número 365, Bairro – Mogi Moderno.",
+        "solicitando os reparos de pista, devido a um afundamento na Rua José Ruiz Martins, número 474, Bairro – Jardim Aracy.",
+        "solicitando o serviço de tapa buraco na Rua Carlos Gomes, em frente ao número 707, Bairro – Mogi Moderno."
+      ],
+      "atalho_sugerido": "Tapa buraco na via"
+    },
+    {
+      "id": "manutencao-estradas-rurais-urbanas-smuz",
+      "titulo": "Manutenção Estradas Rurais/Urbanas (SMUZ)",
+      "servico_legado": "Manutenção Estradas Rurais/Urbanas",
+      "setor_legado": "SMUZ",
+      "volume": 779,
+      "percentual": 7.61,
+      "exemplos_assunto": [
+        "Cascalhamento e nivelamento da Rua 05, Bairro – Parque São Martinho.",
+        "manutenção da via Avenida Santa Catarina, Bairro Chácara Guanabara, que se encontra alagada.",
+        "nivelamento e cascalhamento por toda a extensão da Rua Christovam Colombo, altura do número 382, Bairro – Vila São Paulo, Botujuru."
+      ],
+      "atalho_sugerido": "Manutenção de estrada"
+    },
+    {
+      "id": "manutencao-iluminacao-publica-smsuz",
+      "titulo": "Manutenção Iluminação Pública (SMSUZ)",
+      "servico_legado": "Manutenção Iluminação Pública",
+      "setor_legado": "SMSUZ",
+      "volume": 620,
+      "percentual": 6.06,
+      "exemplos_assunto": [
+        "solicitando a manutenção da iluminação pública na Avenida Lourenço de Souza Franco, altura do número 2377, Bairro – Jundiapeba.",
+        "solicitando a manutenção de iluminação pública na Rua dos Vicentinos, altura do número 891, Bairro – Vila Natal.",
+        "solicitando a instalação de postes de isolamento no início da área verde, próximo a Rua Lourdes Aparecida Costa, Bairro – Novo Horizonte."
+      ],
+      "atalho_sugerido": "Iluminação pública"
+    },
+    {
+      "id": "poda-de-arvore-smapa",
+      "titulo": "Poda de Árvore (SMAPA)",
+      "servico_legado": "Poda de Árvore",
+      "setor_legado": "SMAPA",
+      "volume": 509,
+      "percentual": 4.98,
+      "exemplos_assunto": [
+        "poda de árvore, situada na Rua Alameda Santo Ângelo, atrás do condomínio El Shaday - Jundiapeba.",
+        "poda de duas árvores que estão localizadas na Rua José Candido, altura do número 165, Bairro – Parque Olímpico.",
+        "solicitando a poda das árvores por toda a extensão da Estrada Fazenda Rio Acima, Bairro – Rio Acima."
+      ],
+      "atalho_sugerido": "Poda de árvore"
+    },
+    {
+      "id": "manutencao-em-terreno-particular-smseg",
+      "titulo": "Manutenção em Terreno particular (SMSEG)",
+      "servico_legado": "Manutenção em Terreno particular",
+      "setor_legado": "SMSEG",
+      "volume": 373,
+      "percentual": 3.65,
+      "exemplos_assunto": [
+        "limpeza do terreno situado à Rua José Juca Assi, Bairro – Jardim Planalto.",
+        "solicitando notificar o proprietário do terreno situado na Rua Iracema Brasil de Siqueira, número 163, Bairro – Vila Oliveira, para que promova a poda do mato.",
+        "Solicitando que o proprietário do terreno situado na Rua Desembargador Djalma Pinheiro Franco seja notificado para providenciar a limpeza e capinação do local."
+      ],
+      "atalho_sugerido": "Manutenção em Terreno particular"
+    },
+    {
+      "id": "rondas-ostensivas-intensificacao-smseg",
+      "titulo": "Rondas Ostensivas/Intensificação (SMSEG)",
+      "servico_legado": "Rondas Ostensivas/Intensificação",
+      "setor_legado": "SMSEG",
+      "volume": 339,
+      "percentual": 3.31,
+      "exemplos_assunto": [
+        "Rondas ostensivas preventivas da GCM nas imediações da nova UBS, situada na Rua Frei Bonifácio Harink, número 313, Bairro – Vila São Paulo, Botujuru.",
+        "solicitando o reforço do policiamento na Avenida Ricieri José Marcatto, entre a Avenida Jackes Jones e a Rua Ewald Muhleise, Bairro – Cezar de Souza.",
+        "Aumento das rondas da Guarda Municipal na Avenida Lothar Waldemar Hoehne, entre a Avenida José Meloni e Estrada da Cruz do Século, Bairro – Ponte Grande."
+      ],
+      "atalho_sugerido": "Ronda da GCM"
+    },
+    {
+      "id": "implantacao-de-sinalizacao-viaria-smmt",
+      "titulo": "Implantação de Sinalização viária (SMMT)",
+      "servico_legado": "Implantação de Sinalização viária",
+      "setor_legado": "SMMT",
+      "volume": 318,
+      "percentual": 3.11,
+      "exemplos_assunto": [
+        "solicitando implantação de faixa amarela na Rua Capitão Benedito Pedro dos Santos, número 21, Bairro – Jardim Camila.",
+        "solicitando a implantação de sinalização adequada para pedestres na calçada da Avenida João XXIII, nas proximidades do SESC.",
+        "solicitando a intensificação de placas, sinalização de solo e semafórica, na confluência da Avenida Brasil com a Rua Doutor Deodato Wertheimer."
+      ],
+      "atalho_sugerido": "Sinalização de trânsito"
+    },
+    {
+      "id": "nivelamento-e-cascalhamento-geral",
+      "titulo": "Nivelamento e Cascalhamento",
+      "servico_legado": "Nivelamento e Cascalhamento",
+      "setor_legado": null,
+      "volume": 289,
+      "percentual": 2.83,
+      "exemplos_assunto": [
+        "Solicitando a manutenção e revitalização do canteiro situado na Avenida João XXIII, que percorre pelos Bairros Socorro e Jardim São Pedro.",
+        "solicito os serviços de nivelamento e cascalhamento por toda a extensão da Rua João Alves Bitencourt, Bairro – Parque São Martinho.",
+        "solicito os serviços de nivelamento e cascalhamento, por toda a extensão da Estrada Shigueru Yoneda, Bairro - Cocuera."
+      ],
+      "atalho_sugerido": "Nivelamento e Cascalhamento"
+    },
+    {
+      "id": "manutencao-sinalizacao-viaria-smmt",
+      "titulo": "Manutenção Sinalização viária (SMMT)",
+      "servico_legado": "Manutenção Sinalização viária",
+      "setor_legado": "SMMT",
+      "volume": 262,
+      "percentual": 2.56,
+      "exemplos_assunto": [
+        "solicitando a pintura horizontal “Devagar” e “Área Escolar”, na Rua Comendador Koeji Adachi, altura da E.E.I Santana III",
+        "solicitando a instalação de faixas de estímulo à redução de velocidade, na Rua Comendador Koeji Adachi, altura da E.E.I Santana III",
+        "solicitando a manutenção da sinalização da lomabada na Avenida Júlio Simões, altura do número 528, Bairro - Parque Olimpico."
+      ],
+      "atalho_sugerido": "Manutenção Sinalização viária"
+    },
+    {
+      "id": "implantacao-de-iluminacao-publica-smsuz",
+      "titulo": "Implantação de Iluminação Pública (SMSUZ)",
+      "servico_legado": "Implantação de Iluminação Pública",
+      "setor_legado": "SMSUZ",
+      "volume": 258,
+      "percentual": 2.52,
+      "exemplos_assunto": [
+        "solicitando a implantação de luminárias e manutenção das que estão queimadas na Rua José Marcondes de Carvalho, entre os números 1010 e 1150, Bairro – Botujuru.",
+        "solicitando estudos objetivando a iluminação das faixas de pedestres situada em ambos os lados da Avenida Ricieri José Marcatto, Bairro - Vila Suissa.",
+        "Solicitando melhorias na iluminação pública da Rua Santa Vigília."
+      ],
+      "atalho_sugerido": "Implantação de Iluminação Pública"
+    },
+    {
+      "id": "implantacao-de-redutor-de-velocidade-geral",
+      "titulo": "Implantação de Redutor de Velocidade",
+      "servico_legado": "Implantação de Redutor de Velocidade",
+      "setor_legado": null,
+      "volume": 191,
+      "percentual": 1.87,
+      "exemplos_assunto": [
+        "solicitando a implantação de redutor de velocidade no cruzamento da Rua Doutor Deodato Wertheimer com a Rua Júlio Aragão, Bairro – Brás Cubas.",
+        "solicitando a colocação de lombadas ou lombofaixas na Rua Camilo José de Miranda, número 14 e 21, Bairro – Biritiba Ussu",
+        "solicitando a implantação deredutor de velocidade e sinalização na Avenida Júlio Simões, nos dois, sentidos, próximo ao número 26, Bairro - Vila Joia."
+      ],
+      "atalho_sugerido": "Implantação de Redutor de Velocidade"
+    },
+    {
+      "id": "implantacao-de-abrigo-de-onibus-smmt",
+      "titulo": "Implantação de Abrigo de ônibus (SMMT)",
+      "servico_legado": "Implantação de Abrigo de ônibus",
+      "setor_legado": "SMMT",
+      "volume": 153,
+      "percentual": 1.5,
+      "exemplos_assunto": [
+        "solicitando a implantação de ponto de ônibus na Rua Thuller, número 547 – Jardim Universo.",
+        "solicitando a limpeza, roçagem e a manutenção no ponto de ônibus situado entre as Ruas Barra Velha e Betim, Bairro – Jardim Piatã II.",
+        "solicitando a limpeza e manutenção de ponto de ônibus na Rua Um, Conjunto Habitacional Toyama, Bairro – Jardim Armênia."
+      ],
+      "atalho_sugerido": "Implantação de Abrigo de ônibus"
+    },
+    {
+      "id": "coleta-de-lixo-entulho-smsuz",
+      "titulo": "Coleta de Lixo/Entulho (SMSUZ)",
+      "servico_legado": "Coleta de Lixo/Entulho",
+      "setor_legado": "SMSUZ",
+      "volume": 133,
+      "percentual": 1.3,
+      "exemplos_assunto": [
+        "solicitando a limpeza e recolhimento de lixo na Estrada do Parateí, número 2511, Bairro – Taboão.",
+        "solicitando a limpeza da calçada e remoção de entulho na Avenida Florêncio de Paiva, número 200, Bairro – Jardim Modelo.",
+        "solicitando o serviço de limpeza, roçada de mato, recolha de lixo e entulho, na Travessa do Bosque"
+      ],
+      "atalho_sugerido": "Coleta de entulho"
+    },
+    {
+      "id": "implantacao-de-lombada-smmt",
+      "titulo": "Implantação de Lombada (SMMT)",
+      "servico_legado": "Implantação de Lombada",
+      "setor_legado": "SMMT",
+      "volume": 117,
+      "percentual": 1.14,
+      "exemplos_assunto": [
+        "solicitando a instalação de uma lombada na Avenida Francisco Assis de Monteiro Castro, próximo à Rua José Urbano Sanches, ao condomínio Hills, Bairro – Vila Oliveira.",
+        "solicitando a instalação de redutor de velocidade - lombada na Rua Gomes Cardim, número 520.",
+        "solicitando a implantação de lombada na Rua Júlio Aragão, altura do número 510, Bairro – Brás Cubas."
+      ],
+      "atalho_sugerido": "Lombada na via"
+    },
+    {
+      "id": "manutencao-quadras-campos-smel",
+      "titulo": "Manutenção Quadras/Campos (SMEL)",
+      "servico_legado": "Manutenção Quadras/Campos",
+      "setor_legado": "SMEL",
+      "volume": 101,
+      "percentual": 0.99,
+      "exemplos_assunto": [
+        "Reparos na pista do Skate Park,junto ao complexo esportivo Hugo Ramos, na Avenida Professor Ismael Alves dos Santos, número 560, Bairro – Vila Mogilar.",
+        "solicitando a manutenção das quadras próximo ao Residencial Esmeraldas, na Avenida Ezelino da Cunha Glória, número 415, Bairro – Jardim Marica.",
+        "solicitando a manutenção do Complexo Esportivo da Vila Ressaca, na Rua Antônio Barbosa, número 92, Bairro – São João."
+      ],
+      "atalho_sugerido": "Manutenção Quadras/Campos"
+    },
+    {
+      "id": "implantacao-de-faixa-de-pedestres-smmt",
+      "titulo": "Implantação de Faixa de Pedestres (SMMT)",
+      "servico_legado": "Implantação de Faixa de Pedestres",
+      "setor_legado": "SMMT",
+      "volume": 101,
+      "percentual": 0.99,
+      "exemplos_assunto": [
+        "solicitando a implantação de faixa de pedestres na Rua Júlio Perotti, número 75, Bairro – Jardim Armênia.",
+        "solicitando a implantação de lombofaixa na Avenida São Paulo, altura do número 90, Bairro – Socorro",
+        "solicitando a implantação de faixa de pedestres na Avenida Henrique Eroles, proximo ao número 791."
+      ],
+      "atalho_sugerido": "Implantação de Faixa de Pedestres"
+    },
+    {
+      "id": "manutencao-boca-de-lobo-tampa-de-bueiro-smuz",
+      "titulo": "Manutenção Boca de lobo/tampa de bueiro (SMUZ)",
+      "servico_legado": "Manutenção Boca de lobo/tampa de bueiro",
+      "setor_legado": "SMUZ",
+      "volume": 97,
+      "percentual": 0.95,
+      "exemplos_assunto": [
+        "solicitando a troca da galeria pluvial, no qual o escoamento de água se dá no sentido contrário da via da Rua Antônio Pinto Rodrigues",
+        "solicitando a manutenção da tampa do bueiro situado na Rua José Miguel, em frente ao número 130, Bairro – Vila Bernadotti.",
+        "Solicitando o alteamento no trecho que ocorre alagamento do ramal da Estrada da Santa Catarina, ao lado do Núcleo de Bem-estar Animal – Distrito de Cesar de Souza."
+      ],
+      "atalho_sugerido": "Manutenção Boca de lobo/tampa de bueiro"
+    },
+    {
+      "id": "fechamento-de-rua-geral",
+      "titulo": "Fechamento de rua",
+      "servico_legado": "Fechamento de rua",
+      "setor_legado": null,
+      "volume": 94,
+      "percentual": 0.92,
+      "exemplos_assunto": [
+        "Fechamento parcial e sinalização no dia 25/01/2024 da Rua José Heleno, nº 80, Bairro – Pq Olímpico, para realização da Festa do Padroeiro de São Paulo Apóstolo",
+        "solicito o fechamento parcial e sinalização, no dia 25/01/2025 da Rua José Heleno, nº 80, Bairro – Parque Olímpico, para realização da Festa do Padroeiro de São Paulo Apóstolo.",
+        "Autorização para interdição da Rua Francisco Rodrigues Mathias, em frente a estação ferroviária, Bairro – Sabaúna, nos dias 25 e 26 de janeiro de 2025"
+      ],
+      "atalho_sugerido": "Fechamento de rua"
+    },
+    {
+      "id": "implantacao-de-vaga-de-estacionamento-smmt",
+      "titulo": "Implantação de Vaga de Estacionamento (SMMT)",
+      "servico_legado": "Implantação de Vaga de Estacionamento",
+      "setor_legado": "SMMT",
+      "volume": 93,
+      "percentual": 0.91,
+      "exemplos_assunto": [
+        "solicitando a regularização de sinalização para vaga de estacionamento reservada para pessoas com deficiência, em frente à Igreja de Cristo Jesus",
+        "solicitando a implantação de vaga para cadeirantes na Rua Alberto García, número 35 - Shangai.",
+        "solicitando a implantação de vaga para carga e descargama Rua Cabo Diogo Oliver em frente ao número 1401, Bairro - Jardim Ponte Grande."
+      ],
+      "atalho_sugerido": "Implantação de Vaga de Estacionamento"
+    },
+    {
+      "id": "manutencao-corrego-dessasoreamento-smsuz",
+      "titulo": "Manutenção córrego/Dessasoreamento (SMSUZ)",
+      "servico_legado": "Manutenção córrego/Dessasoreamento",
+      "setor_legado": "SMSUZ",
+      "volume": 89,
+      "percentual": 0.87,
+      "exemplos_assunto": [
+        "solicitando estudos para canalização do córrego ao final da Rua Senday, Bairro – Jardim Naútico.",
+        "solicitando o desassoreamento do córrego, ao lado do Núcleo de Bem-estar Animal, na Estrada Santa Catarina – Distrito Cesar de Souza",
+        "solicitando a manutenção e limpeza da valeta do Ramal da Estrada Santa Catarina, Km 09, ao lado do Núcleo de Bem-estar Animal – Distrito Cesar de Souza."
+      ],
+      "atalho_sugerido": "Manutenção córrego/Dessasoreamento"
+    },
+    {
+      "id": "manutencao-guias-sarjetas-smsuz",
+      "titulo": "Manutenção Guias/Sarjetas (SMSUZ)",
+      "servico_legado": "Manutenção Guias/Sarjetas",
+      "setor_legado": "SMSUZ",
+      "volume": 88,
+      "percentual": 0.86,
+      "exemplos_assunto": [
+        "solicitando a realização de reparos urgentes na calçada da Avenida João XXIII, nas proximidades do SESC.",
+        "Solicitando a revitalização da calçada, na Rua Cabo Diogo, próximo ao náutico, Bairro - Ponte Grande.",
+        "solicitando a liberação para pintura de guia de calçada de amarelo."
+      ],
+      "atalho_sugerido": "Manutenção Guias/Sarjetas"
+    },
+    {
+      "id": "manutencao-praca-parques-smsuz",
+      "titulo": "Manutenção Praça/Parques (SMSUZ)",
+      "servico_legado": "Manutenção Praça/Parques",
+      "setor_legado": "SMSUZ",
+      "volume": 86,
+      "percentual": 0.84,
+      "exemplos_assunto": [
+        "Revitalização da praça situada nas Ruas João Negrão, Rua Pedroso e Rua Expedicionário Francisco Antônio de Oliveira, Bairro – Jardim Esperança.",
+        "solicitando a reparação completa da pista de caminhada da Praça Doutor Álvaro de Campos Carneiro, Bairro – Vila Oliveira.",
+        "Ampliação da área de atividade física na Praça Doutor Álvaro de Campos Carneiro, situada na Rua Doutor Francisco Arouche de Toledo, Bairro – Vila Oliveira."
+      ],
+      "atalho_sugerido": "Manutenção Praça/Parques"
+    },
+    {
+      "id": "agente-de-transito-evento-smmt-geral",
+      "titulo": "Agente de trânsito- EVENTO- SMMT",
+      "servico_legado": "Agente de trânsito- EVENTO- SMMT",
+      "setor_legado": null,
+      "volume": 74,
+      "percentual": 0.72,
+      "exemplos_assunto": [
+        "Solicitando a interdição parcial da Rua Manoel Joaquim Barboza, entre os números 127 e 201, trecho compreendido entre a Avenida Braz de Pina e Rua Gaspar Conqueiro – Vila Vitória, para realização do e",
+        "solicito a presença dos agentes trânsito, para acompanhar a procissão do Domingo de Ramos, com saída da Comunidade São Franscisco de Assis, situada na Avenida José Glicério de Mello, 1.081- Jardim Cam",
+        "solicito companhamento de agentes de trânsito para auxiliar nas Procissões da Semana Santa, a se realizarem nos dias 13 e 20 de abril, com início às 09h00 e dia 16 de abril com início às 19h30."
+      ],
+      "atalho_sugerido": "Agente de trânsito- EVENTO- SMMT"
+    },
+    {
+      "id": "manutencao-drenagem-smsuz",
+      "titulo": "Manutenção Drenagem (SMSUZ)",
+      "servico_legado": "Manutenção Drenagem",
+      "setor_legado": "SMSUZ",
+      "volume": 65,
+      "percentual": 0.64,
+      "exemplos_assunto": [
+        "Execução de obras e serviços de drenagem e escoamento da água pluvial, que alagou a Estrada Municipal do Lambari",
+        "solicitando a limpeza da boca de lobo situada na Rua Constellation, altura do número 396, Bairro – Jardim Aeroporto III.",
+        "troca da tampa da boca de lobo situada na Rua Constellation, altura do número 389, Bairro – Jardim Aeroporto III."
+      ],
+      "atalho_sugerido": "Manutenção Drenagem"
+    },
+    {
+      "id": "implantacao-de-pavimentacao-asfalto-smsuz",
+      "titulo": "Implantação de Pavimentação/Asfalto (SMSUZ)",
+      "servico_legado": "Implantação de Pavimentação/Asfalto",
+      "setor_legado": "SMSUZ",
+      "volume": 63,
+      "percentual": 0.62,
+      "exemplos_assunto": [
+        "Solicitando a manutenção por toda a extensão da Estrada do Watanabe. Bairro – Biritiba Ussu.",
+        "soliciro a implantação de valeta para escoamento e drenagem de águas pluviais na Rua Natalino dos Santos Gonçalves, próximo ao n° 595, Bairro – Villa Di César.",
+        "solicitando os serviços de implantação de fresa de asfalto em todas as subidas e descidas da Rua dos Canários, (travessa da estrada do Gavião), bairro Biritiba Ussu."
+      ],
+      "atalho_sugerido": "Implantação de Pavimentação/Asfalto"
+    },
+    {
+      "id": "horario-de-onibus-smmt",
+      "titulo": "Horário de ônibus (SMMT)",
+      "servico_legado": "Horário de ônibus",
+      "setor_legado": "SMMT",
+      "volume": 62,
+      "percentual": 0.61,
+      "exemplos_assunto": [
+        "solicitando o estudo para alteração de itinerário da Linha C193 - Quatinha via Barroso, com saída do Quatinga e retorno pela Estrada Municipal Tomoki Hiramoto.",
+        "solicitando a mudança do itinerário do transporte público urbano do ônibus São Francisco E114, próximo da Rinnai, devido ao fluxo de pessoas que trabalham nas empresas existentes no local.",
+        "Solicitando prioridade, na Regularização Fundiária para as famílias residentes no loteamento localizado no Bairro dos Pintos – Taiaçupeba."
+      ],
+      "atalho_sugerido": "Horário de ônibus"
+    },
+    {
+      "id": "uso-de-praca-smmt",
+      "titulo": "Uso de Praça (SMMT)",
+      "servico_legado": "Uso de Praça",
+      "setor_legado": "SMMT",
+      "volume": 60,
+      "percentual": 0.59,
+      "exemplos_assunto": [
+        "solicito autorização para utilizarem a praça de eventos do Parque Centenário, para realização do evento religioso promovido pela Igreja Adventista do Sétimo Dia, a se realizar no dia 18 de maio de 202",
+        "soliciro autorização para o uso da Praça da Marisa, situada na Rua Dr. Paulo Frontin – Centro, para realização do evento de conscientização da campanha Faça Bonito, a se realizar no dia 17 de maio das",
+        "solicito a autorização de uso da Praça Oswaldo Cruz situada na Rua Doutor Ricardo Vilela, a se realizar nos dias 19/07, 16/08, 20/09, 18/10, 15/11 e 20/12 das 09h às 12h."
+      ],
+      "atalho_sugerido": "Uso de Praça"
+    },
+    {
+      "id": "servicos-evento-smmt",
+      "titulo": "Serviços Evento (SMMT)",
+      "servico_legado": "Serviços Evento",
+      "setor_legado": "SMMT",
+      "volume": 55,
+      "percentual": 0.54,
+      "exemplos_assunto": [
+        "comunicando que no dia 22/01/2025 a partir das 10h00, acontecerá no Largo do Rosário um ato organizado pela APEOESP",
+        "solicito m ônibus, de 46 lugares, para transportar os alunos que irão participar do Campeonato Paulista de Karatê, no CEU PQ São Carlos, situado na Rua Clarear, 141 – Vila Jacui, a se realizar no dia ",
+        "solicito a interdição total da Rua Sebastião Michel Miguel, entre a Rua Coronel Cardoso de Siqueira e Travessa um, Bairro – Conjunto Residencial Cocuera, para evento religioso a ser realizar no dia 19"
+      ],
+      "atalho_sugerido": "Serviços Evento"
+    },
+    {
+      "id": "servicos-evento-smsuz",
+      "titulo": "Serviços Evento (SMSUZ)",
+      "servico_legado": "Serviços Evento",
+      "setor_legado": "SMSUZ",
+      "volume": 54,
+      "percentual": 0.53,
+      "exemplos_assunto": [
+        "solicitando o apoio logístico, 5 tendas para abrigar as atividades de ações sociais e autorização para ação social de cunho evangelístico, a se realizar no dia 08 de março",
+        "empréstimo de 03 tendas 5x15 metros, que será utilizada na Missa de Ordenação Diaconal, a se realizar no dia 08 de fevereiro a partir das 09h00.",
+        "solicito a disponibilização de 05 barracas 4x4 metros para atender a Festa Cristo Ressuscitado, a se realizar entre os dias 24 a 26 de abril, com início às 16h00 e encerramento às 22h00."
+      ],
+      "atalho_sugerido": "Serviços Evento"
+    },
+    {
+      "id": "implantacao-de-lixeiras-publicas-smsuz",
+      "titulo": "Implantação de Lixeiras Públicas (SMSUZ)",
+      "servico_legado": "Implantação de Lixeiras Públicas",
+      "setor_legado": "SMSUZ",
+      "volume": 47,
+      "percentual": 0.46,
+      "exemplos_assunto": [
+        "Solicitando o estudo para a instalação de uma lixeira na confluência da Esteada do Gavião com a Estrada da Olaria, Bairro – Biritiba Ussu.",
+        "solicito solicito a instalação de lixeiras nos terminais de ônibus Estudantes e Central.",
+        "Solicito a instalação de lixeiras (nas imediações das vias)/Festa de Santo Antônio"
+      ],
+      "atalho_sugerido": "Implantação de Lixeiras Públicas"
+    },
+    {
+      "id": "implantacao-de-boca-de-lobo-smsuz",
+      "titulo": "Implantação de Boca de lobo (SMSUZ)",
+      "servico_legado": "Implantação de Boca de lobo",
+      "setor_legado": "SMSUZ",
+      "volume": 46,
+      "percentual": 0.45,
+      "exemplos_assunto": [
+        "solicito a instalação de boca de lobo na Estrada Dom Paulo Rolim Loureiro, em frente a Creche Alcides Pais de Moraes, Bairro – Vila Moraes.",
+        "solicito a implantação de bueiro na Rua Silvio Vieira, n°118, Bairro – Conjunto Residencial Antônio Bovolenta.",
+        "solicito implantação de bueiro na Rua Silvio Vieira, n°118, Bairro – Conjunto Residencial Antônio Bovolenta."
+      ],
+      "atalho_sugerido": "Implantação de Boca de lobo"
+    },
+    {
+      "id": "implantacao-de-guias-sarjetas-smuz",
+      "titulo": "Implantação de Guias/sarjetas (SMUZ)",
+      "servico_legado": "Implantação de Guias/sarjetas",
+      "setor_legado": "SMUZ",
+      "volume": 40,
+      "percentual": 0.39,
+      "exemplos_assunto": [
+        "solicitando o serviço de implantação de calçadas na Avenida Japão, número 3453.",
+        "solicito estudos para implantação de guias e sarjetas no trecho da Rua Santa Helena, a partir da altura do número 351, Bairro – Vila São Paulo.",
+        "solicito estudos para implantação de guias e sarjetas no trecho da Rua Luzia dos Santos, a partir da altura do número 948, Bairro – Vila São Paulo."
+      ],
+      "atalho_sugerido": "Implantação de Guias/sarjetas"
+    },
+    {
+      "id": "implantacao-de-camera-de-monitoramento-geral",
+      "titulo": "Implantação de Câmera de Monitoramento",
+      "servico_legado": "Implantação de Câmera de Monitoramento",
+      "setor_legado": null,
+      "volume": 39,
+      "percentual": 0.38,
+      "exemplos_assunto": [
+        "Solicito instalação de câmera de monitoramento na rotatória Da Rodovia Mogi Bertioga, no entroncamento da Estrada Fujitaro Nagao, bairro Vila Moraes.",
+        "Solicita instalação de câmeras de segurança na Arena Água Verde.",
+        "Solicitando a instalação de câmera de monitoramento na rotatória da Rodovia Mogi Bertioga, no entroncamento da Estrada Fujitaro Nagao, Bairro - Vila Moraes."
+      ],
+      "atalho_sugerido": "Implantação de Câmera de Monitoramento"
+    },
+    {
+      "id": "autorizacao-de-evento-smseg",
+      "titulo": "Autorização de Evento (SMSEG)",
+      "servico_legado": "Autorização de Evento",
+      "setor_legado": "SMSEG",
+      "volume": 39,
+      "percentual": 0.38,
+      "exemplos_assunto": [
+        "solicitio autorização para o Culto ao Ar Livre, no Largo da Feira em Cezar de Souza, entre a Avenida Nilo Marcatto, altura do número 1757, e a Rua Jayr de Lima Ferreira, altura do número 119, a se rea",
+        "solicito autorização para o uso da Praça da Marisa, situada na Rua Dr. Paulo Frontin – Centro, para realização do evento de conscientização da campanha Faça Bonito, a se realizar no dia 17 de maio das",
+        "solicito o apoio da Prefeitura Municipal para a realização do 33º Campeonato Brasileiro de Karate Kyoukushin, a se realizar nos dias 30 e 31 de agosto, conforme anexo a peça inaugural."
+      ],
+      "atalho_sugerido": "Autorização de Evento"
+    },
+    {
+      "id": "servicos-evento-smel",
+      "titulo": "Serviços Evento (SMEL)",
+      "servico_legado": "Serviços Evento",
+      "setor_legado": "SMEL",
+      "volume": 37,
+      "percentual": 0.36,
+      "exemplos_assunto": [
+        "Empréstimo do campo de futebol - Centro Esportivo de Jundiapeba",
+        "solicitando a utilização do espaço público EM Cenira de Araújo Pereira, todas as terças e quintas feiras, das 19h às 21h, situado na Rua São Paulo, Bairro – Chácara Guanabara.",
+        "solicito a autorização para que o Time Associação Águias Varinhas F.C. possa utilizar todas as quartas-feiras, das 13h às 16h e as sextas feiras das 08h às 12h, o Centro Esportivo da Vila Jundiaí, sit"
+      ],
+      "atalho_sugerido": "Serviços Evento"
+    },
+    {
+      "id": "manutencao-unidade-escolar-sme",
+      "titulo": "Manutenção Unidade Escolar (SME)",
+      "servico_legado": "Manutenção Unidade Escolar",
+      "setor_legado": "SME",
+      "volume": 36,
+      "percentual": 0.35,
+      "exemplos_assunto": [
+        "Reforma do CEIM Benedito Ferreira Lopes, situado na Rua Professora Alice Thereza Cotrim Guerreiro da Silva",
+        "Solicitando a manutenção da Escola Municipal Lázaro Gonçalves Teixeira, situada na Rua Professor José Veiga, número 190, Bairro – Conjunto São Sebastião.",
+        "solicito a manutenção de luminárias de postes situados na Rua Cumbica, n° 382, Bairro - Jardim Aeroporto III."
+      ],
+      "atalho_sugerido": "Manutenção Unidade Escolar"
+    },
+    {
+      "id": "manutencao-academia-da-terceira-idade-smel",
+      "titulo": "Manutenção Academia da Terceira Idade (SMEL)",
+      "servico_legado": "Manutenção Academia da Terceira Idade",
+      "setor_legado": "SMEL",
+      "volume": 36,
+      "percentual": 0.35,
+      "exemplos_assunto": [
+        "Reforma dos equipamentos de ginástica - ATI, da Praça Doutor Álvaro de Campos Carneiro, situada na Rua Doutor Francisco Arouche de Toledo, Bairro – Vila Oliveira.",
+        "solicitando a reforma dos equipamentos de ginástica ATI, da Praça Raia de Malha",
+        "solicitando a manutenção dos aparelhos para exercício físico ATI, situados na Rua Luiz João Bourg, Bairro – Jardim Camila."
+      ],
+      "atalho_sugerido": "Manutenção Academia da Terceira Idade"
+    },
+    {
+      "id": "zoonoses-sms",
+      "titulo": "Zoonoses (SMS)",
+      "servico_legado": "Zoonoses",
+      "setor_legado": "SMS",
+      "volume": 34,
+      "percentual": 0.33,
+      "exemplos_assunto": [
+        "solicitando as providencias aos cães soltos na Rua José Pereira, número 2720, proximidades da Escola Mário Portes – Jundiapeba.",
+        "solicitando a criação e aplicação de um protocolo oficial para o atendimento e recolhimento de animais em situação de emergência, abrangendo casos de desastres climáticos e desocupações judiciais, ent",
+        "Solicito ação de castração no Bairro - Conj. Hab. São Sebastião, recolhimento de filhotes ao NUBEA, e palestras educacionais nas escolas visando orientar e informar sobre cuidado e bem-estar animal."
+      ],
+      "atalho_sugerido": "Zoonoses"
+    },
+    {
+      "id": "vaga-em-creche-e-ou-escola-sme",
+      "titulo": "Vaga em creche e/ou escola (SME)",
+      "servico_legado": "Vaga em creche e/ou escola",
+      "setor_legado": "SME",
+      "volume": 33,
+      "percentual": 0.32,
+      "exemplos_assunto": [
+        "solicitando vaga na Creche CEIM Professora Luiza Conceição Silva – CEIC Dó-Ré-Mi, para o menor J. A. S. X.",
+        "solicitando vaga na Creche CEIM Professora Luiza Conceição Silva – CEIC Dó-Ré-Mi, para a menor M. E. P. F.",
+        "solicitando a disponibilização de fornecer 4 vagas para os filhos da V. C. P., que hoje estão em 4 escolas diferentes."
+      ],
+      "atalho_sugerido": "Vaga em creche e/ou escola"
+    },
+    {
+      "id": "implantacao-de-totem-de-seguranca-geral",
+      "titulo": "Implantação de Totem de Segurança",
+      "servico_legado": "Implantação de Totem de Segurança",
+      "setor_legado": null,
+      "volume": 33,
+      "percentual": 0.32,
+      "exemplos_assunto": [
+        "Solicito a implantação de mecanismos de segurança contra velocidade, na Avenida Shozo Sakai, altura do número 850, Bairro – Brás Cubas.",
+        "solicito a instalação de Totem de Segurança, na Praça localizada na Avenida José Benedito Braga, defronte ao n° 105, Bairro Mogilar.",
+        "solicito a instalação de Totem de Segurança, no cruzamento entre as Ruas Mario de Jesus Lopes e Santo Tirolli, Bairro Vila São Paulo."
+      ],
+      "atalho_sugerido": "Implantação de Totem de Segurança"
+    },
+    {
+      "id": "interdicao-de-via-smmt",
+      "titulo": "Interdição de Via (SMMT)",
+      "servico_legado": "Interdição de Via",
+      "setor_legado": "SMMT",
+      "volume": 32,
+      "percentual": 0.31,
+      "exemplos_assunto": [
+        "solicito autorização para interdição da Rua Alexandre Andreotti, Bairro Jundiapeba, no dia 11/10/2025 das 07h às 11h, para a realização de uma ação solidaria do Dia das Crianças do Soni Supermercados.",
+        "solicito autorização de fechamento parcial de rua, localizado na Rua Coronel Santos Cardoso, para a realização de um evento em comemoração ao aniversário do Colégio Adventista de Mogi das Cruzes, no d",
+        "solciito a interdição da Rua Santa Isabel, n° 292, Bairro Vila Natal, para a realização da Festa do Dia das Crianças, que será realizada no dia 26 de outubro, das 09:30 às 14:30h."
+      ],
+      "atalho_sugerido": "Interdição de Via"
+    },
+    {
+      "id": "uso-de-ginasio-quadra-esportiva-smel",
+      "titulo": "Uso de ginásio/quadra esportiva (SMEL)",
+      "servico_legado": "Uso de ginásio/quadra esportiva",
+      "setor_legado": "SMEL",
+      "volume": 31,
+      "percentual": 0.3,
+      "exemplos_assunto": [
+        "autorização para o uso do centro esportivo de BRAZ\n CUBAS localizado na Rua Schwartzmann, 760 - Vila Bras Cubas - SP, 08740-010, para a\n realização de um evento de futebol, Sub 12-14-15-16-17 e 18.",
+        "solicito concessão do Campo de Futebol Society do Parque Botyra Camorim Gatti, situado na Avenida Doutor Candido Xavier de Almeida e Souza – Centro Cívico, para a realização de jogos promovidos pela I",
+        "evento denominado “Aulão de Dança” da Academia Evoque Fitness, a ser no dia 22 de fevereiro 2025, das 09h às 12h, no espaço em frente à Secretaria de Esportes."
+      ],
+      "atalho_sugerido": "Uso de ginásio/quadra esportiva"
+    },
+    {
+      "id": "manutencao-de-abrigo-de-onibus-geral",
+      "titulo": "Manutenção de Abrigo de Ônibus",
+      "servico_legado": "Manutenção de Abrigo de Ônibus",
+      "setor_legado": null,
+      "volume": 29,
+      "percentual": 0.28,
+      "exemplos_assunto": [
+        "Solicitando os serviços de manutenção e reinstalação do banco no abrigo do ponto de ônibus, situado na Rua Kikutaro Suzuki com a Rua Jardelina de Almeida Lopes, esquina da Escola Municipal Professora ",
+        "Solicitando a manutenção da calçada e a troca de local da lixeira que fica próximo ao ponto de ônibus, situado na Avenida Francisco Rodrigues Filho, ao lado do número 1586, Bairro - Mogilar.",
+        "Solicitando estudos para que possa ser alterado o ponto de ônibus da Rua São João, altura do número 541 – Centro, pois o atual local, compromete a segurança dos pedestres, tendo em vista, ser no mesmo"
+      ],
+      "atalho_sugerido": "Manutenção de Abrigo de Ônibus"
+    },
+    {
+      "id": "assistencia-social-semas",
+      "titulo": "Assistência Social (SEMAS)",
+      "servico_legado": "Assistência Social",
+      "setor_legado": "SEMAS",
+      "volume": 28,
+      "percentual": 0.27,
+      "exemplos_assunto": [
+        "solicito a criação de um programa de proteção à população idosa e um canal exclusivo de atendimento aos idosos.",
+        "solicito a adesão do município ao Programa Famílias Fortes, iniciativa do Ministério do Desenvolvimento e Assistência Social, Família e Combate à Fome (MDS), que visa ao fortalecimento das competência",
+        "solciito a adesão de novas famílias ao Programa Família Acolhedora."
+      ],
+      "atalho_sugerido": "Assistência Social"
+    },
+    {
+      "id": "implantacao-de-area-de-lazer-geral",
+      "titulo": "Implantação de Área de Lazer",
+      "servico_legado": "Implantação de Área de Lazer",
+      "setor_legado": null,
+      "volume": 28,
+      "percentual": 0.27,
+      "exemplos_assunto": [
+        "Solicitando a manutenção e o término da implantação de telhado área, na área de lazer do Parque da Cidade, situado na Rua Jardelina de Almeida Lopes, número 451, Bairro – Parque Santana.",
+        "Solicitando a implantação de um Espaço Esportivo no Jardim Nova União, com espaço adequado para a prática de esportes, promovendo o bem estar e a convivência saudável entre os moradores.",
+        "Solicitando a implantação de um espaço de lazer na Rua Paulo Eduardo do Valle Pereira, número 786, Bairro - Jardim Cambuci."
+      ],
+      "atalho_sugerido": "Implantação de Área de Lazer"
+    },
+    {
+      "id": "implantacao-de-academia-da-terceira-idade-ati-smel",
+      "titulo": "Implantação de Academia da Terceira Idade - ATI (SMEL)",
+      "servico_legado": "Implantação de Academia da Terceira Idade - ATI",
+      "setor_legado": "SMEL",
+      "volume": 27,
+      "percentual": 0.26,
+      "exemplos_assunto": [
+        "Solicitando a revitalização da praça situada na Avenida Júlio Simões com a Rua Santa Virgília, com a instalação de bancos novos, melhorias na iluminação pública e a implantação de uma Academia da Terc",
+        "solicito implantação de cobertura na Academia do Parque da Cidade",
+        "solicito a implantação de uma área de lazer, incluindo um Campo Society, ATI, playground e uma quadra poliesportiva na área situada no início da Estrada Estiva, em frente ao Clube do Japonês, no KM 11"
+      ],
+      "atalho_sugerido": "Implantação de Academia da Terceira Idade - ATI"
+    },
+    {
+      "id": "servicos-educacao-sme",
+      "titulo": "Serviços Educação (SME)",
+      "servico_legado": "Serviços Educação",
+      "setor_legado": "SME",
+      "volume": 26,
+      "percentual": 0.25,
+      "exemplos_assunto": [
+        "Solicitando um micro-ônibus para transportar 27 atletas, para participarem da Competição Cajina Adulto Juvenil de Atletismo, a se realizar no dia 19 de março, no Centro Esportivo de Atletismo Professo",
+        "Solicitando providencias para suprir a falta de professores na Escola Municipal Professora Cleonice Feliciano, Bairro – Jardim Piatã.",
+        "solicito um ônibus para transportar 46 pessoas, entre alunos e educadores da E.E. Profª. Lucinda Bastos, que irão participar de uma excursão pedagógica para o Museu do Ipiranga no dia 22 de maio, com "
+      ],
+      "atalho_sugerido": "Serviços Educação"
+    },
+    {
+      "id": "secretaria-de-saude-geral",
+      "titulo": "Secretaria de Saúde",
+      "servico_legado": "Secretaria de Saúde",
+      "setor_legado": null,
+      "volume": 26,
+      "percentual": 0.25,
+      "exemplos_assunto": [
+        "solicito o apoio da Saúde Bucal Municipal ao Projeto Social Stylo Livre – Jundiapeba, com 3 dias de atendimentos nos locais situados a peça inaugural.",
+        "solicito a formação de novos tutores para amamentação, para ampliar atendimento nas unidades de saúde do município.",
+        "solicito a implantação de bebetecas no Município."
+      ],
+      "atalho_sugerido": "Secretaria de Saúde"
+    }
+  ],
+  "top_setores": [
+    {
+      "setor": "SMSUZ",
+      "volume": 4168,
+      "percentual": 40.74
+    },
+    {
+      "setor": "SMMT",
+      "volume": 1353,
+      "percentual": 13.23
+    },
+    {
+      "setor": "SMUZ",
+      "volume": 917,
+      "percentual": 8.96
+    },
+    {
+      "setor": "SMSEG",
+      "volume": 786,
+      "percentual": 7.68
+    },
+    {
+      "setor": "SMAPA",
+      "volume": 514,
+      "percentual": 5.02
+    },
+    {
+      "setor": "SMEL",
+      "volume": 232,
+      "percentual": 2.27
+    },
+    {
+      "setor": "SME",
+      "volume": 102,
+      "percentual": 1.0
+    },
+    {
+      "setor": "SMS",
+      "volume": 86,
+      "percentual": 0.84
+    },
+    {
+      "setor": "SMF",
+      "volume": 43,
+      "percentual": 0.42
+    },
+    {
+      "setor": "SEMAS",
+      "volume": 28,
+      "percentual": 0.27
+    },
+    {
+      "setor": "SEMAE",
+      "volume": 12,
+      "percentual": 0.12
+    },
+    {
+      "setor": "SMC",
+      "volume": 11,
+      "percentual": 0.11
+    },
+    {
+      "setor": "SMDET",
+      "volume": 5,
+      "percentual": 0.05
+    },
+    {
+      "setor": "SMPU",
+      "volume": 3,
+      "percentual": 0.03
+    },
+    {
+      "setor": "EVENTO- SMS",
+      "volume": 2,
+      "percentual": 0.02
+    },
+    {
+      "setor": "GABP",
+      "volume": 2,
+      "percentual": 0.02
+    }
+  ],
+  "top_servicos": [
+    {
+      "servico": "Limpeza Pública",
+      "volume": 1675,
+      "percentual": 16.37
+    },
+    {
+      "servico": "Outros",
+      "volume": 943,
+      "percentual": 9.22
+    },
+    {
+      "servico": "Recapeamento/Tapa Buraco",
+      "volume": 916,
+      "percentual": 8.95
+    },
+    {
+      "servico": "Manutenção Estradas Rurais/Urbanas",
+      "volume": 779,
+      "percentual": 7.61
+    },
+    {
+      "servico": "Manutenção Iluminação Pública",
+      "volume": 620,
+      "percentual": 6.06
+    },
+    {
+      "servico": "Poda de Árvore",
+      "volume": 509,
+      "percentual": 4.98
+    },
+    {
+      "servico": "Manutenção em Terreno particular",
+      "volume": 373,
+      "percentual": 3.65
+    },
+    {
+      "servico": "Rondas Ostensivas/Intensificação",
+      "volume": 339,
+      "percentual": 3.31
+    },
+    {
+      "servico": "Implantação de Sinalização viária",
+      "volume": 318,
+      "percentual": 3.11
+    },
+    {
+      "servico": "Nivelamento e Cascalhamento",
+      "volume": 289,
+      "percentual": 2.83
+    },
+    {
+      "servico": "Manutenção Sinalização viária",
+      "volume": 262,
+      "percentual": 2.56
+    },
+    {
+      "servico": "Implantação de Iluminação Pública",
+      "volume": 258,
+      "percentual": 2.52
+    },
+    {
+      "servico": "Implantação de Redutor de Velocidade",
+      "volume": 191,
+      "percentual": 1.87
+    },
+    {
+      "servico": "Serviços Evento",
+      "volume": 180,
+      "percentual": 1.76
+    },
+    {
+      "servico": "Implantação de Abrigo de ônibus",
+      "volume": 153,
+      "percentual": 1.5
+    },
+    {
+      "servico": "Coleta de Lixo/Entulho",
+      "volume": 133,
+      "percentual": 1.3
+    },
+    {
+      "servico": "Implantação de Lombada",
+      "volume": 117,
+      "percentual": 1.14
+    },
+    {
+      "servico": "Manutenção Quadras/Campos",
+      "volume": 101,
+      "percentual": 0.99
+    },
+    {
+      "servico": "Implantação de Faixa de Pedestres",
+      "volume": 101,
+      "percentual": 0.99
+    },
+    {
+      "servico": "Manutenção Boca de lobo/tampa de bueiro",
+      "volume": 97,
+      "percentual": 0.95
+    },
+    {
+      "servico": "Fechamento de rua",
+      "volume": 94,
+      "percentual": 0.92
+    },
+    {
+      "servico": "Implantação de Vaga de Estacionamento",
+      "volume": 93,
+      "percentual": 0.91
+    },
+    {
+      "servico": "Manutenção córrego/Dessasoreamento",
+      "volume": 89,
+      "percentual": 0.87
+    },
+    {
+      "servico": "Manutenção Guias/Sarjetas",
+      "volume": 88,
+      "percentual": 0.86
+    },
+    {
+      "servico": "Manutenção Praça/Parques",
+      "volume": 86,
+      "percentual": 0.84
+    }
+  ],
+  "eixos_tematicos": [
+    {
+      "eixo": "vias_buracos",
+      "rotulo": "Vias e buracos",
+      "volume": 3387,
+      "percentual": 33.11
+    },
+    {
+      "eixo": "limpeza_rocada",
+      "rotulo": "Limpeza e roçada",
+      "volume": 2632,
+      "percentual": 25.73
+    },
+    {
+      "eixo": "sinalizacao",
+      "rotulo": "Sinalização e lombadas",
+      "volume": 1024,
+      "percentual": 10.01
+    },
+    {
+      "eixo": "iluminacao",
+      "rotulo": "Iluminação pública",
+      "volume": 955,
+      "percentual": 9.34
+    },
+    {
+      "eixo": "poda_arvore",
+      "rotulo": "Poda de árvore",
+      "volume": 795,
+      "percentual": 7.77
+    },
+    {
+      "eixo": "eventos",
+      "rotulo": "Eventos e empréstimo de espaço",
+      "volume": 672,
+      "percentual": 6.57
+    },
+    {
+      "eixo": "educacao",
+      "rotulo": "Educação",
+      "volume": 660,
+      "percentual": 6.45
+    },
+    {
+      "eixo": "terreno_zeladoria",
+      "rotulo": "Terrenos e zeladoria",
+      "volume": 556,
+      "percentual": 5.43
+    },
+    {
+      "eixo": "seguranca",
+      "rotulo": "Segurança e rondas",
+      "volume": 499,
+      "percentual": 4.88
+    },
+    {
+      "eixo": "saude",
+      "rotulo": "Saúde",
+      "volume": 294,
+      "percentual": 2.87
+    }
+  ],
+  "top_bairros": [
+    {
+      "bairro": "Jundiapeba",
+      "volume": 258
+    },
+    {
+      "bairro": "Vila São Paulo",
+      "volume": 111
+    },
+    {
+      "bairro": "Cocuera",
+      "volume": 105
+    },
+    {
+      "bairro": "Brás Cubas",
+      "volume": 91
+    },
+    {
+      "bairro": "Vila Oliveira",
+      "volume": 88
+    },
+    {
+      "bairro": "Mogi Moderno",
+      "volume": 87
+    },
+    {
+      "bairro": "Botujuru",
+      "volume": 87
+    },
+    {
+      "bairro": "Vila Moraes",
+      "volume": 83
+    },
+    {
+      "bairro": "Alto Ipiranga",
+      "volume": 80
+    },
+    {
+      "bairro": "Taboão",
+      "volume": 74
+    },
+    {
+      "bairro": "Jardim Camila",
+      "volume": 64
+    },
+    {
+      "bairro": "Mogilar",
+      "volume": 63
+    },
+    {
+      "bairro": "Vila Natal",
+      "volume": 60
+    },
+    {
+      "bairro": "Jardim Aeroporto III",
+      "volume": 59
+    },
+    {
+      "bairro": "Parque São Martinho",
+      "volume": 58
+    },
+    {
+      "bairro": "Vila Nova Aparecida",
+      "volume": 52
+    },
+    {
+      "bairro": "Parque Olímpico",
+      "volume": 48
+    },
+    {
+      "bairro": "Parque Santana",
+      "volume": 48
+    },
+    {
+      "bairro": "Chácara Guanabara",
+      "volume": 43
+    },
+    {
+      "bairro": "Vila Industrial",
+      "volume": 42
+    },
+    {
+      "bairro": "Conjunto Residencial Cocuera",
+      "volume": 42
+    },
+    {
+      "bairro": "Biritiba Ussu",
+      "volume": 42
+    },
+    {
+      "bairro": "Vila Caputera",
+      "volume": 39
+    },
+    {
+      "bairro": "Vila Suissa",
+      "volume": 37
+    },
+    {
+      "bairro": "Jardim Rodeio",
+      "volume": 35
+    },
+    {
+      "bairro": "Jardim São Pedro",
+      "volume": 35
+    },
+    {
+      "bairro": "Jardim Layr",
+      "volume": 34
+    },
+    {
+      "bairro": "Cesar de Souza",
+      "volume": 33
+    },
+    {
+      "bairro": "Itapeti",
+      "volume": 33
+    },
+    {
+      "bairro": "Conjunto Santo Ângelo",
+      "volume": 32
+    }
+  ]
+}

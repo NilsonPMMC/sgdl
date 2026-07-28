@@ -124,3 +124,94 @@ class UnidadeAdministrativaAPITests(SinapseCatalogTestMixin, APITestCase):
         )
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         self.assertEqual(r.data["usuario_id"], secretaria.pk)
+
+    def test_gestor_setorial_vincula_responsavel_no_escopo(self):
+        gestor = Usuario.objects.create_user(
+            username="gestor_setorial_ua",
+            password="x",
+            perfil="GESTOR",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            is_staff=True,
+        )
+        unidade = UnidadeAdministrativa.objects.create(
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            nome="Gabinete",
+            sigla="GAB",
+        )
+        secretaria = Usuario.objects.create_user(
+            username="sec_gab",
+            password="x",
+            perfil="SECRETARIA",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+        )
+        self.client.force_authenticate(gestor)
+        r = self.client.post(
+            f"/api/unidades-administrativas/{unidade.pk}/responsaveis/",
+            {"usuario_id": secretaria.pk},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_gestor_setorial_negado_fora_do_escopo(self):
+        gestor = Usuario.objects.create_user(
+            username="gestor_outro_org",
+            password="x",
+            perfil="GESTOR",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            is_staff=True,
+        )
+        unidade_b = UnidadeAdministrativa.objects.create(
+            sinapse_orgao_id=SINAPSE_ORGAO_B,
+            nome="Setor B",
+            sigla="SETB",
+        )
+        secretaria = Usuario.objects.create_user(
+            username="sec_b",
+            password="x",
+            perfil="SECRETARIA",
+            sinapse_orgao_id=SINAPSE_ORGAO_B,
+        )
+        self.client.force_authenticate(gestor)
+        r = self.client.post(
+            f"/api/unidades-administrativas/{unidade_b.pk}/responsaveis/",
+            {"usuario_id": secretaria.pk},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_vinculos_e_exclusao_com_redirecionamento(self):
+        origem = UnidadeAdministrativa.objects.create(
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            nome="Setor origem",
+            sigla="ORI",
+        )
+        destino = UnidadeAdministrativa.objects.create(
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            nome="Setor destino",
+            sigla="DES",
+        )
+        vereador = Usuario.objects.create_user(username="ver_excl", password="x", perfil="VEREADOR")
+        Demanda.objects.create(
+            titulo="Demanda setor",
+            descricao="x",
+            autor=vereador,
+            status="EM_EXECUCAO",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            unidade_administrativa=origem,
+        )
+        r_v = self.client.get(f"/api/unidades-administrativas/{origem.pk}/vinculos/")
+        self.assertEqual(r_v.status_code, status.HTTP_200_OK)
+        self.assertEqual(r_v.data["demandas"], 1)
+
+        r = self.client.post(
+            f"/api/unidades-administrativas/{origem.pk}/excluir/",
+            {"unidade_destino_id": destino.pk},
+            format="json",
+        )
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["demandas_redirecionadas"], 1)
+        self.assertFalse(UnidadeAdministrativa.objects.filter(pk=origem.pk).exists())
+        self.assertEqual(
+            Demanda.objects.filter(unidade_administrativa=destino).count(),
+            1,
+        )

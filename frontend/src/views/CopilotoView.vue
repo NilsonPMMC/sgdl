@@ -10,6 +10,17 @@ import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
 import Select from 'primevue/select';
 import InputText from 'primevue/inputtext';
+import CopilotoContextoPainel from '@/components/copiloto/CopilotoContextoPainel.vue';
+import {
+    filtrarArquivosDuplicados,
+    mensagemAnexosRejeitados,
+    normalizarNomeArquivo
+} from '@/utils/anexoValidacao';
+import {
+    resumoDuplicidadeFrontend,
+    temDuplicidadeEmTramite
+} from '@/utils/duplicidadeAlerta';
+import Message from 'primevue/message';
 
 const router = useRouter();
 const toast = useToast();
@@ -24,7 +35,52 @@ const anexosPendentes = ref([]);
 const inputAnexosRef = ref(null);
 const carregando = ref(false);
 const painelContextoAberto = ref(false);
+
+/** @type {import('vue').Ref<{ indiceDemanda: number, etapa: string }|null>} */
+const revisaoAtiva = ref(null);
 const sucessoCriacao = ref(null);
+/** @type {import('vue').Ref<Array<Record<string, unknown>>|null>} */
+const alertasDuplicidadeCriacao = ref(null);
+
+/** @type {import('vue').Ref<Array<{id?:string, rotulo?:string, ranking?:number, texto_sugerido?:string, tem_detalhamento?:boolean, opcoes_carta?:Array, servico_padrao_id?:number}>>} */
+const atalhosTopTrends = ref([]);
+const atalhosTopTrendsExpandido = ref(false);
+const atalhoEmDetalhamento = ref(null);
+const opcoesCartaAtalho = ref([]);
+const carregandoDetalheAtalho = ref(false);
+const LIMITE_ATALHOS_VISIVEIS = 8;
+
+function demandaPodeConfirmarLocal(demanda) {
+    if (demanda?.descartada || demandaForaCompetencia(demanda)) return false;
+    if (demanda?.requer_localizacao === false) return false;
+    if (demanda?.endereco_opcional_dispensado) return false;
+    if (demanda?.local_pendente_confirmacao === true) return true;
+    if (demanda?.local_pendente_confirmacao === false) return false;
+    if (demanda?.latitude != null && demanda?.longitude != null) return true;
+    const end = demanda?.endereco;
+    if (!end || typeof end !== 'object') return false;
+    const logr = (end.logradouro || '').trim();
+    const bairro = (end.bairro || '').trim();
+    const cep = (end.cep || '').trim();
+    return Boolean(logr && (bairro || cep));
+}
+
+const placeholderCompositor = computed(() => {
+    const rev = revisaoAtiva.value;
+    if (!rev) {
+        return 'Descreva o pedido…';
+    }
+    if (rev.etapa === 'pedido') {
+        return `Descreva as alterações na solicitação ${rev.indiceDemanda + 1}…`;
+    }
+    if (rev.etapa === 'local') {
+        return `Informe o local da solicitação ${rev.indiceDemanda + 1} (rua, bairro, CEP)…`;
+    }
+    if (rev.etapa === 'anexos') {
+        return 'Descreva o que deseja alterar nos documentos…';
+    }
+    return 'Descreva o pedido do cidadão…';
+});
 
 const estadoAtual = ref('COLETA_DADOS');
 const demandasExtraidas = ref([]);
@@ -80,46 +136,6 @@ const candidatosFingerprint = ref({});
 /** Valor sintético no Select da carta → trilha tendência. */
 const NENHUMA_OPCAO_CARTA = '__NENHUMA_CARTA__';
 
-/** JSON do painel com campos de apoio (serviço, coords, anexos) em ordem legível. */
-const demandasExtraidasPainel = computed(() =>
-    demandasExtraidas.value.map((d) => {
-        const servico = d?.servico;
-        return {
-            titulo: d?.titulo ?? null,
-            descricao: d?.descricao ?? null,
-            servico: servico
-                ? {
-                      sinapse_servico_id: servico.sinapse_servico_id ?? d?.sinapse_servico_id_sugerido ?? null,
-                      nome: servico.nome ?? null,
-                      orgao: servico.orgao ?? null,
-                      confirmado: servico.confirmado === true
-                  }
-                : null,
-            servico_alerta: Boolean(d?.servico_alerta),
-            requer_escolha_servico: Boolean(d?.requer_escolha_servico),
-            candidatos_sinapse: Array.isArray(d?.candidatos_sinapse) ? d.candidatos_sinapse : [],
-            endereco: d?.endereco ?? null,
-            latitude: d?.latitude ?? null,
-            longitude: d?.longitude ?? null,
-            coordenadas_fonte: d?.coordenadas_fonte ?? null,
-            coordenadas_observacao: d?.coordenadas_observacao ?? null,
-            anexos: Array.isArray(d?.anexos) ? d.anexos : [],
-            texto_para_embedding: d?.texto_para_embedding ?? null,
-            sinapse_servico_id_sugerido: d?.sinapse_servico_id_sugerido ?? null,
-            anexos_indices: d?.anexos_indices ?? null,
-            fora_carta: Boolean(d?.fora_carta),
-            fora_competencia: Boolean(d?.fora_competencia),
-            motivo_recusa: d?.motivo_recusa ?? null,
-            competencia_municipal: d?.competencia_municipal ?? null,
-            categoria_orientacao: d?.categoria_orientacao ?? null,
-            faq_orientacao: d?.faq_orientacao ?? null,
-            origem_vinculo: d?.origem_vinculo ?? null,
-            tendencia: d?.tendencia ?? null,
-            tendencia_id: d?.tendencia_id ?? d?.tendencia?.id ?? null
-        };
-    })
-);
-
 function tendenciaConfirmada(demanda) {
     return Boolean(
         demanda?.tendencia_id ??
@@ -135,9 +151,8 @@ function sinapseIdValido(valor) {
 }
 
 function servicoConfirmado(demanda) {
-    if (demanda?.servico?.confirmado === true) return true;
-    const sid = demanda?.servico?.sinapse_servico_id ?? demanda?.sinapse_servico_id_sugerido;
-    return sinapseIdValido(sid);
+    if (tendenciaConfirmada(demanda)) return true;
+    return demanda?.servico?.confirmado === true;
 }
 
 const LIMIAR_SCORE_CARTA = 2 / 3;
@@ -172,6 +187,16 @@ function pontuacaoCandidatoLocal(c, demanda) {
             pts -= 0.55;
         }
     }
+    if (/poda|árvore|arvore|galho/.test(texto)) {
+        if (/poda|árvore|arvore|galho|corte|arbor/.test(st)) {
+            pts += 0.55;
+        } else if (/tapa|burac|paviment/.test(st)) {
+            pts -= 0.55;
+        }
+    }
+    if (/tapa|buraco/.test(texto) && /tapa|burac|paviment/.test(st)) {
+        pts += 0.35;
+    }
     return pts;
 }
 
@@ -203,16 +228,35 @@ function demandaForaCompetencia(demanda) {
 }
 
 /** Cada item do rascunho tem carta confirmada, tendência confirmada, descartado, ou não exige vínculo. */
-function demandaVinculada(demanda) {
+function demandaVinculada(demanda, indice = null) {
     if (demandaForaCompetencia(demanda)) return false;
     if (demanda?.descartada) return true;
     if (servicoConfirmado(demanda)) return true;
     if (tendenciaConfirmada(demanda)) return true;
+    if (demandaForaCarta(demanda)) {
+        if (demanda?.vinculo_servico_ignorado) return true;
+        if (indice != null && escolheuNenhumaCarta(indice)) return true;
+    }
     return false;
 }
 
 function demandaForaCarta(demanda) {
     return Boolean(demanda?.fora_carta);
+}
+
+function corpusHintsDemanda(demanda) {
+    const hints = demanda?.corpus_hints_historico;
+    return Array.isArray(hints) ? hints : [];
+}
+
+function rotuloHintHistorico(hint) {
+    if (hint?.titulo_sinapse_historico) {
+        const rank = hint?.ranking ? `${hint.ranking}º — ` : '';
+        return `${rank}${hint.titulo_sinapse_historico}`;
+    }
+    const rotulo = (hint?.atalho_sugerido || hint?.servico_legado || 'Pedido').trim();
+    const rank = hint?.ranking ? `${hint.ranking}º — ` : '';
+    return `${rank}${rotulo}`;
 }
 
 function urlMapaMini(lat, lng) {
@@ -232,7 +276,7 @@ const todosServicosConfirmados = computed(() => {
     const lista = demandasExtraidas.value;
     if (!lista.length) return false;
     if (temDemandaForaCompetencia.value) return false;
-    return lista.every((d) => demandaVinculada(d));
+    return lista.every((d, i) => demandaVinculada(d, i));
 });
 
 /** Aguardando escolha na carta (ou tendência via última opção do mesmo card). */
@@ -277,12 +321,30 @@ const mostrarBlocoForaCompetenciaNoChat = computed(
 
 const demandasComCartaNoChat = demandasNoPainelServico;
 
-const mostrarBlocoServicoNoChat = computed(
-    () => demandasPendentesVinculo.value.length > 0 && !sucessoCriacao.value
-);
+const mostrarBlocoServicoNoChat = computed(() => {
+    if (sucessoCriacao.value) return false;
+    if (revisaoAtiva.value?.etapa === 'servico') return true;
+    return demandasPendentesVinculo.value.length > 0;
+});
 
 /** Card de tendência separado desativado — tendência só dentro do card da carta. */
 const mostrarBlocoTendenciaNoChat = computed(() => false);
+
+const demandasAguardandoComplemento = computed(() =>
+    demandasExtraidas.value
+        .map((d, i) => ({ d, i }))
+        .filter(
+            ({ d }) =>
+                !d?.descartada &&
+                !demandaForaCompetencia(d) &&
+                servicoConfirmado(d) &&
+                (d?.corpus_aguarda_complemento || estadoAtual.value === 'COLETA_ENDERECO')
+        )
+);
+
+const mostrarBlocoComplementoNoChat = computed(
+    () => demandasAguardandoComplemento.value.length > 0 && !sucessoCriacao.value && !mostrarBlocoServicoNoChat.value
+);
 
 /** Busca semântica + formulário por índice de demanda fora da carta. */
 const tendenciasSimilares = ref({});
@@ -374,11 +436,11 @@ async function aplicarTendenciaDemanda(indiceDemanda) {
     carregando.value = true;
     try {
         const { data } = await ApiService.confirmarTendenciaCopiloto(payload);
-        if (data.session_id) sessionId.value = data.session_id;
-        if (Array.isArray(data.demandas_extraidas)) {
-            demandasExtraidas.value = data.demandas_extraidas;
-        }
-        if (data.estado_atual) estadoAtual.value = data.estado_atual;
+        aplicarRespostaCopiloto(data, {
+            limparRevisao:
+                revisaoAtiva.value?.etapa === 'servico' &&
+                revisaoAtiva.value?.indiceDemanda === indiceDemanda
+        });
         const msgIa = (data.resposta_agente || '').trim();
         if (msgIa) adicionarMensagem('assistant', msgIa);
         toast.add({
@@ -432,6 +494,7 @@ const etapaAnexosConcluida = ref(false);
 const mostrarBlocoEnderecoNoChat = computed(() => {
     if (sucessoCriacao.value || !demandasExtraidas.value.length) return false;
     if (mostrarBlocoForaCompetenciaNoChat.value) return false;
+    if (revisaoAtiva.value?.etapa === 'local') return true;
     if (!todosServicosConfirmados.value || mostrarBlocoServicoNoChat.value) return false;
     return estadoAtual.value === 'COLETA_ENDERECO';
 });
@@ -439,6 +502,7 @@ const mostrarBlocoEnderecoNoChat = computed(() => {
 const mostrarBlocoAnexosNoChat = computed(() => {
     if (sucessoCriacao.value || !demandasExtraidas.value.length) return false;
     if (mostrarBlocoForaCompetenciaNoChat.value) return false;
+    if (revisaoAtiva.value?.etapa === 'anexos') return true;
     if (etapaAnexosConcluida.value) return false;
     if (!todosServicosConfirmados.value || mostrarBlocoServicoNoChat.value) return false;
     if (estadoAtual.value === 'COLETA_DADOS' || estadoAtual.value === 'COLETA_ENDERECO') return false;
@@ -446,10 +510,14 @@ const mostrarBlocoAnexosNoChat = computed(() => {
 });
 
 const mostrarAnexarNoCompositor = computed(
-    () =>
-        !etapaAnexosConcluida.value &&
-        !sucessoCriacao.value &&
-        estadoAtual.value !== 'COLETA_ENDERECO'
+    () => {
+        if (etapaAnexosConcluida.value || sucessoCriacao.value) return false;
+        if (estadoAtual.value === 'COLETA_ENDERECO') return false;
+        if (demandasAtivasNoFluxo.value.length > 1 && !todosServicosConfirmados.value) {
+            return false;
+        }
+        return true;
+    }
 );
 
 watch(todosServicosConfirmados, (ok) => {
@@ -499,6 +567,13 @@ function prepararTendenciaAPartirDaCarta(indiceDemanda) {
     carregarSimilaresTendencia(indiceDemanda, d);
 }
 
+async function aplicarHintCorpus(indiceDemanda, hint) {
+    const servicoId = hint?.sinapse_servico_id_sugerido_historico;
+    if (servicoId == null || !sessionId.value || carregando.value) return;
+    escolhaServicoCarta.value = { ...escolhaServicoCarta.value, [indiceDemanda]: servicoId };
+    await aplicarServicoCarta(indiceDemanda);
+}
+
 async function aplicarServicoCarta(indiceDemanda) {
     const servicoId = escolhaServicoCarta.value[indiceDemanda];
     if (servicoId == null || !sessionId.value) return;
@@ -526,11 +601,11 @@ async function aplicarServicoCarta(indiceDemanda) {
             indice_demanda: indiceDemanda,
             sinapse_servico_id: servicoId
         });
-        if (data.session_id) sessionId.value = data.session_id;
-        if (Array.isArray(data.demandas_extraidas)) {
-            demandasExtraidas.value = data.demandas_extraidas;
-        }
-        if (data.estado_atual) estadoAtual.value = data.estado_atual;
+        aplicarRespostaCopiloto(data, {
+            limparRevisao:
+                revisaoAtiva.value?.etapa === 'servico' &&
+                revisaoAtiva.value?.indiceDemanda === indiceDemanda
+        });
         if (data.estado_atual === 'COLETA_ENDERECO') {
             etapaAnexosConcluida.value = false;
         }
@@ -711,10 +786,11 @@ function usarLocalizacaoAtual(indiceDemanda) {
                     latitude: pos.coords.latitude,
                     longitude: pos.coords.longitude
                 });
-                if (Array.isArray(data.demandas_extraidas)) {
-                    demandasExtraidas.value = data.demandas_extraidas;
-                }
-                if (data.estado_atual) estadoAtual.value = data.estado_atual;
+                aplicarRespostaCopiloto(data, {
+                    limparRevisao:
+                        revisaoAtiva.value?.etapa === 'local' &&
+                        revisaoAtiva.value?.indiceDemanda === indiceDemanda
+                });
                 toast.add({ severity: 'success', summary: 'Localização', detail: 'GPS registrado.', life: 3000 });
             } catch (err) {
                 toast.add({
@@ -754,6 +830,11 @@ function indicesAprovadosParaFinalizar() {
                 aprovacaoFinal.value[i] !== false
         )
         .map(({ i }) => i);
+}
+
+async function recusarGeracaoRascunhos() {
+    if (carregando.value) return;
+    await enviarMensagem('não');
 }
 
 async function finalizarComAprovacao() {
@@ -835,9 +916,159 @@ function pularAnexos() {
 
 function marcarEtapaAnexosConcluida(textoUsuario, tinhaAnexos) {
     const t = (textoUsuario || '').trim().toLowerCase();
-    if (tinhaAnexos || /^continuar\s+sem\s+anexos?\.?$/.test(t)) {
+    if (
+        tinhaAnexos ||
+        /^continuar\s+sem\s+anexos?\.?$/.test(t) ||
+        /^confirmar\s+(?:os\s+)?(?:documentos|anexos)/i.test(t)
+    ) {
         etapaAnexosConcluida.value = true;
     }
+}
+
+function aplicarRespostaCopiloto(data, { limparRevisao = false } = {}) {
+    if (data.session_id) sessionId.value = data.session_id;
+    if (Array.isArray(data.demandas_extraidas)) {
+        demandasExtraidas.value = data.demandas_extraidas;
+    }
+    if (data.estado_atual) estadoAtual.value = data.estado_atual;
+    if (Array.isArray(data.corpus_atalhos_top_trends) && data.corpus_atalhos_top_trends.length) {
+        atalhosTopTrends.value = data.corpus_atalhos_top_trends;
+    }
+    if (data.reabrir_anexos) etapaAnexosConcluida.value = false;
+    if (data.revisao_encerrada) {
+        revisaoAtiva.value = null;
+    }
+    if (data.revisao_etapa != null && data.revisao_indice_demanda != null) {
+        revisaoAtiva.value = {
+            indiceDemanda: data.revisao_indice_demanda,
+            etapa: data.revisao_etapa
+        };
+    } else if (limparRevisao) {
+        revisaoAtiva.value = null;
+    }
+}
+
+async function scrollParaBlocoEtapa(etapa) {
+    await nextTick();
+    const seletor =
+        etapa === 'servico'
+            ? '[data-copiloto-bloco="servico"]'
+            : etapa === 'local'
+              ? '[data-copiloto-bloco="local"]'
+              : etapa === 'anexos'
+                ? '[data-copiloto-bloco="anexos"]'
+                : null;
+    if (!seletor) return;
+    listaChatRef.value?.querySelector(seletor)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function revisarEtapa({ indice, etapa }) {
+    if (!sessionId.value) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Copiloto',
+            detail: 'Inicie a conversa antes de revisar uma etapa.',
+            life: 4000
+        });
+        return;
+    }
+    carregando.value = true;
+    try {
+        const { data } = await ApiService.revisarEtapaCopiloto({
+            session_id: sessionId.value,
+            indice_demanda: indice,
+            etapa
+        });
+        aplicarRespostaCopiloto(data);
+        const msgIa = (data.resposta_agente || '').trim();
+        if (msgIa) adicionarMensagem('assistant', msgIa);
+        painelContextoAberto.value = false;
+        if (etapa === 'servico' || etapa === 'local' || etapa === 'anexos') {
+            await scrollParaBlocoEtapa(etapa);
+        }
+        await nextTick();
+        listaChatRef.value?.closest('.flex-col')?.querySelector('textarea')?.focus();
+    } catch (err) {
+        const detalhe = err?.response?.data?.detail || err?.message || 'Não foi possível reabrir a etapa.';
+        toast.add({ severity: 'error', summary: 'Revisar', detail: String(detalhe), life: 5000 });
+    } finally {
+        carregando.value = false;
+    }
+}
+
+function confirmarLocalDemanda(indiceDemanda) {
+    const n = indiceDemanda + 1;
+    return enviarMensagem(
+        demandasExtraidas.value.length > 1
+            ? `confirmar local solicitação ${n}`
+            : 'confirmar local'
+    );
+}
+
+function confirmarDocumentos() {
+    return enviarMensagem('confirmar documentos');
+}
+
+async function removerAnexoSalvo(indiceSessao) {
+    if (!sessionId.value) return;
+    carregando.value = true;
+    try {
+        const { data } = await ApiService.removerAnexoSessaoCopiloto({
+            session_id: sessionId.value,
+            indice_sessao: indiceSessao
+        });
+        aplicarRespostaCopiloto(data);
+        toast.add({ severity: 'success', summary: 'Anexos', detail: 'Arquivo removido.', life: 3000 });
+    } catch (err) {
+        const detalhe = err?.response?.data?.detail || err?.message || 'Falha ao remover.';
+        toast.add({ severity: 'error', summary: 'Anexos', detail: String(detalhe), life: 5000 });
+    } finally {
+        carregando.value = false;
+    }
+}
+
+function anexosSalvosDemanda(indiceDemanda) {
+    const d = demandasExtraidas.value[indiceDemanda];
+    return Array.isArray(d?.anexos) ? d.anexos : [];
+}
+
+const temAnexosSalvosNaSessao = computed(() =>
+    demandasExtraidas.value.some((_, i) => anexosSalvosDemanda(i).length > 0)
+);
+
+const demandasComLocalInferido = computed(() => {
+    const idxRev =
+        revisaoAtiva.value?.etapa === 'local' ? revisaoAtiva.value.indiceDemanda : null;
+    return demandasEscopoLocal.value.filter(({ d }) => demandaPodeConfirmarLocal(d));
+});
+
+const demandasEscopoLocal = computed(() => {
+    const idxRev =
+        revisaoAtiva.value?.etapa === 'local' ? revisaoAtiva.value.indiceDemanda : null;
+    const base = demandasExtraidas.value
+        .map((d, i) => ({ d, i }))
+        .filter(
+            ({ d }) =>
+                d?.requer_localizacao !== false &&
+                !d?.descartada &&
+                !demandaForaCompetencia(d) &&
+                !d?.endereco_opcional_dispensado
+        );
+    if (idxRev != null) return base.filter(({ i }) => i === idxRev);
+    if (estadoAtual.value === 'COLETA_ENDERECO') {
+        return base.filter(
+            ({ d }) => d.local_pendente_confirmacao === true || demandaPodeConfirmarLocal(d)
+        );
+    }
+    return base;
+});
+
+const indiceDemandaRevisaoAnexos = computed(() =>
+    revisaoAtiva.value?.etapa === 'anexos' ? revisaoAtiva.value.indiceDemanda : null
+);
+
+function emRevisaoDemanda(indice, etapa) {
+    return revisaoAtiva.value?.etapa === etapa && revisaoAtiva.value?.indiceDemanda === indice;
 }
 
 const mostrarVinculoAnexoDemanda = computed(
@@ -989,9 +1220,104 @@ const mostrarSimNaoBinario = computed(() => {
     );
 });
 
+const temMensagemUsuario = computed(() => mensagens.value.some((m) => m.role === 'user'));
+
+const mostrarAtalhosTopTrends = computed(() => {
+    if (carregando.value || sucessoCriacao.value) return false;
+    if (estadoAtual.value !== 'COLETA_DADOS') return false;
+    if (temMensagemUsuario.value) return false;
+    if (mostrarOpcoesSinapse.value || mostrarSimNaoBinario.value) return false;
+    return atalhosTopTrends.value.length > 0 && !atalhoEmDetalhamento.value;
+});
+
+const mostrarDetalheAtalho = computed(() => Boolean(atalhoEmDetalhamento.value));
+
+const atalhosTopTrendsVisiveis = computed(() => {
+    const lista = atalhosTopTrends.value;
+    if (atalhosTopTrendsExpandido.value) return lista;
+    return lista.slice(0, LIMITE_ATALHOS_VISIVEIS);
+});
+
+async function carregarAtalhosTopTrends() {
+    try {
+        const { data } = await ApiService.corpusLegadoAtalhosCopiloto(12);
+        const lista = Array.isArray(data?.atalhos) ? data.atalhos : [];
+        const filtrada = lista.filter((a) => (a?.rotulo || '').trim().toLowerCase() !== 'outros');
+        if (filtrada.length) {
+            atalhosTopTrends.value = filtrada;
+        }
+    } catch {
+        // chips opcionais — falha silenciosa
+    }
+}
+
+function rotuloAtalho(atalho) {
+    return (atalho?.rotulo || 'Pedido').trim();
+}
+
+function cancelarDetalheAtalho() {
+    atalhoEmDetalhamento.value = null;
+    opcoesCartaAtalho.value = [];
+}
+
+async function usarAtalhoTopTrend(atalho) {
+    const opcoesInline = Array.isArray(atalho?.opcoes_carta) ? atalho.opcoes_carta : [];
+    const precisaDetalhe =
+        atalho?.tem_detalhamento && (opcoesInline.length > 1 || (atalho?.qtd_opcoes_carta ?? 0) > 1);
+
+    if (precisaDetalhe) {
+        atalhoEmDetalhamento.value = atalho;
+        opcoesCartaAtalho.value = opcoesInline;
+        if (!opcoesInline.length && atalho?.id) {
+            carregandoDetalheAtalho.value = true;
+            try {
+                const { data } = await ApiService.corpusLegadoAtalhoDetalhe(atalho.id);
+                opcoesCartaAtalho.value = Array.isArray(data?.opcoes_carta) ? data.opcoes_carta : [];
+            } catch {
+                toast.add({
+                    severity: 'warn',
+                    summary: 'Pedidos frequentes',
+                    detail: 'Não foi possível carregar os serviços da carta. Tente digitar o pedido.',
+                    life: 4000
+                });
+                cancelarDetalheAtalho();
+            } finally {
+                carregandoDetalheAtalho.value = false;
+            }
+        }
+        return;
+    }
+
+    const padraoId = atalho?.servico_padrao_id ?? opcoesInline[0]?.servico_id;
+    await enviarMensagemComAtalho(atalho, padraoId ? { servico_id: padraoId } : null);
+}
+
+async function enviarMensagemComAtalho(atalho, opcao) {
+    const base = (inputTexto.value || '').trim();
+    const textoPadrao = atalho?.texto_sugerido || `Solicito ${(atalho?.rotulo || 'serviço').toLowerCase()}.`;
+    const texto = base || textoPadrao;
+    const extras = {
+        corpus_atalho_id: atalho?.id || atalho?.eixo_id || null
+    };
+    if (opcao?.servico_id != null) {
+        extras.corpus_sinapse_servico_id = opcao.servico_id;
+    }
+    cancelarDetalheAtalho();
+    await enviarMensagem(texto, extras);
+}
+
+function rotuloOpcaoCartaAtalho(opcao) {
+    const titulo = (opcao?.titulo || 'Serviço').trim();
+    if (opcao?.padrao) {
+        return `${titulo} (mais comum)`;
+    }
+    return titulo;
+}
+
 watch(
     [
         mostrarBlocoServicoNoChat,
+        mostrarBlocoComplementoNoChat,
         mostrarBlocoForaCompetenciaNoChat,
         mostrarBlocoTendenciaNoChat,
         mostrarBlocoAnexosNoChat,
@@ -1018,7 +1344,25 @@ function onSelecionarAnexos(event) {
     const files = event?.target?.files;
     if (!files?.length) return;
     const padrao = indiceDemandaPadraoParaNovoAnexo();
-    const novos = Array.from(files).map((file) => ({
+    const existentes = anexosPendentes.value.map((a) => normalizarNomeArquivo(a.file?.name));
+    const { aceitos, rejeitados } = filtrarArquivosDuplicados(Array.from(files), existentes);
+
+    if (rejeitados.length) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Anexo duplicado',
+            detail: mensagemAnexosRejeitados(rejeitados),
+            life: 5000
+        });
+    }
+    if (!aceitos.length) {
+        if (inputAnexosRef.value) {
+            inputAnexosRef.value.value = '';
+        }
+        return;
+    }
+
+    const novos = aceitos.map((file) => ({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
         file,
         indiceDemanda: padrao
@@ -1038,7 +1382,6 @@ function abrirSeletorAnexos() {
 }
 
 const podeEnviar = computed(() => {
-    if (carregando.value) return false;
     const temTexto = inputTexto.value.trim().length > 0;
     const temAnexos = anexosPendentes.value.length > 0;
     if (!temTexto && !temAnexos) return false;
@@ -1049,7 +1392,8 @@ const podeEnviar = computed(() => {
 });
 
 /** @param {string} [textoOpcional] — se omitido, usa o conteúdo do campo de texto */
-async function enviarMensagem(textoOpcional) {
+/** @param {{ corpus_atalho_id?: string, corpus_sinapse_servico_id?: number }} [extras] */
+async function enviarMensagem(textoOpcional, extras = {}) {
     const texto =
         textoOpcional !== undefined && textoOpcional !== null
             ? String(textoOpcional).trim()
@@ -1087,17 +1431,47 @@ async function enviarMensagem(textoOpcional) {
             payload.anexos = pendentes.map((p) => p.file);
             payload.anexo_demanda_indices = pendentes.map((p) => p.indiceDemanda);
         }
+        if (extras.corpus_atalho_id) {
+            payload.corpus_atalho_id = extras.corpus_atalho_id;
+        }
+        if (extras.corpus_sinapse_servico_id != null) {
+            payload.corpus_sinapse_servico_id = extras.corpus_sinapse_servico_id;
+        }
 
         const { data } = await ApiService.interagirCopiloto(payload);
 
         if (data.session_id) {
             sessionId.value = data.session_id;
         }
-        if (data.estado_atual) {
-            estadoAtual.value = data.estado_atual;
+        aplicarRespostaCopiloto(data);
+        if (data.reabrir_anexos) {
+            etapaAnexosConcluida.value = false;
         }
-        if (Array.isArray(data.demandas_extraidas)) {
-            demandasExtraidas.value = data.demandas_extraidas;
+
+        const rev = revisaoAtiva.value;
+        if (
+            rev?.etapa === 'local' &&
+            /^confirmar\s+(?:o\s+)?local/i.test(texto) &&
+            (data.revisao_encerrada || data.estado_atual !== 'COLETA_ENDERECO')
+        ) {
+            revisaoAtiva.value = null;
+        }
+        if (rev?.etapa === 'anexos' && (data.revisao_encerrada || /^confirmar\s+(?:os\s+)?(?:documentos|anexos)/i.test(texto))) {
+            revisaoAtiva.value = null;
+            etapaAnexosConcluida.value = true;
+        }
+
+        if (pendentes.length && !data.anexos_adiados) {
+            if (
+                revisaoAtiva.value?.etapa === 'anexos' ||
+                etapaAnexosConcluida.value
+            ) {
+                revisaoAtiva.value = null;
+            }
+        }
+
+        if (data.recusou_geracao_rascunhos) {
+            etapaAnexosConcluida.value = false;
         }
 
         const textoIa = (data.resposta_agente || '').trim() || '(Sem resposta textual.)';
@@ -1106,11 +1480,55 @@ async function enviarMensagem(textoOpcional) {
         const criadas = data.demandas_criadas;
         if (Array.isArray(criadas) && criadas.length > 0) {
             sucessoCriacao.value = criadas;
+            const alertas = data.alertas_duplicidade;
+            alertasDuplicidadeCriacao.value = Array.isArray(alertas) && alertas.length ? alertas : null;
+            if (Array.isArray(alertas) && alertas.length > 0) {
+                const resumo =
+                    resumoDuplicidadeFrontend(alertas) ||
+                    (data.duplicidade_resumo?.mensagem_resumo
+                        ? {
+                              severity: data.duplicidade_resumo.sugerir_nao_enviar ? 'error' : 'warn',
+                              summary: data.duplicidade_resumo.sugerir_nao_enviar
+                                  ? 'Possível duplicidade em tramitação'
+                                  : 'Possível duplicidade de rascunho',
+                              detail: data.duplicidade_resumo.mensagem_resumo,
+                              sugerirNaoEnviar: Boolean(data.duplicidade_resumo.sugerir_nao_enviar)
+                          }
+                        : null);
+                if (resumo) {
+                    toast.add({
+                        severity: resumo.severity,
+                        summary: resumo.summary,
+                        detail: resumo.detail,
+                        life: resumo.sugerirNaoEnviar ? 16000 : 12000
+                    });
+                }
+            }
+        }
+        if (data.anexos_adiados) {
+            anexosPendentes.value = pendentes;
+            etapaAnexosConcluida.value = false;
+            toast.add({
+                severity: 'info',
+                summary: 'Anexos',
+                detail:
+                    'Com mais de um serviço no pedido, confirme cada serviço na carta e envie os arquivos novamente na etapa Documentos. Os anexos selecionados foram mantidos.',
+                life: 8000
+            });
         }
     } catch (err) {
+        if (pendentes.length) {
+            anexosPendentes.value = pendentes;
+            etapaAnexosConcluida.value = false;
+        }
         const detalhe = err?.response?.data?.detail || err?.response?.data?.mensagem || err?.message || 'Falha na comunicação.';
+        const respostaApi = (err?.response?.data?.resposta_agente || '').trim();
         toast.add({ severity: 'error', summary: 'Copiloto', detail: String(detalhe), life: 5000 });
-        adicionarMensagem('assistant', 'Não consegui concluir esta etapa. Tente novamente ou reformule a mensagem.');
+        adicionarMensagem(
+            'assistant',
+            respostaApi ||
+                'Não consegui concluir esta etapa. Tente novamente ou reformule a mensagem.'
+        );
     } finally {
         carregando.value = false;
     }
@@ -1160,18 +1578,23 @@ function novaConversa() {
     tendenciasSimilares.value = {};
     tituloTendenciaForm.value = {};
     escolhaTendenciaForm.value = {};
+    revisaoAtiva.value = null;
     sessionId.value = null;
     mensagens.value = [];
     inputTexto.value = '';
     estadoAtual.value = 'COLETA_DADOS';
     demandasExtraidas.value = [];
     sucessoCriacao.value = null;
+    alertasDuplicidadeCriacao.value = null;
+    atalhosTopTrendsExpandido.value = false;
+    cancelarDetalheAtalho();
     aprovacaoFinal.value = {};
     adicionarMensagem(
         'assistant',
-        'Olá! Conte o pedido com suas palavras — pode anexar documentos a qualquer momento. ' +
+        'Olá! Conte o pedido com suas palavras, pode anexar documentos a qualquer momento. ' +
             'Se for zeladoria ou serviço em via/parque, informe também o local quando souber.'
     );
+    carregarAtalhosTopTrends();
 }
 
 novaConversa();
@@ -1180,29 +1603,38 @@ novaConversa();
 <template>
     <!-- Altura explícita + min-h-0 para o flex filho poder encolher e o scroll funcionar -->
     <div
-        class="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--surface-border)] bg-[var(--surface-ground)] shadow-sm h-[calc(100dvh-8rem)] max-h-[calc(100dvh-8rem)] min-h-[22rem]"
+        class="copiloto-shell flex min-h-0 flex-col overflow-hidden rounded-xl border border-[var(--surface-border)] bg-[var(--surface-ground)] shadow-sm h-[calc(100dvh-6.75rem)] max-h-[calc(100dvh-6.75rem)] min-h-[20rem] sm:h-[calc(100dvh-8rem)] sm:max-h-[calc(100dvh-8rem)] sm:min-h-[22rem]"
     >
         <!-- Cabeçalho -->
-        <header
-            class="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--surface-border)] bg-[var(--surface-section)] px-4 py-3 sm:px-5"
-        >
-            <div class="min-w-0 flex-1">
-                <h1 class="m-0 truncate text-xl font-semibold text-[var(--text-color)] sm:text-2xl">Copiloto de demandas</h1>
-                <p class="mt-1 text-sm leading-relaxed text-[var(--text-color-secondary)]">
-                    Conversa guiada — rascunhos no painel à direita (desktop) ou em <strong class="font-medium">Contexto</strong> no celular.
+        <header class="copiloto-header flex shrink-0 flex-col gap-3 border-b border-[var(--surface-border)] bg-[var(--surface-section)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
+            <div class="copiloto-header__intro min-w-0 w-full sm:flex-1">
+                <h1 class="m-0 text-lg font-semibold leading-tight text-[var(--text-color)] sm:text-2xl">
+                    Copiloto de demandas
+                </h1>
+                <p class="mt-1.5 text-xs leading-relaxed text-[var(--text-color-secondary)] sm:mt-1 sm:text-sm">
+                    Descreva o pedido na conversa — o painel <strong class="font-medium">Contexto</strong> mostra o que
+                    já foi entendido (assunto, serviço, local).
                 </p>
             </div>
-            <div class="flex shrink-0 flex-wrap items-center gap-2">
+            <div class="copiloto-header__actions flex w-full shrink-0 items-stretch gap-2 sm:w-auto">
                 <Button
                     type="button"
                     label="Contexto"
                     icon="pi pi-list"
                     severity="secondary"
                     outlined
-                    class="lg:!hidden"
+                    class="copiloto-header__btn flex-1 lg:!hidden"
                     @click="painelContextoAberto = true"
                 />
-                <Button type="button" label="Nova conversa" icon="pi pi-refresh" severity="secondary" outlined @click="novaConversa" />
+                <Button
+                    type="button"
+                    label="Nova conversa"
+                    icon="pi pi-refresh"
+                    severity="secondary"
+                    outlined
+                    class="copiloto-header__btn copiloto-header__btn--nova hidden shrink-0 sm:inline-flex"
+                    @click="novaConversa"
+                />
             </div>
         </header>
 
@@ -1218,6 +1650,34 @@ novaConversa();
                     Foram gerados <strong class="text-[var(--text-color)]">{{ sucessoCriacao.length }}</strong> rascunho(s) (IDs:
                     {{ sucessoCriacao.map((d) => d.id).join(', ') }}).
                 </p>
+                <Message
+                    v-if="alertasDuplicidadeCriacao?.length"
+                    :severity="temDuplicidadeEmTramite(alertasDuplicidadeCriacao) ? 'error' : 'warn'"
+                    :closable="false"
+                    class="mt-4 text-left text-sm"
+                >
+                    <template v-if="temDuplicidadeEmTramite(alertasDuplicidadeCriacao)">
+                        <strong>Atenção — possível duplicidade em tramitação.</strong>
+                        <ul class="m-0 mt-2 list-disc pl-5">
+                            <li v-for="a in alertasDuplicidadeCriacao" :key="a.demanda_id">
+                                {{ a.mensagem || `#${a.demanda_id} «${a.titulo}» (${a.status_label || a.status})` }}
+                            </li>
+                        </ul>
+                        <p class="m-0 mt-2">
+                            O rascunho foi registrado, mas recomendamos <strong>não enviar oficialmente</strong>
+                            e acompanhar o processo existente.
+                        </p>
+                    </template>
+                    <template v-else>
+                        <strong>Possível duplicidade de rascunho.</strong>
+                        <ul class="m-0 mt-2 list-disc pl-5">
+                            <li v-for="a in alertasDuplicidadeCriacao" :key="a.demanda_id">
+                                {{ a.mensagem || `#${a.demanda_id} «${a.titulo}»` }}
+                            </li>
+                        </ul>
+                        <p class="m-0 mt-2">Revise se não é o mesmo pedido antes de protocolar.</p>
+                    </template>
+                </Message>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
                 <Button
@@ -1251,7 +1711,7 @@ novaConversa();
                                 class="max-w-[min(100%,28rem)] break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm sm:text-base"
                                 :class="
                                     m.role === 'user'
-                                        ? 'rounded-br-md bg-emerald-600 text-white dark:bg-emerald-700'
+                                        ? 'rounded-br-md bg-primary text-primary-contrast'
                                         : 'rounded-bl-md border border-[var(--surface-border)] bg-[var(--surface-card)] text-[var(--text-color)]'
                                 "
                             >
@@ -1317,6 +1777,7 @@ novaConversa();
 
                         <div
                             v-if="mostrarBlocoServicoNoChat"
+                            data-copiloto-bloco="servico"
                             class="mx-auto w-full max-w-3xl rounded-2xl border border-amber-500/35 bg-[var(--surface-card)] p-4 shadow-sm"
                         >
                             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -1352,7 +1813,10 @@ novaConversa();
                                 v-for="{ d, i } in demandasComCartaNoChat"
                                 :key="`chat-srv-${i}`"
                                 class="mb-3 flex flex-col gap-2 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3 last:mb-0"
-                                :class="d.descartada ? 'opacity-60' : ''"
+                                :class="{
+                                    'opacity-60': d.descartada,
+                                    'ring-2 ring-[var(--primary-color)]/40': emRevisaoDemanda(i, 'servico')
+                                }"
                             >
                                 <div class="flex flex-wrap items-center gap-2">
                                     <span class="text-sm font-medium text-[var(--text-color)]">
@@ -1391,6 +1855,45 @@ novaConversa();
                                     Nenhuma opção atingiu {{ Math.round(limiarScoreDemanda(d) * 100) }}% — registre como
                                     tendência ou use «Nova busca».
                                 </p>
+                                <div
+                                    v-if="corpusHintsDemanda(d).length && (demandaForaCarta(d) || !candidatosCartaExibicao(d).length)"
+                                    class="flex flex-col gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2"
+                                >
+                                    <span class="text-xs font-medium uppercase tracking-wide text-sky-800 dark:text-sky-300">
+                                        Serviços da carta sugeridos
+                                    </span>
+                                    <p class="m-0 text-xs text-[var(--text-color-secondary)]">
+                                        Escolha o serviço mais adequado — cada opção confirma na carta e segue para complementar o local.
+                                    </p>
+                                    <ul class="m-0 flex list-none flex-col gap-2 p-0">
+                                        <li
+                                            v-for="h in corpusHintsDemanda(d)"
+                                            :key="h.id || h.servico_legado"
+                                            class="flex flex-wrap items-center gap-2"
+                                        >
+                                            <Button
+                                                v-if="h.sinapse_servico_id_sugerido_historico"
+                                                :label="rotuloHintHistorico(h)"
+                                                icon="pi pi-check"
+                                                size="small"
+                                                severity="info"
+                                                outlined
+                                                class="!text-left"
+                                                :loading="carregando"
+                                                @click="aplicarHintCorpus(i, h)"
+                                            />
+                                            <span v-else class="text-sm text-[var(--text-color)]">
+                                                {{ rotuloHintHistorico(h) }}
+                                            </span>
+                                            <Tag
+                                                v-if="h.padrao"
+                                                value="Mais comum"
+                                                severity="success"
+                                                class="!text-xs"
+                                            />
+                                        </li>
+                                    </ul>
+                                </div>
                                 <div v-if="!servicoConfirmado(d)" class="flex flex-wrap gap-2">
                                     <Button
                                         label="Nova busca"
@@ -1503,6 +2006,38 @@ novaConversa();
                         </div>
 
                         <div
+                            v-if="mostrarBlocoComplementoNoChat"
+                            data-copiloto-bloco="complemento"
+                            class="mx-auto w-full max-w-3xl rounded-2xl border border-emerald-500/35 bg-[var(--surface-card)] p-4 shadow-sm"
+                        >
+                            <div class="mb-2">
+                                <span class="text-sm font-semibold text-[var(--text-color)]">
+                                    <i class="pi pi-map-marker mr-1" aria-hidden="true" />
+                                    Complementar informações
+                                </span>
+                                <p class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">
+                                    O serviço já está na carta. Descreva no campo abaixo rua, número, bairro, referência ou
+                                    detalhes adicionais do pedido.
+                                </p>
+                            </div>
+                            <div
+                                v-for="{ d, i } in demandasAguardandoComplemento"
+                                :key="`chat-comp-${i}`"
+                                class="mb-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2 last:mb-0"
+                            >
+                                <p class="m-0 text-sm font-medium text-[var(--text-color)]">
+                                    {{ i + 1 }}. {{ d.servico?.nome || d.titulo || 'Solicitação' }}
+                                </p>
+                                <p
+                                    v-if="d.servico?.orgao"
+                                    class="m-0 mt-0.5 text-xs text-[var(--text-color-secondary)]"
+                                >
+                                    {{ d.servico.orgao }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div
                             v-if="false"
                             class="mx-auto w-full max-w-3xl rounded-2xl border border-violet-500/35 bg-[var(--surface-card)] p-4 shadow-sm"
                         >
@@ -1579,7 +2114,7 @@ novaConversa();
 
                         <div
                             v-if="mostrarSimNaoValidacao"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-emerald-500/35 bg-[var(--surface-card)] p-4 shadow-sm"
+                            class="mx-auto w-full max-w-3xl rounded-2xl border border-primary/35 bg-[var(--surface-card)] p-4 shadow-sm"
                         >
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-file-edit mr-1" aria-hidden="true" />
@@ -1632,25 +2167,32 @@ novaConversa();
                                     severity="secondary"
                                     outlined
                                     :disabled="carregando"
-                                    @click="enviarMensagem('não')"
+                                    @click="recusarGeracaoRascunhos"
                                 />
                             </div>
                         </div>
 
                         <div
                             v-if="mostrarBlocoEnderecoNoChat"
+                            data-copiloto-bloco="local"
                             class="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--primary-color)]/30 bg-[var(--surface-card)] p-4 shadow-sm"
                         >
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-map-marker mr-1" aria-hidden="true" />
                                 Local da solicitação
+                                <span
+                                    v-if="revisaoAtiva?.etapa === 'local'"
+                                    class="ml-2 text-xs font-normal text-[var(--primary-color)]"
+                                >
+                                    (revisão — solicitação {{ revisaoAtiva.indiceDemanda + 1 }})
+                                </span>
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
                                 Informe CEP, rua com bairro, nome do parque ou use a localização do aparelho.
                                 Só o bairro também vale (ex.: «bairro Centro»).
                             </p>
                             <div
-                                v-for="{ d, i } in demandasExtraidas.map((d, i) => ({ d, i })).filter(({ d }) => d.requer_localizacao !== false)"
+                                v-for="{ d, i } in demandasEscopoLocal"
                                 :key="`map-${i}`"
                                 class="mb-3"
                             >
@@ -1668,13 +2210,25 @@ novaConversa();
                             </div>
                             <div class="flex flex-wrap gap-2">
                                 <Button
-                                    v-if="demandasExtraidas.length === 1"
+                                    v-for="{ d, i } in demandasComLocalInferido"
+                                    :key="`conf-local-${i}`"
+                                    :label="
+                                        demandasExtraidas.length > 1
+                                            ? `Confirmar local (solicitação ${i + 1})`
+                                            : 'Confirmar local'
+                                    "
+                                    icon="pi pi-check"
+                                    :disabled="carregando"
+                                    @click="confirmarLocalDemanda(i)"
+                                />
+                                <Button
+                                    v-if="demandasEscopoLocal.length === 1 || revisaoAtiva?.etapa === 'local'"
                                     label="Usar minha localização"
                                     icon="pi pi-map"
                                     severity="secondary"
                                     outlined
                                     :disabled="carregando"
-                                    @click="usarLocalizacaoAtual(0)"
+                                    @click="usarLocalizacaoAtual(revisaoAtiva?.etapa === 'local' ? revisaoAtiva.indiceDemanda : demandasEscopoLocal[0]?.i ?? 0)"
                                 />
                                 <Button
                                     label="Continuar sem local"
@@ -1688,11 +2242,18 @@ novaConversa();
 
                         <div
                             v-if="mostrarBlocoAnexosNoChat"
+                            data-copiloto-bloco="anexos"
                             class="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--primary-color)]/30 bg-[var(--surface-card)] p-4 shadow-sm"
                         >
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-paperclip mr-1" aria-hidden="true" />
                                 Documentos complementares
+                                <span
+                                    v-if="revisaoAtiva?.etapa === 'anexos'"
+                                    class="ml-2 text-xs font-normal text-[var(--primary-color)]"
+                                >
+                                    (revisão — solicitação {{ revisaoAtiva.indiceDemanda + 1 }})
+                                </span>
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
                                 Deseja anexar fotos ou PDFs?
@@ -1700,6 +2261,42 @@ novaConversa();
                                     Se forem vários arquivos, indique a qual solicitação cada um pertence.
                                 </template>
                             </p>
+                            <div
+                                v-if="demandasExtraidas.some((d, i) => anexosSalvosDemanda(i).length) && (indiceDemandaRevisaoAnexos == null || anexosSalvosDemanda(indiceDemandaRevisaoAnexos).length)"
+                                class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-2"
+                            >
+                                <span class="text-xs font-medium text-[var(--text-color-secondary)]">
+                                    Arquivos já enviados
+                                </span>
+                                <template
+                                    v-for="(d, i) in demandasExtraidas"
+                                    :key="`anexos-salvos-${i}`"
+                                >
+                                    <template v-if="indiceDemandaRevisaoAnexos == null || i === indiceDemandaRevisaoAnexos">
+                                    <div
+                                        v-for="anexo in anexosSalvosDemanda(i)"
+                                        :key="`salvo-${i}-${anexo.indice_sessao}`"
+                                        class="flex items-center justify-between gap-2 rounded-md border border-[var(--surface-border)] bg-[var(--surface-card)] px-2 py-1.5 text-sm"
+                                    >
+                                        <span class="truncate">
+                                            <span class="text-xs text-[var(--text-color-secondary)]">
+                                                Sol. {{ i + 1 }}:
+                                            </span>
+                                            {{ anexo.nome }}
+                                        </span>
+                                        <Button
+                                            icon="pi pi-trash"
+                                            text
+                                            rounded
+                                            size="small"
+                                            severity="danger"
+                                            :disabled="carregando"
+                                            @click="removerAnexoSalvo(anexo.indice_sessao)"
+                                        />
+                                    </div>
+                                    </template>
+                                </template>
+                            </div>
                             <div v-if="anexosPendentes.length" class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-2">
                                 <div
                                     v-for="(item, idx) in anexosPendentes"
@@ -1726,6 +2323,13 @@ novaConversa();
                             <div class="flex flex-wrap gap-2">
                                 <Button type="button" label="Anexar arquivos" icon="pi pi-upload" :disabled="carregando" @click="abrirSeletorAnexos" />
                                 <Button v-if="anexosPendentes.length" label="Enviar anexos" icon="pi pi-send" :loading="carregando" :disabled="!podeEnviar" @click="enviar" />
+                                <Button
+                                    v-if="temAnexosSalvosNaSessao"
+                                    label="Confirmar documentos"
+                                    icon="pi pi-check"
+                                    :disabled="carregando"
+                                    @click="confirmarDocumentos"
+                                />
                                 <Button
                                     label="Continuar sem anexos"
                                     severity="secondary"
@@ -1756,12 +2360,83 @@ novaConversa();
                             accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.txt"
                             @change="onSelecionarAnexos"
                         />
+                        <div
+                            v-if="mostrarAtalhosTopTrends"
+                            class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2"
+                        >
+                            <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]">
+                                Pedidos frequentes
+                            </span>
+                            <p class="m-0 text-xs text-[var(--text-color-secondary)]">
+                                Escolha o tipo de pedido, em seguida selecione o serviço na carta, se necessário.
+                            </p>
+                            <div class="flex flex-wrap gap-2">
+                                <Button
+                                    v-for="a in atalhosTopTrendsVisiveis"
+                                    :key="a.id || a.rotulo"
+                                    :label="rotuloAtalho(a)"
+                                    size="small"
+                                    outlined
+                                    severity="secondary"
+                                    class="text-left"
+                                    :disabled="carregando"
+                                    @click="usarAtalhoTopTrend(a)"
+                                />
+                            </div>
+                            <Button
+                                v-if="atalhosTopTrends.length > LIMITE_ATALHOS_VISIVEIS && !atalhosTopTrendsExpandido"
+                                label="Ver mais"
+                                size="small"
+                                text
+                                severity="secondary"
+                                class="self-start"
+                                @click="atalhosTopTrendsExpandido = true"
+                            />
+                        </div>
+                        <div
+                            v-if="mostrarDetalheAtalho"
+                            class="flex flex-col gap-2 rounded-lg border border-[var(--primary-color)]/35 bg-[var(--surface-ground)] px-3 py-2"
+                        >
+                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color)]">
+                                    {{ atalhoEmDetalhamento?.rotulo || 'Detalhe do pedido' }}
+                                </span>
+                                <Button
+                                    label="Voltar"
+                                    icon="pi pi-arrow-left"
+                                    size="small"
+                                    text
+                                    severity="secondary"
+                                    @click="cancelarDetalheAtalho"
+                                />
+                            </div>
+                            <p class="m-0 text-xs text-[var(--text-color-secondary)]">
+                                Escolha o serviço na carta. O mais comum aparece primeiro.
+                            </p>
+                            <div v-if="carregandoDetalheAtalho" class="flex items-center gap-2 py-1 text-sm">
+                                <ProgressSpinner class="!h-5 !w-5" strokeWidth="6" />
+                                <span>Carregando serviços…</span>
+                            </div>
+                            <div v-else class="flex flex-col gap-2">
+                                <Button
+                                    v-for="op in opcoesCartaAtalho"
+                                    :key="op.servico_id"
+                                    :label="rotuloOpcaoCartaAtalho(op)"
+                                    size="small"
+                                    :outlined="!op.padrao"
+                                    :severity="op.padrao ? 'primary' : 'secondary'"
+                                    class="justify-start text-left"
+                                    :disabled="carregando"
+                                    @click="enviarMensagemComAtalho(atalhoEmDetalhamento, op)"
+                                />
+                            </div>
+                        </div>
                         <Textarea
                             v-model="inputTexto"
                             class="copiloto-textarea w-full"
                             rows="3"
                             auto-resize
-                            placeholder="Descreva a solicitação… (Enter envia, Shift+Enter nova linha)"
+                            :placeholder="placeholderCompositor"
                             :disabled="carregando"
                             @keydown="onTeclaInput"
                         />
@@ -1837,7 +2512,7 @@ novaConversa();
                             </div>
                         </div>
 
-                        <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div class="copiloto-composer-actions flex gap-2">
                             <Button
                                 v-if="mostrarAnexarNoCompositor"
                                 type="button"
@@ -1845,12 +2520,14 @@ novaConversa();
                                 icon="pi pi-paperclip"
                                 severity="secondary"
                                 outlined
+                                class="flex-1 sm:flex-none"
                                 :disabled="carregando"
                                 @click="abrirSeletorAnexos"
                             />
                             <Button
                                 label="Enviar"
                                 icon="pi pi-send"
+                                class="flex-[1.4] sm:ml-auto sm:flex-none sm:min-w-[8.5rem]"
                                 :loading="carregando"
                                 :disabled="!podeEnviar"
                                 @click="enviar"
@@ -1862,28 +2539,22 @@ novaConversa();
 
             <!-- Painel desktop -->
             <aside
-                class="hidden w-[min(100%,20rem)] shrink-0 flex-col overflow-y-auto border-l border-[var(--surface-border)] bg-[var(--surface-section)] lg:flex"
+                class="hidden w-[min(100%,22rem)] shrink-0 flex-col overflow-y-auto border-l border-[var(--surface-border)] bg-[var(--surface-section)] lg:flex"
             >
                 <div class="shrink-0 border-b border-[var(--surface-border)] px-4 py-3">
                     <span class="font-semibold text-[var(--text-color)]">Contexto</span>
+                    <p class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">Resumo do que já foi coletado</p>
                 </div>
-                <div class="flex flex-col gap-4 p-4">
-                    <div>
-                        <div class="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]">Estado</div>
-                        <Tag :value="estadoLabel" :severity="severidadeEstado" />
-                        <code class="mt-1 block text-xs text-[var(--text-color-secondary)]">{{ estadoAtual }}</code>
-                    </div>
-                    <div
-                        class="flex flex-col overflow-hidden rounded-lg border border-[var(--surface-border)] bg-[var(--surface-card)] shadow-sm"
-                    >
-                        <div class="border-b border-[var(--surface-border)] px-3 py-2 text-sm font-semibold text-[var(--text-color)]">
-                            Demandas extraídas
-                        </div>
-                        <div class="max-h-[50vh] overflow-auto p-3">
-                            <pre v-if="demandasExtraidasPainel.length" class="copiloto-json m-0 text-xs">{{ JSON.stringify(demandasExtraidasPainel, null, 2) }}</pre>
-                            <p v-else class="m-0 text-sm text-[var(--text-color-secondary)]">Ainda não há itens estruturados — continue a conversa.</p>
-                        </div>
-                    </div>
+                <div class="flex flex-col p-4">
+                    <CopilotoContextoPainel
+                        :estado-atual="estadoAtual"
+                        :estado-label="estadoLabel"
+                        :severidade-estado="severidadeEstado"
+                        :demandas="demandasExtraidas"
+                        :anexos-pendentes-count="anexosPendentes.length"
+                        :revisao-ativa="revisaoAtiva"
+                        @revisar="revisarEtapa"
+                    />
                 </div>
             </aside>
         </div>
@@ -1900,22 +2571,22 @@ novaConversa();
             @click.stop
         >
             <div class="flex shrink-0 items-center justify-between border-b border-[var(--surface-border)] px-4 py-3">
-                <span class="font-semibold text-[var(--text-color)]">Contexto</span>
+                <div>
+                    <span class="font-semibold text-[var(--text-color)]">Contexto</span>
+                    <p class="m-0 text-xs text-[var(--text-color-secondary)]">Resumo do que já foi coletado</p>
+                </div>
                 <Button icon="pi pi-times" text rounded severity="secondary" @click="painelContextoAberto = false" />
             </div>
-            <div class="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-                <div>
-                    <div class="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]">Estado</div>
-                    <Tag :value="estadoLabel" :severity="severidadeEstado" />
-                    <code class="mt-1 block text-xs text-[var(--text-color-secondary)]">{{ estadoAtual }}</code>
-                </div>
-                <div class="flex flex-col overflow-hidden rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)]">
-                    <div class="border-b border-[var(--surface-border)] px-3 py-2 text-sm font-semibold">Demandas extraídas</div>
-                    <div class="max-h-[60vh] overflow-auto p-3">
-                        <pre v-if="demandasExtraidasPainel.length" class="copiloto-json m-0 text-xs">{{ JSON.stringify(demandasExtraidasPainel, null, 2) }}</pre>
-                        <p v-else class="m-0 text-sm text-[var(--text-color-secondary)]">Ainda não há itens estruturados.</p>
-                    </div>
-                </div>
+            <div class="flex flex-1 flex-col overflow-y-auto p-4">
+                <CopilotoContextoPainel
+                    :estado-atual="estadoAtual"
+                    :estado-label="estadoLabel"
+                    :severidade-estado="severidadeEstado"
+                    :demandas="demandasExtraidas"
+                    :anexos-pendentes-count="anexosPendentes.length"
+                    :revisao-ativa="revisaoAtiva"
+                    @revisar="revisarEtapa"
+                />
             </div>
         </div>
     </div>
@@ -1954,10 +2625,26 @@ novaConversa();
     cursor: not-allowed;
 }
 
-.copiloto-json {
-    white-space: pre-wrap;
-    word-break: break-word;
-    font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+.copiloto-header__actions :deep(.copiloto-header__btn) {
+    justify-content: center;
+}
+
+.copiloto-header__actions :deep(.copiloto-header__btn--nova) {
+    flex-shrink: 0;
+}
+
+.copiloto-header__actions :deep(.copiloto-header__btn--nova .p-button-label) {
+    white-space: nowrap;
+}
+
+@media (min-width: 640px) {
+    .copiloto-header__actions :deep(.copiloto-header__btn) {
+        justify-content: flex-start;
+    }
+}
+
+.copiloto-composer-actions :deep(.p-button) {
+    min-height: 2.75rem;
 }
 
 .copiloto-drawer-mobile {

@@ -7,6 +7,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from core.models import Usuario
+from core.pagination import OptInPageNumberPagination
+from core.services.gestor_escopo import gestor_pode_crud_admin
 from core.serializers import (
     UsuarioGestaoSerializer,
     UsuarioGestaoUnificadoSerializer,
@@ -17,7 +19,7 @@ from core.serializers import (
     UsuarioVereadorWriteSerializer,
 )
 
-_PERFIS_GESTAO = frozenset({"GESTOR", "PROTOCOLO"})
+_PERFIS_GESTAO = frozenset({"GESTOR"})
 _PERFIS_CRIAVEIS = frozenset({"VEREADOR", "PROTOCOLO", "SECRETARIA", "GESTOR"})
 _WRITE_BY_PERFIL = {
     "VEREADOR": UsuarioVereadorWriteSerializer,
@@ -34,11 +36,7 @@ _READ_BY_PERFIL = {
 
 
 def _pode_gerir_usuarios(user) -> bool:
-    return bool(
-        user
-        and user.is_authenticated
-        and (getattr(user, "perfil", None) in _PERFIS_GESTAO or user.is_staff)
-    )
+    return gestor_pode_crud_admin(user)
 
 
 def _pode_gerir_gestores(user) -> bool:
@@ -46,7 +44,7 @@ def _pode_gerir_gestores(user) -> bool:
         user
         and user.is_authenticated
         and getattr(user, "perfil", None) == "GESTOR"
-        and user.is_staff
+        and gestor_pode_crud_admin(user)
     )
 
 
@@ -181,6 +179,7 @@ class GestaoUsuarioViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     http_method_names = ["get", "post", "patch", "head", "options"]
     serializer_class = UsuarioGestaoUnificadoSerializer
+    pagination_class = OptInPageNumberPagination
 
     def get_queryset(self):
         qs = (
@@ -215,8 +214,10 @@ class GestaoUsuarioViewSet(viewsets.ModelViewSet):
                     ids.append(u.pk)
                 elif u.perfil == "PROTOCOLO" and not service.status_vinculo_protocolo(u).get("completo"):
                     ids.append(u.pk)
-                elif u.perfil == "GESTOR" and not service.status_vinculo_gestor(u).get("admin_pleno"):
-                    ids.append(u.pk)
+                elif u.perfil == "GESTOR":
+                    vg = service.status_vinculo_gestor(u)
+                    if vg.get("tipo_gestor") == "GERAL" and not vg.get("admin_pleno"):
+                        ids.append(u.pk)
             qs = qs.filter(pk__in=ids)
         return qs
 

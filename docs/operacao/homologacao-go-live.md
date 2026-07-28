@@ -190,6 +190,7 @@ Super OS (≥2 demandas do mesmo serviço + proximidade geográfica): protocolo 
 ### 5.2 Roteiro E2E — Vereador (H1)
 
 > Backend/serviços validado em 2026-06-11 — demanda **2966** · [registro](homologacao-e2e-registro.md)  
+> **Roteiro mestre (jun/2026):** [ROTEIRO-HOMOLOGACAO-COMPLETO.md](ROTEIRO-HOMOLOGACAO-COMPLETO.md) — Onda B + O1 + B5/B8  
 > **Roteiro browser (operadores):** [roteiro-e2e-browser-operadores.md](roteiro-e2e-browser-operadores.md)
 
 - [ ] Copiloto: criar rascunho com serviço Sinapse e endereço geocodificado.
@@ -302,14 +303,14 @@ sudo systemctl status celery-sgdl.service --no-pager
 
 | Campo | Valor |
 |-------|-------|
-| Data | _preencher na rodada E2E_ |
-| Ambiente | homologação operacional |
-| Versão Git (HEAD) | _preencher_ |
-| Backup + SHA256 | _referenciar `.backups/`_ |
-| Responsável técnico | _nome_ |
-| Responsável negócio | _nome_ |
-| Resultado | ☐ GO &nbsp; ☐ NO-GO |
-| Observações H2 pendentes | _listar ou «nenhuma bloqueante»_ |
+| Data | **2026-06-10** |
+| Ambiente | homologação operacional (`sgdl.mogidascruzes.sp.gov.br`) |
+| Versão Git (HEAD) | `6fb9aff` (referência local; confirmar HEAD em homologação no deploy) |
+| Backup + SHA256 | `.backups/sgdl_pre_maturidade_20260428_104828.tar.gz` — **atualizar backup pré-piloto** |
+| Responsável técnico | Time SGDL |
+| Responsável negócio | _preencher na abertura do piloto_ |
+| Resultado | **GO condicional** — Onda B (B1–B9) em andamento |
+| Observações H2 pendentes | H2-09…H2-17 registrados — ver [piloto-apontamentos-jun2026.md](piloto-apontamentos-jun2026.md) |
 
 ---
 

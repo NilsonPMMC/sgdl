@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
 from typing import Any
 
 from django.utils import timezone
 
 from core.filters import DemandaFilter
 from core.models import Demanda
+from core.services.demanda_visibilidade import aplicar_escopo_demanda
+from core.services.oficio_service import OficioService
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,7 @@ class ConsultaHubService:
 
     def _base_qs(self, user):
         qs = Demanda.objects.all()
+        qs = aplicar_escopo_demanda(qs, user)
         if getattr(user, "perfil", None) == "SECRETARIA":
             from core.services.cluster_service import ClusterService
 
@@ -57,27 +59,70 @@ class ConsultaHubService:
         return filt.qs.count()
 
     def _atrasadas_count(self, user, extra: dict[str, str] | None = None) -> int:
-        class _Req:
-            pass
+        params = {"consulta": "atrasadas", **(extra or {})}
+        return self._count(user, params)
 
-        req = _Req()
-        req.user = user
-        params = {
-            "status__in": "PROTOCOLADO,EM_EXECUCAO,AGUARDANDO_TRANSFERENCIA",
-            **(extra or {}),
+    def resumo_painel_protocolo(self, user) -> dict[str, int]:
+        from django.db.models import Count, Q
+
+        from core.services.demanda_sla_service import contar_demandas_atrasadas
+
+        qs = self._base_qs(user)
+        perfil = getattr(user, "perfil", None)
+        if perfil == "PROTOCOLO":
+            from core.services.cluster_service import ClusterService
+
+            qs = ClusterService().filtrar_seguidoras_integradas(qs)
+        elif perfil == "SECRETARIA":
+            from core.services.cluster_service import ClusterService
+
+            qs = ClusterService().filtrar_listagem_apenas_lideres(qs)
+
+        agg = qs.aggregate(
+            protocolados=Count("pk", filter=Q(status="AGUARDANDO_PROTOCOLO")),
+            operacionais=Count(
+                "pk",
+                filter=Q(
+                    status__in=(
+                        "PROTOCOLADO",
+                        "EM_EXECUCAO",
+                        "AGUARDANDO_TRANSFERENCIA",
+                    )
+                ),
+            ),
+            devolutivas=Count(
+                "pk",
+                filter=Q(
+                    status__in=(
+                        "AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+                        "DEVOLVIDO_VEREADOR",
+                    )
+                ),
+            ),
+            finalizados=Count("pk", filter=Q(status="FINALIZADO")),
+        )
+        protocolados = int(agg["protocolados"] or 0)
+        operacionais = int(agg["operacionais"] or 0)
+        devolutivas = int(agg["devolutivas"] or 0)
+        finalizados = int(agg["finalizados"] or 0)
+        atrasados = contar_demandas_atrasadas(
+            qs.filter(
+                status__in=(
+                    "PROTOCOLADO",
+                    "EM_EXECUCAO",
+                    "AGUARDANDO_TRANSFERENCIA",
+                    "AGUARDANDO_PROTOCOLO",
+                )
+            )
+        )
+        return {
+            "protocolados": protocolados,
+            "operacionais": operacionais,
+            "devolutivas": devolutivas,
+            "finalizados": finalizados,
+            "abertos": protocolados + operacionais + devolutivas,
+            "atrasados": atrasados,
         }
-        filt = DemandaFilter(data=params, queryset=self._base_qs(user), request=req)
-        if not filt.is_valid():
-            return 0
-        agora = timezone.now()
-        total = 0
-        for d in filt.qs.filter(data_inicio_prazo__isnull=False).only(
-            "pk", "data_inicio_prazo", "prazo_efetivo_dias", "prazo_origem", "sinapse_servico_id"
-        ):
-            prazo = d.prazo_dias()
-            if prazo is not None and d.data_inicio_prazo + timedelta(days=prazo) < agora:
-                total += 1
-        return total
 
     def atalhos(self, user) -> list[dict[str, Any]]:
         perfil = getattr(user, "perfil", None)
@@ -257,7 +302,7 @@ class ConsultaHubService:
                 "sla",
                 "SLA da carta",
                 "Prazo padrão e política institucional",
-                "/admin/configuracao-carta",
+                "/configuracao-carta",
                 {},
                 None,
                 "pi pi-clock",
@@ -305,7 +350,7 @@ class ConsultaHubService:
                         "protocolo_executivo": d.protocolo_executivo,
                         "protocolo_legislativo": d.protocolo_legislativo,
                         "bairro": d.bairro,
-                        "endereco": d.endereco,
+                        "endereco": OficioService._formatar_endereco(d) or None,
                     }
                 )
 

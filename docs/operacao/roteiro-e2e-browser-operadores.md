@@ -1,6 +1,7 @@
 # Roteiro E2E no browser — operadores (Gate A1)
 
 > **Ambiente:** homologação operacional · **URL:** https://sgdl.mogidascruzes.sp.gov.br  
+> **Documento mestre (jun/2026):** [ROTEIRO-HOMOLOGACAO-COMPLETO.md](ROTEIRO-HOMOLOGACAO-COMPLETO.md) — integra A1, Onda B, O1 e B5/B8.  
 > **Registro de achados:** formato H2 em [homologacao-e2e-registro.md](homologacao-e2e-registro.md)  
 > **Checklist completo:** [homologacao-go-live.md](homologacao-go-live.md) §5.2–5.6  
 > **Referência de encerramento OK:** demanda **2966** (status `FINALIZADO`)

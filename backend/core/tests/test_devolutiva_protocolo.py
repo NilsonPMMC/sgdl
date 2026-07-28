@@ -7,7 +7,17 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from core.models import Demanda, Tramitacao, Usuario
+from core.services.assinatura_eletronica_service import (
+    DECLARACAO_CONCLUSAO,
+    DECLARACAO_DEVOLUTIVA,
+    DECLARACAO_GESTOR_PROTOCOLO,
+    AssinaturaEletronicaService,
+)
 from core.services.devolutiva_protocolo_service import DevolutivaProtocoloService
+
+PARECER_SECRETARIA = "Operação concluída com sucesso no local."
+PARECER_PROTOCOLO = "Segue devolutiva da secretaria para conhecimento."
+PROTOCOLO_ORGAO_ID = 12
 
 _spec = importlib.util.spec_from_file_location("core_tests_legacy", "core/tests.py")
 _legacy = importlib.util.module_from_spec(_spec)
@@ -59,10 +69,6 @@ class DevolutivaProtocoloServiceTests(SinapseCatalogTestMixin, TestCase):
             parecer_resposta="Encaminhamos resposta da secretaria ao gabinete.",
         )
         self.demanda.refresh_from_db()
-        self.assertEqual(self.demanda.status, "DEVOLVIDO_VEREADOR")
-
-        svc.encerrar_devolutiva(self.demanda, self.vereador)
-        self.demanda.refresh_from_db()
         self.assertEqual(self.demanda.status, "FINALIZADO")
         self.assertIsNotNone(self.demanda.data_finalizacao)
         self.assertEqual(
@@ -70,9 +76,41 @@ class DevolutivaProtocoloServiceTests(SinapseCatalogTestMixin, TestCase):
             1,
         )
 
+    def test_encerrar_devolutiva_idempotente_quando_ja_finalizado(self):
+        svc = DevolutivaProtocoloService()
+        svc.solicitar_devolutiva(
+            self.demanda,
+            self.secretaria,
+            parecer_operacional="Serviço concluído conforme vistoria técnica.",
+        )
+        svc.despachar_devolutiva(
+            self.demanda,
+            self.protocolo,
+            parecer_resposta="Encaminhamos resposta da secretaria ao gabinete.",
+        )
+        self.demanda.refresh_from_db()
+        self.assertEqual(self.demanda.status, "FINALIZADO")
+        svc.encerrar_devolutiva(self.demanda, self.vereador)
+        self.assertEqual(self.demanda.status, "FINALIZADO")
+
     def test_secretaria_nao_finaliza_direto(self):
         with self.assertRaises(ValueError):
             DevolutivaProtocoloService().encerrar_devolutiva(self.demanda, self.secretaria)
+
+    def test_despachar_devolutiva_fluxo_direto_aguardando_sem_conclusao_tecnica(self):
+        """Protocolo despacha quando status já é AGUARDANDO, mesmo sem evento operacional."""
+        self.demanda.fluxo_roteamento = "FLUXO_DIRETO"
+        self.demanda.status = "AGUARDANDO_DEVOLUTIVA_PROTOCOLO"
+        self.demanda.save(update_fields=["fluxo_roteamento", "status"])
+
+        svc = DevolutivaProtocoloService()
+        demanda, _tram = svc.despachar_devolutiva(
+            self.demanda,
+            self.protocolo,
+            parecer_resposta="Resposta do protocolo ao gabinete sobre o atendimento.",
+        )
+        demanda.refresh_from_db()
+        self.assertEqual(demanda.status, "FINALIZADO")
 
 
 class DevolutivaProtocoloAPITests(SinapseCatalogTestMixin, APITestCase):
@@ -100,23 +138,46 @@ class DevolutivaProtocoloAPITests(SinapseCatalogTestMixin, APITestCase):
         )
 
     def test_api_solicitar_e_despachar_devolutiva(self):
+        svc = AssinaturaEletronicaService()
+        preview_sec = svc.preparar_assinatura_conclusao_secretaria(
+            self.demanda, parecer_operacional=PARECER_SECRETARIA
+        )
         self.client.force_authenticate(self.secretaria)
         r1 = self.client.post(
             f"/api/demandas/{self.demanda.pk}/solicitar-devolutiva/",
-            {"parecer_operacional": "Operação concluída com sucesso no local."},
+            {
+                "parecer_operacional": PARECER_SECRETARIA,
+                "hash_documento": preview_sec["hash_documento"],
+                "declaracao": DECLARACAO_CONCLUSAO,
+            },
             format="json",
         )
         self.assertEqual(r1.status_code, status.HTTP_200_OK)
         self.assertEqual(r1.data["status"], "AGUARDANDO_DEVOLUTIVA_PROTOCOLO")
 
+        gestor = Usuario.objects.create_user(
+            username="gest_prot_dev_api",
+            password="x",
+            perfil="PROTOCOLO",
+            sinapse_orgao_id=PROTOCOLO_ORGAO_ID,
+        )
+        preview_prot = svc.preparar_assinatura_despacho_devolutiva(
+            self.demanda, parecer_resposta=PARECER_PROTOCOLO
+        )
         self.client.force_authenticate(self.protocolo)
         r2 = self.client.post(
             f"/api/demandas/{self.demanda.pk}/despachar-devolutiva/",
-            {"parecer_resposta": "Segue devolutiva da secretaria para conhecimento."},
+            {
+                "parecer_resposta": PARECER_PROTOCOLO,
+                "hash_documento": preview_prot["hash_documento"],
+                "declaracao": DECLARACAO_DEVOLUTIVA,
+                "declaracao_gestor": DECLARACAO_GESTOR_PROTOCOLO,
+                "gestor_protocolo_id": gestor.pk,
+            },
             format="json",
         )
         self.assertEqual(r2.status_code, status.HTTP_200_OK)
-        self.assertEqual(r2.data["status"], "DEVOLVIDO_VEREADOR")
+        self.assertEqual(r2.data["status"], "FINALIZADO")
 
         self.client.force_authenticate(self.vereador)
         r3 = self.client.post(

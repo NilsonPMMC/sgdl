@@ -7,7 +7,8 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from core.models import Demanda, Notificacao, Usuario
+from core.models import Demanda
+from core.services.notificacao_service import NotificacaoService
 
 
 @dataclass
@@ -30,6 +31,7 @@ class AtrasoDemandaService:
     def executar(self) -> ResultadoVerificacaoAtrasos:
         hoje = timezone.now().date()
         resultado = ResultadoVerificacaoAtrasos()
+        notif_svc = NotificacaoService()
 
         demandas = Demanda.objects.filter(
             status__in=self.STATUS_EM_ANDAMENTO,
@@ -38,19 +40,7 @@ class AtrasoDemandaService:
         )
         resultado.demandas_verificadas = demandas.count()
 
-        usuarios_protocolo = list(Usuario.objects.filter(perfil="PROTOCOLO"))
-        usuarios_gestor = list(Usuario.objects.filter(perfil="GESTOR"))
-
-        usuarios_secretaria_por_orgao: dict[int, list[Usuario]] = {}
-        for usuario in Usuario.objects.filter(
-            perfil="SECRETARIA",
-            sinapse_orgao_id__isnull=False,
-        ):
-            oid = int(usuario.sinapse_orgao_id)
-            usuarios_secretaria_por_orgao.setdefault(oid, []).append(usuario)
-
         demandas_atrasadas_ids: list[int] = []
-        notificacoes_para_criar: list[Notificacao] = []
 
         for demanda in demandas:
             prazo_dias = demanda.prazo_dias()
@@ -64,28 +54,7 @@ class AtrasoDemandaService:
                 continue
 
             demandas_atrasadas_ids.append(demanda.id)
-            protocolo = demanda.protocolo_executivo or demanda.id
-            link = f"/demandas/detalhes/{demanda.id}"
-            msg = f"Alerta: A demanda nº {protocolo} ({demanda.titulo}) está atrasada."
-
-            if demanda.sinapse_orgao_id:
-                for usuario in usuarios_secretaria_por_orgao.get(int(demanda.sinapse_orgao_id), []):
-                    notificacoes_para_criar.append(
-                        Notificacao(destinatario=usuario, mensagem=msg, link=link, tipo="ATRASO")
-                    )
-
-            for usuario in usuarios_protocolo:
-                notificacoes_para_criar.append(
-                    Notificacao(destinatario=usuario, mensagem=msg, link=link, tipo="ATRASO")
-                )
-            for usuario in usuarios_gestor:
-                notificacoes_para_criar.append(
-                    Notificacao(destinatario=usuario, mensagem=msg, link=link, tipo="ATRASO")
-                )
-
-        if notificacoes_para_criar:
-            Notificacao.objects.bulk_create(notificacoes_para_criar)
-            resultado.notificacoes_criadas = len(notificacoes_para_criar)
+            resultado.notificacoes_criadas += notif_svc.notificar_sla_atraso(demanda)
 
         if demandas_atrasadas_ids:
             Demanda.objects.filter(id__in=demandas_atrasadas_ids).update(
