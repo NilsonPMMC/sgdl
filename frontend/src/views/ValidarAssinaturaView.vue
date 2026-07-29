@@ -7,6 +7,7 @@ import Card from 'primevue/card';
 import Tag from 'primevue/tag';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
+import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
 
 const route = useRoute();
 const loading = ref(true);
@@ -56,7 +57,7 @@ onMounted(async () => {
                     <p v-if="resultado.cargo" class="m-0"><strong>Cargo:</strong> {{ resultado.cargo }}</p>
                     <p v-if="resultado.papel_display" class="m-0"><strong>Papel:</strong> {{ resultado.papel_display }}</p>
                     <p class="m-0"><strong>Ofício / demanda:</strong> {{ resultado.demanda_titulo }}</p>
-                    <p class="m-0"><strong>Protocolo legislativo:</strong> {{ resultado.protocolo_legislativo || '—' }}</p>
+                    <p class="m-0"><strong>Protocolo legislativo:</strong> {{ formatarProtocoloLegislativo(resultado.protocolo_legislativo) || '—' }}</p>
                     <p class="m-0"><strong>Protocolo executivo:</strong> {{ resultado.protocolo_executivo || '—' }}</p>
                     <p class="m-0"><strong>Vereador:</strong> {{ resultado.vereador }}</p>
                     <p class="m-0"><strong>Assinado em:</strong> {{ formatarData(resultado.assinado_em) }}</p>

@@ -132,6 +132,14 @@ export default {
         });
     },
 
+    getNumeracaoIndicacao() {
+        return apiClient.get('indicacoes/numeracao/');
+    },
+
+    atualizarNumeracaoIndicacao(payload) {
+        return apiClient.patch('indicacoes/numeracao/', payload);
+    },
+
     getConfiguracaoOficio() {
         return apiClient.get('configuracao-oficio/');
     },
@@ -447,6 +455,10 @@ export default {
             aprovado_final,
             descartada
         });
+    },
+
+    atualizarIndicacaoCopiloto(payload) {
+        return apiClient.post('v1/chat/atualizar-indicacao/', payload);
     },
 
     confirmarTendenciaCopiloto(payload) {

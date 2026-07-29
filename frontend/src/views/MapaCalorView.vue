@@ -9,7 +9,7 @@ import L from 'leaflet';
 import 'leaflet.heat';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
-import 'leaflet.markercluster';
+import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
 
 import Button from 'primevue/button';
 import Card from 'primevue/card';
@@ -151,7 +151,7 @@ const popupHtml = (loc) => {
     const setor = loc.unidade_sigla || loc.unidade_nome;
     return `
         <div class="map-popup">
-            <div class="font-semibold">${loc.protocolo || loc.protocolo_legislativo || 'Sem protocolo'}</div>
+            <div class="font-semibold">${loc.protocolo || formatarProtocoloLegislativo(loc.protocolo_legislativo) || 'Sem protocolo'}</div>
             <div class="text-sm mt-1">${loc.titulo}</div>
             <div class="mt-2">
                 <span class="map-popup-badge" style="background:${cor}">${!ocultarSlaVereador.value && loc.is_atrasada ? 'Atrasada' : rotulo}</span>

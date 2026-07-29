@@ -20,6 +20,12 @@ const QUICK_LINKS_POR_PERFIL = {
         { label: 'Consulta', icon: 'pi pi-search', to: '/consulta' },
         { label: 'Carta', icon: 'pi pi-bookmark', to: '/carta-servicos' }
     ],
+    CAMARA: [
+        { label: 'Copiloto', icon: 'pi pi-comments', to: '/copiloto' },
+        { label: 'Indicações', icon: 'pi pi-book', to: '/demandas' },
+        { label: 'Consulta', icon: 'pi pi-search', to: '/consulta' },
+        { label: 'Notificações', icon: 'pi pi-bell', to: '/notificacoes' }
+    ],
     GESTOR: [
         { label: 'Dashboard', icon: 'pi pi-home', to: '/' },
         { label: 'Demandas', icon: 'pi pi-book', to: '/demandas' },

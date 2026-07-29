@@ -17,6 +17,7 @@ import Tag from 'primevue/tag';
 import ProgressSpinner from 'primevue/progressspinner';
 import Message from 'primevue/message';
 import Checkbox from 'primevue/checkbox';
+import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
 
 const router = useRouter();
 const isLoading = ref(false);
@@ -704,7 +705,11 @@ watch(isDarkTheme, setChartOptions);
                     :rowsPerPageOptions="[10, 25, 50, 100]"
                     @page="onPageTable"
                 >
-                    <Column field="protocolo_legislativo" header="Ofício" sortable />
+                    <Column header="Ofício" sortable sortField="protocolo_legislativo">
+                        <template #body="{ data }">
+                            {{ formatarProtocoloLegislativo(data.protocolo_legislativo) || '—' }}
+                        </template>
+                    </Column>
                     <Column field="protocolo_executivo" header="Protocolo" sortable />
                     <Column field="autor_nome" header="Autor" sortable />
                     <Column field="secretaria_destino_nome" header="Órgão" sortable />

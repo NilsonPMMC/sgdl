@@ -30,6 +30,7 @@ const podeGerirGestores = computed(() => userStore.isGestorGeral);
 const PERFIS_BASE = [
     { label: 'Todos', value: '' },
     { label: 'Vereador', value: 'VEREADOR' },
+    { label: 'Câmara', value: 'CAMARA' },
     { label: 'Protocolo', value: 'PROTOCOLO' },
     { label: 'Secretaria', value: 'SECRETARIA' }
 ];
@@ -43,6 +44,7 @@ const perfisFiltro = computed(() =>
 const PERFIS_CRIACAO = computed(() => {
     const base = [
         { label: 'Vereador', value: 'VEREADOR' },
+        { label: 'Câmara Municipal', value: 'CAMARA' },
         { label: 'Protocolo', value: 'PROTOCOLO' },
         { label: 'Secretaria', value: 'SECRETARIA' }
     ];
@@ -56,6 +58,13 @@ const PERFIS_CRIACAO = computed(() => {
 const REGRAS_ATUACAO = {
     VEREADOR: {
         escopo: 'Copiloto e demandas próprias — não usa órgão/setor',
+        orgao: false,
+        setor: false,
+        orgaoFixo: null,
+        setorFixo: null
+    },
+    CAMARA: {
+        escopo: 'Protocolo de indicações legislativas — sem vínculo a gabinetes ou setores',
         orgao: false,
         setor: false,
         orgaoFixo: null,

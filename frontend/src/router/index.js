@@ -22,7 +22,7 @@ const router = createRouter({
                     component: () => import('@/views/ConsultaHubView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['VEREADOR', 'PROTOCOLO', 'SECRETARIA', 'GESTOR']
+                        perfis: ['VEREADOR', 'PROTOCOLO', 'SECRETARIA', 'GESTOR', 'CAMARA']
                     }
                 },
                 {
@@ -65,8 +65,34 @@ const router = createRouter({
                     component: () => import('@/views/CopilotoView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['VEREADOR', 'GESTOR']
+                        perfis: ['VEREADOR', 'GESTOR', 'CAMARA']
                     }
+                },
+                {
+                    path: '/indicacoes',
+                    redirect: { name: 'demandas' }
+                },
+                {
+                    path: '/indicacoes/nova',
+                    redirect: { name: 'copiloto' }
+                },
+                {
+                    path: '/indicacoes/editar/:id',
+                    name: 'indicacao-editar',
+                    component: () => import('@/views/IndicacaoFormView.vue'),
+                    props: true,
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['CAMARA', 'GESTOR'],
+                        somenteRascunho: true
+                    }
+                },
+                {
+                    path: '/demandas/indicacao/editar/:id',
+                    redirect: (to) => ({
+                        name: 'indicacao-editar',
+                        params: { id: to.params.id }
+                    })
                 },
                 {
                     path: '/demandas/novo',

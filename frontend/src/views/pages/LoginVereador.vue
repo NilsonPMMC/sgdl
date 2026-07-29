@@ -46,15 +46,15 @@ const features = [
     <AuthPortalLayout
         variant="vereador"
         eyebrow="Câmara Municipal · Mogi das Cruzes"
-        title="Portal do Vereador"
-        subtitle="Criação de ofícios, acompanhamento de protocolos e resposta a devolutivas."
+        title="Portal dos Vereadores"
+        subtitle="Gabinetes legislativos e Câmara Municipal — ofícios, indicações e acompanhamento de protocolos."
         :features="features"
         :alternate-portal="alternatePortal"
     >
         <AuthLoginForm
             variant="vereador"
-            title="Entrar no gabinete"
-            subtitle="Use suas credenciais de vereador."
+            title="Entrar no portal"
+            subtitle="Vereador, assessor ou Câmara Municipal (indicações)."
             v-model:username="username"
             v-model:password="password"
             v-model:remember-me="rememberMe"

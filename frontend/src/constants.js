@@ -1,11 +1,11 @@
 import { SGDL_BRAND } from '@/theme/sgdl-preset';
 
 /** Perfis com acesso ao Copiloto (criação de ofícios por conversa). */
-export const PERFIS_COPILOTO = ['VEREADOR', 'GESTOR'];
+export const PERFIS_COPILOTO = ['VEREADOR', 'GESTOR', 'CAMARA'];
 
-/** Página inicial após login (Vereador → Copiloto; demais → Dashboard). */
+/** Página inicial após login (Vereador/Câmara → Copiloto; demais → Dashboard). */
 export function rotaHomePorPerfil(perfil) {
-    if (perfil === 'VEREADOR') {
+    if (perfil === 'VEREADOR' || perfil === 'CAMARA') {
         return { name: 'copiloto' };
     }
     return { name: 'dashboard' };
@@ -18,8 +18,8 @@ export function loginRouteForPortal(portal) {
 
 export const PORTAL_AUTH = {
     vereador: {
-        perfis: ['VEREADOR', 'ASSESSOR'],
-        label: 'Portal do Vereador',
+        perfis: ['VEREADOR', 'ASSESSOR', 'CAMARA'],
+        label: 'Portal dos Vereadores',
         loginRoute: '/login/vereador'
     },
     prefeitura: {

@@ -5,6 +5,7 @@ import Tag from 'primevue/tag';
 import PesquisaSatisfacaoVisual from '@/components/devolutiva/PesquisaSatisfacaoVisual.vue';
 import { computed } from 'vue';
 import { descricaoParaHtml, htmlParaTexto } from '@/utils/oficioTexto';
+import { exibirProtocoloDemanda } from '@/utils/protocoloLegislativo';
 
 const props = defineProps({
     pacote: { type: Object, required: true },
@@ -97,7 +98,7 @@ function parecerEvento(ev) {
                         Laudo final do processo
                     </h4>
                     <p class="m-0 mt-2 text-sm text-surface-700 dark:text-surface-200">
-                        {{ pacote.protocolo_executivo || pacote.protocolo_legislativo || `#${pacote.demanda_id}` }}
+                        {{ exibirProtocoloDemanda(pacote, `#${pacote.demanda_id}`) }}
                         <span v-if="pacote.titulo"> · {{ pacote.titulo }}</span>
                     </p>
                 </div>

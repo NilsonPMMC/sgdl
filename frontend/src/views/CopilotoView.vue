@@ -2,6 +2,7 @@
 import { ref, computed, watch, nextTick } from 'vue';
 import { useRouter } from 'vue-router';
 import { useToast } from 'primevue/usetoast';
+import { useUserStore } from '@/stores/userStore';
 import ApiService from '@/service/ApiService.js';
 
 import Button from 'primevue/button';
@@ -11,6 +12,7 @@ import Tag from 'primevue/tag';
 import Select from 'primevue/select';
 import InputText from 'primevue/inputtext';
 import CopilotoContextoPainel from '@/components/copiloto/CopilotoContextoPainel.vue';
+import CopilotoIndicacaoCampos from '@/components/copiloto/CopilotoIndicacaoCampos.vue';
 import {
     filtrarArquivosDuplicados,
     mensagemAnexosRejeitados,
@@ -24,6 +26,9 @@ import Message from 'primevue/message';
 
 const router = useRouter();
 const toast = useToast();
+const userStore = useUserStore();
+
+const isModoIndicacao = computed(() => userStore.currentUser?.perfil === 'CAMARA');
 
 /** @type {import('vue').Ref<string|null>} */
 const sessionId = ref(null);
@@ -66,6 +71,9 @@ function demandaPodeConfirmarLocal(demanda) {
 }
 
 const placeholderCompositor = computed(() => {
+    if (isModoIndicacao.value && !demandasExtraidas.value.length) {
+        return 'Descreva a indicação legislativa (objeto, fundamentação, pedido à Prefeitura)…';
+    }
     const rev = revisaoAtiva.value;
     if (!rev) {
         return 'Descreva o pedido…';
@@ -229,6 +237,7 @@ function demandaForaCompetencia(demanda) {
 
 /** Cada item do rascunho tem carta confirmada, tendência confirmada, descartado, ou não exige vínculo. */
 function demandaVinculada(demanda, indice = null) {
+    if (demanda?.modo_indicacao || isModoIndicacao.value) return true;
     if (demandaForaCompetencia(demanda)) return false;
     if (demanda?.descartada) return true;
     if (servicoConfirmado(demanda)) return true;
@@ -322,6 +331,7 @@ const mostrarBlocoForaCompetenciaNoChat = computed(
 const demandasComCartaNoChat = demandasNoPainelServico;
 
 const mostrarBlocoServicoNoChat = computed(() => {
+    if (isModoIndicacao.value) return false;
     if (sucessoCriacao.value) return false;
     if (revisaoAtiva.value?.etapa === 'servico') return true;
     return demandasPendentesVinculo.value.length > 0;
@@ -495,6 +505,9 @@ const mostrarBlocoEnderecoNoChat = computed(() => {
     if (sucessoCriacao.value || !demandasExtraidas.value.length) return false;
     if (mostrarBlocoForaCompetenciaNoChat.value) return false;
     if (revisaoAtiva.value?.etapa === 'local') return true;
+    if (isModoIndicacao.value) {
+        return estadoAtual.value === 'COLETA_ENDERECO';
+    }
     if (!todosServicosConfirmados.value || mostrarBlocoServicoNoChat.value) return false;
     return estadoAtual.value === 'COLETA_ENDERECO';
 });
@@ -848,6 +861,15 @@ async function finalizarComAprovacao() {
         });
         return;
     }
+    if (isModoIndicacao.value && !indicacaoProntaParaFinalizar.value) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Indicação',
+            detail: 'Vincule vereadores, informe o número e anexe o PDF assinado.',
+            life: 5000
+        });
+        return;
+    }
     const payload = { mensagem: 'finalizar', indices_aprovados: indices };
     if (sessionId.value) payload.session_id = sessionId.value;
     carregando.value = true;
@@ -915,6 +937,13 @@ function pularAnexos() {
 }
 
 function marcarEtapaAnexosConcluida(textoUsuario, tinhaAnexos) {
+    if (isModoIndicacao.value) {
+        const t = (textoUsuario || '').trim();
+        if (/^confirmar\s+(?:os\s+)?(?:documentos|anexos)/i.test(t) && temPdfIndicacao.value) {
+            etapaAnexosConcluida.value = true;
+        }
+        return;
+    }
     const t = (textoUsuario || '').trim().toLowerCase();
     if (
         tinhaAnexos ||
@@ -931,6 +960,9 @@ function aplicarRespostaCopiloto(data, { limparRevisao = false } = {}) {
         demandasExtraidas.value = data.demandas_extraidas;
     }
     if (data.estado_atual) estadoAtual.value = data.estado_atual;
+    if (isModoIndicacao.value && Array.isArray(data.demandas_extraidas) && !temPdfIndicacao.value) {
+        etapaAnexosConcluida.value = false;
+    }
     if (Array.isArray(data.corpus_atalhos_top_trends) && data.corpus_atalhos_top_trends.length) {
         atalhosTopTrends.value = data.corpus_atalhos_top_trends;
     }
@@ -1006,6 +1038,15 @@ function confirmarLocalDemanda(indiceDemanda) {
 }
 
 function confirmarDocumentos() {
+    if (isModoIndicacao.value && !temPdfIndicacao.value) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Indicação',
+            detail: 'Anexe o PDF da indicação assinada antes de continuar.',
+            life: 5000
+        });
+        return;
+    }
     return enviarMensagem('confirmar documentos');
 }
 
@@ -1056,6 +1097,10 @@ const demandasEscopoLocal = computed(() => {
         );
     if (idxRev != null) return base.filter(({ i }) => i === idxRev);
     if (estadoAtual.value === 'COLETA_ENDERECO') {
+        if (isModoIndicacao.value) {
+            const ind = base.filter(({ d }) => d?.modo_indicacao);
+            if (ind.length) return ind;
+        }
         return base.filter(
             ({ d }) => d.local_pendente_confirmacao === true || demandaPodeConfirmarLocal(d)
         );
@@ -1180,11 +1225,52 @@ function extrairOpcoesNumeradas(texto) {
 
 const opcoesNumeradasDetectadas = computed(() => extrairOpcoesNumeradas(ultimaMensagemAssistente.value));
 
+function anexoEhPdf(nome) {
+    return (nome || '').toLowerCase().endsWith('.pdf');
+}
+
+function temPdfNaDemanda(indice) {
+    const salvos = anexosSalvosDemanda(indice);
+    if (salvos.some((a) => anexoEhPdf(a.nome))) return true;
+    return anexosPendentes.value.some(
+        (a) =>
+            (a.indiceDemanda === indice || (demandasExtraidas.value.length === 1 && indice === 0)) &&
+            anexoEhPdf(a.file?.name)
+    );
+}
+
+const temPdfIndicacao = computed(() => {
+    if (!isModoIndicacao.value) return true;
+    return demandasParaAprovacaoFinal.value.every(({ i }) => temPdfNaDemanda(i));
+});
+
+function indicacaoMetadadosOk(demanda) {
+    const ids = demanda?.vereadores_vinculados_ids || [];
+    return ids.length > 0 && Number(demanda?.numero_indicacao) >= 1;
+}
+
+const indicacaoProntaParaFinalizar = computed(() => {
+    if (!isModoIndicacao.value) return true;
+    const ativas = demandasParaAprovacaoFinal.value;
+    if (!ativas.length) return false;
+    return ativas.every(({ d, i }) => indicacaoMetadadosOk(d) && temPdfNaDemanda(i));
+});
+
+const mostrarMetadadosIndicacao = computed(() => {
+    if (!isModoIndicacao.value) return false;
+    if (estadoAtual.value !== 'VALIDACAO_FINAL') return false;
+    if (!demandasParaAprovacaoFinal.value.length) return false;
+    return etapaAnexosConcluida.value;
+});
+
 const mostrarSimNaoValidacao = computed(() => {
     if (carregando.value || sucessoCriacao.value) return false;
     if (estadoAtual.value !== 'VALIDACAO_FINAL') return false;
     if (!todosServicosConfirmados.value) return false;
     if (mostrarBlocoServicoNoChat.value) return false;
+    if (isModoIndicacao.value) {
+        return indicacaoProntaParaFinalizar.value && etapaAnexosConcluida.value;
+    }
     return etapaAnexosConcluida.value;
 });
 
@@ -1447,6 +1533,13 @@ async function enviarMensagem(textoOpcional, extras = {}) {
         if (data.reabrir_anexos) {
             etapaAnexosConcluida.value = false;
         }
+        if (
+            isModoIndicacao.value &&
+            pendentes.some((p) => anexoEhPdf(p.file?.name)) &&
+            demandasParaAprovacaoFinal.value.every(({ i }) => temPdfNaDemanda(i))
+        ) {
+            etapaAnexosConcluida.value = true;
+        }
 
         const rev = revisaoAtiva.value;
         if (
@@ -1551,11 +1644,23 @@ function rotuloOpcaoCurto(op) {
     return `${op.numero}. ${op.label.slice(0, max)}…`;
 }
 
+function aplicarMetadadosIndicacao(data) {
+    aplicarRespostaCopiloto(data);
+}
+
 function irParaRascunhos() {
+    if (isModoIndicacao.value) {
+        router.push({ name: 'demandas', query: { status: 'RASCUNHO' } });
+        return;
+    }
     router.push({ name: 'demandas', query: { status: 'RASCUNHO' } });
 }
 
 function assinarEnviarRascunhosCopiloto() {
+    if (isModoIndicacao.value && sucessoCriacao.value?.length === 1) {
+        router.push({ name: 'indicacao-editar', params: { id: sucessoCriacao.value[0].id } });
+        return;
+    }
     if (!sucessoCriacao.value?.length || sucessoCriacao.value.length < 2) {
         irParaRascunhos();
         return;
@@ -1591,10 +1696,15 @@ function novaConversa() {
     aprovacaoFinal.value = {};
     adicionarMensagem(
         'assistant',
-        'Olá! Conte o pedido com suas palavras, pode anexar documentos a qualquer momento. ' +
-            'Se for zeladoria ou serviço em via/parque, informe também o local quando souber.'
+        isModoIndicacao.value
+            ? 'Olá! Descreva a indicação legislativa com suas palavras. Anexe o PDF com as assinaturas ' +
+                  'dos vereadores; na validação final, vincule os parlamentares e confirme o número da Câmara.'
+            : 'Olá! Conte o pedido com suas palavras, pode anexar documentos a qualquer momento. ' +
+                  'Se for zeladoria ou serviço em via/parque, informe também o local quando souber.'
     );
-    carregarAtalhosTopTrends();
+    if (!isModoIndicacao.value) {
+        carregarAtalhosTopTrends();
+    }
 }
 
 novaConversa();
@@ -1609,11 +1719,17 @@ novaConversa();
         <header class="copiloto-header flex shrink-0 flex-col gap-3 border-b border-[var(--surface-border)] bg-[var(--surface-section)] px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
             <div class="copiloto-header__intro min-w-0 w-full sm:flex-1">
                 <h1 class="m-0 text-lg font-semibold leading-tight text-[var(--text-color)] sm:text-2xl">
-                    Copiloto de demandas
+                    {{ isModoIndicacao ? 'Copiloto — Indicações' : 'Copiloto de demandas' }}
                 </h1>
                 <p class="mt-1.5 text-xs leading-relaxed text-[var(--text-color-secondary)] sm:mt-1 sm:text-sm">
-                    Descreva o pedido na conversa — o painel <strong class="font-medium">Contexto</strong> mostra o que
-                    já foi entendido (assunto, serviço, local).
+                    <template v-if="isModoIndicacao">
+                        Descreva a indicação na conversa, anexe o PDF assinado e confirme vereadores e numeração
+                        antes de gerar o rascunho.
+                    </template>
+                    <template v-else>
+                        Descreva o pedido na conversa — o painel <strong class="font-medium">Contexto</strong> mostra o que
+                        já foi entendido (assunto, serviço, local).
+                    </template>
                 </p>
             </div>
             <div class="copiloto-header__actions flex w-full shrink-0 items-stretch gap-2 sm:w-auto">
@@ -1645,9 +1761,12 @@ novaConversa();
         >
             <div class="max-w-md text-center">
                 <i class="pi pi-check-circle text-6xl text-green-500" aria-hidden="true"></i>
-                <h2 class="mt-4 text-2xl font-semibold text-[var(--text-color)]">Demandas criadas!</h2>
+                <h2 class="mt-4 text-2xl font-semibold text-[var(--text-color)]">
+                    {{ isModoIndicacao ? 'Indicação registrada!' : 'Demandas criadas!' }}
+                </h2>
                 <p class="mt-2 leading-relaxed text-[var(--text-color-secondary)]">
-                    Foram gerados <strong class="text-[var(--text-color)]">{{ sucessoCriacao.length }}</strong> rascunho(s) (IDs:
+                    Foram gerados <strong class="text-[var(--text-color)]">{{ sucessoCriacao.length }}</strong>
+                    {{ isModoIndicacao ? 'rascunho(s) de indicação' : 'rascunho(s)' }} (IDs:
                     {{ sucessoCriacao.map((d) => d.id).join(', ') }}).
                 </p>
                 <Message
@@ -1681,12 +1800,24 @@ novaConversa();
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
                 <Button
-                    v-if="sucessoCriacao.length > 1"
+                    v-if="isModoIndicacao && sucessoCriacao.length === 1"
+                    label="Revisar indicação"
+                    icon="pi pi-pencil"
+                    @click="router.push({ name: 'indicacao-editar', params: { id: sucessoCriacao[0].id } })"
+                />
+                <Button
+                    v-else-if="sucessoCriacao.length > 1"
                     label="Assinar e enviar todos"
                     icon="pi pi-send"
                     @click="assinarEnviarRascunhosCopiloto"
                 />
-                <Button label="Revisar rascunhos" icon="pi pi-table" severity="secondary" outlined @click="irParaRascunhos" />
+                <Button
+                    :label="isModoIndicacao ? 'Ver indicações' : 'Revisar rascunhos'"
+                    icon="pi pi-table"
+                    severity="secondary"
+                    outlined
+                    @click="irParaRascunhos"
+                />
                 <Button label="Continuar no copiloto" icon="pi pi-comments" severity="secondary" outlined @click="sucessoCriacao = null" />
             </div>
         </div>
@@ -2113,73 +2244,13 @@ novaConversa();
                         </div>
 
                         <div
-                            v-if="mostrarSimNaoValidacao"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-primary/35 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
-                            <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
-                                <i class="pi pi-file-edit mr-1" aria-hidden="true" />
-                                Gerar ofícios em rascunho
-                            </p>
-                            <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                Revise cada solicitação. Com mais de um pedido, marque quais viram rascunho de ofício.
-                            </p>
-                            <div
-                                v-if="demandasParaAprovacaoFinal.length > 1"
-                                class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3"
-                            >
-                                <div
-                                    v-for="{ d, i } in demandasParaAprovacaoFinal"
-                                    :key="`aprov-${i}`"
-                                    class="flex flex-wrap items-center gap-2 text-sm"
-                                >
-                                    <label class="flex cursor-pointer items-center gap-2">
-                                        <input
-                                            v-model="aprovacaoFinal[i]"
-                                            type="checkbox"
-                                            class="rounded"
-                                        />
-                                        <span>
-                                            {{ i + 1 }}. {{ (d.titulo || 'Solicitação').slice(0, 56) }}
-                                        </span>
-                                    </label>
-                                    <Tag v-if="d.anexos?.length" :value="`${d.anexos.length} anexo(s)`" severity="info" class="!text-xs" />
-                                </div>
-                            </div>
-                            <div class="flex flex-wrap gap-2">
-                                <Button
-                                    label="Sim, gerar rascunhos"
-                                    icon="pi pi-check"
-                                    severity="success"
-                                    :disabled="carregando"
-                                    @click="demandasParaAprovacaoFinal.length > 1 ? finalizarComAprovacao() : enviarMensagem('sim')"
-                                />
-                                <Button
-                                    label="Finalizar"
-                                    icon="pi pi-flag"
-                                    severity="success"
-                                    outlined
-                                    :disabled="carregando"
-                                    @click="finalizarComAprovacao"
-                                />
-                                <Button
-                                    label="Não"
-                                    icon="pi pi-times"
-                                    severity="secondary"
-                                    outlined
-                                    :disabled="carregando"
-                                    @click="recusarGeracaoRascunhos"
-                                />
-                            </div>
-                        </div>
-
-                        <div
                             v-if="mostrarBlocoEnderecoNoChat"
                             data-copiloto-bloco="local"
                             class="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--primary-color)]/30 bg-[var(--surface-card)] p-4 shadow-sm"
                         >
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-map-marker mr-1" aria-hidden="true" />
-                                Local da solicitação
+                                {{ isModoIndicacao ? 'Local da indicação (opcional)' : 'Local da solicitação' }}
                                 <span
                                     v-if="revisaoAtiva?.etapa === 'local'"
                                     class="ml-2 text-xs font-normal text-[var(--primary-color)]"
@@ -2188,8 +2259,14 @@ novaConversa();
                                 </span>
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                Informe CEP, rua com bairro, nome do parque ou use a localização do aparelho.
-                                Só o bairro também vale (ex.: «bairro Centro»).
+                                <template v-if="isModoIndicacao">
+                                    Informe CEP, rua com bairro, nome do parque ou use a localização do aparelho,
+                                    ou continue sem local se a indicação não tiver endereço específico.
+                                </template>
+                                <template v-else>
+                                    Informe CEP, rua com bairro, nome do parque ou use a localização do aparelho.
+                                    Só o bairro também vale (ex.: «bairro Centro»).
+                                </template>
                             </p>
                             <div
                                 v-for="{ d, i } in demandasEscopoLocal"
@@ -2222,7 +2299,7 @@ novaConversa();
                                     @click="confirmarLocalDemanda(i)"
                                 />
                                 <Button
-                                    v-if="demandasEscopoLocal.length === 1 || revisaoAtiva?.etapa === 'local'"
+                                    v-if="demandasEscopoLocal.length === 1 || revisaoAtiva?.etapa === 'local' || isModoIndicacao"
                                     label="Usar minha localização"
                                     icon="pi pi-map"
                                     severity="secondary"
@@ -2247,7 +2324,7 @@ novaConversa();
                         >
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-paperclip mr-1" aria-hidden="true" />
-                                Documentos complementares
+                                {{ isModoIndicacao ? 'PDF da indicação' : 'Documentos complementares' }}
                                 <span
                                     v-if="revisaoAtiva?.etapa === 'anexos'"
                                     class="ml-2 text-xs font-normal text-[var(--primary-color)]"
@@ -2256,9 +2333,15 @@ novaConversa();
                                 </span>
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                Deseja anexar fotos ou PDFs?
-                                <template v-if="demandasAtivasNoFluxo.length > 1">
-                                    Se forem vários arquivos, indique a qual solicitação cada um pertence.
+                                <template v-if="isModoIndicacao">
+                                    Anexe o PDF da indicação assinada pelos vereadores. O documento é obrigatório
+                                    para gerar o rascunho.
+                                </template>
+                                <template v-else>
+                                    Deseja anexar fotos ou PDFs?
+                                    <template v-if="demandasAtivasNoFluxo.length > 1">
+                                        Se forem vários arquivos, indique a qual solicitação cada um pertence.
+                                    </template>
                                 </template>
                             </p>
                             <div
@@ -2331,11 +2414,91 @@ novaConversa();
                                     @click="confirmarDocumentos"
                                 />
                                 <Button
+                                    v-if="!isModoIndicacao"
                                     label="Continuar sem anexos"
                                     severity="secondary"
                                     text
                                     :disabled="carregando || etapaAnexosConcluida"
                                     @click="pularAnexos"
+                                />
+                            </div>
+                        </div>
+
+                        <div
+                            v-if="mostrarMetadadosIndicacao"
+                            class="mx-auto w-full max-w-3xl flex flex-col gap-3"
+                        >
+                            <CopilotoIndicacaoCampos
+                                v-for="{ d, i } in demandasParaAprovacaoFinal"
+                                :key="`ind-campos-${i}`"
+                                :session-id="sessionId"
+                                :indice-demanda="i"
+                                :demanda="d"
+                                @atualizado="aplicarMetadadosIndicacao"
+                            />
+                        </div>
+
+                        <div
+                            v-if="mostrarSimNaoValidacao"
+                            class="mx-auto w-full max-w-3xl rounded-2xl border border-primary/35 bg-[var(--surface-card)] p-4 shadow-sm"
+                        >
+                            <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
+                                <i class="pi pi-file-edit mr-1" aria-hidden="true" />
+                                {{ isModoIndicacao ? 'Gerar rascunho da indicação' : 'Gerar ofícios em rascunho' }}
+                            </p>
+                            <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
+                                <template v-if="isModoIndicacao">
+                                    Revise o teor, vereadores, número e PDF. Confirme para registrar a indicação em rascunho.
+                                </template>
+                                <template v-else>
+                                    Revise cada solicitação. Com mais de um pedido, marque quais viram rascunho de ofício.
+                                </template>
+                            </p>
+                            <div
+                                v-if="demandasParaAprovacaoFinal.length > 1"
+                                class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3"
+                            >
+                                <div
+                                    v-for="{ d, i } in demandasParaAprovacaoFinal"
+                                    :key="`aprov-${i}`"
+                                    class="flex flex-wrap items-center gap-2 text-sm"
+                                >
+                                    <label class="flex cursor-pointer items-center gap-2">
+                                        <input
+                                            v-model="aprovacaoFinal[i]"
+                                            type="checkbox"
+                                            class="rounded"
+                                        />
+                                        <span>
+                                            {{ i + 1 }}. {{ (d.titulo || 'Solicitação').slice(0, 56) }}
+                                        </span>
+                                    </label>
+                                    <Tag v-if="d.anexos?.length" :value="`${d.anexos.length} anexo(s)`" severity="info" class="!text-xs" />
+                                </div>
+                            </div>
+                            <div class="flex flex-wrap gap-2">
+                                <Button
+                                    label="Sim, gerar rascunhos"
+                                    icon="pi pi-check"
+                                    severity="success"
+                                    :disabled="carregando"
+                                    @click="demandasParaAprovacaoFinal.length > 1 ? finalizarComAprovacao() : enviarMensagem('sim')"
+                                />
+                                <Button
+                                    label="Finalizar"
+                                    icon="pi pi-flag"
+                                    severity="success"
+                                    outlined
+                                    :disabled="carregando"
+                                    @click="finalizarComAprovacao"
+                                />
+                                <Button
+                                    label="Não"
+                                    icon="pi pi-times"
+                                    severity="secondary"
+                                    outlined
+                                    :disabled="carregando"
+                                    @click="recusarGeracaoRascunhos"
                                 />
                             </div>
                         </div>

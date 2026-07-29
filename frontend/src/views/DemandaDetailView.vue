@@ -21,6 +21,7 @@ import Avatar from 'primevue/avatar';
 import Dialog from 'primevue/dialog';
 import Checkbox from 'primevue/checkbox';
 import { descricaoParaHtml } from '@/utils/oficioTexto';
+import { exibirProtocoloDemanda, formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
 import {
     DECLARACAO_CONCLUSAO,
     DECLARACAO_CONCLUSAO_FINAL,
@@ -133,6 +134,13 @@ const isSecretaria = computed(() => {
 });
 
 const isVereador = computed(() => perfilEhVereador(userStore.currentUser?.perfil));
+
+const isIndicacao = computed(() => demanda.value?.tipo_legislativo === 'INDICACAO');
+
+/** Timeline institucional (sem parecer técnico) para vereador ou Câmara em indicações. */
+const timelineModoInstitucional = computed(
+    () => isVereador.value || (userStore.currentUser?.perfil === 'CAMARA' && isIndicacao.value)
+);
 
 const isGestor = computed(() => userStore.currentUser?.perfil === 'GESTOR');
 
@@ -636,7 +644,7 @@ const processoVinculadoClicavel = (vinc) => {
 };
 
 const labelProcessoVinculado = (vinc) => {
-    const proto = vinc.protocolo_executivo || vinc.protocolo_legislativo;
+    const proto = exibirProtocoloDemanda(vinc, '');
     const titulo = (vinc.titulo || '').trim();
     const curto = titulo.length > 28 ? `${titulo.slice(0, 28)}…` : titulo;
     return proto ? `${proto}${curto ? ` · ${curto}` : ''}` : `#${vinc.id}`;
@@ -1968,7 +1976,7 @@ const devolverAoProtocolo = async () => {
         <div class="flex items-center justify-between gap-2 mb-6">
             <div class="flex items-center gap-4">
                 <Message severity="secondary" icon="pi pi-file-check">
-                    {{ demanda.protocolo_executivo || demanda.protocolo_legislativo || 'Rascunho' }}
+                    {{ exibirProtocoloDemanda(demanda, 'Rascunho') }}
                     <Tag :value="demanda.status_display" :severity="getStatusSeverity(demanda.status)" class="ml-2" />
                     <Tag
                         v-if="podeVerStandByExecutivo && demanda.stand_by_estudo_viabilidade"
@@ -2356,7 +2364,7 @@ const devolverAoProtocolo = async () => {
             :participantes="estadoOperacional?.participantes_transversal || []"
             :pendencias="estadoOperacional?.pendencias_parciais || []"
             :demanda-lider-id="estadoOperacional?.demanda_lider_id || demanda.super_os?.lider_id"
-            :modo-vereador="isVereador"
+            :modo-vereador="timelineModoInstitucional"
             :status-demanda="demanda.status"
             :assinaturas="assinaturasParaTimelineOperacional"
             :arvore-nos="estadoOperacional?.arvore_nos || []"
@@ -2565,7 +2573,7 @@ const devolverAoProtocolo = async () => {
                     Podem assinar a <strong>secretaria responsável</strong> ou o <strong>gestor setorial</strong> do setor.
                 </Message>
                 <p v-if="demanda" class="m-0 text-sm text-muted-color">
-                    {{ demanda.protocolo_executivo || demanda.protocolo_legislativo || `#${demanda.id}` }} — {{ demanda.titulo }}
+                    {{ exibirProtocoloDemanda(demanda, `#${demanda.id}`) }} — {{ demanda.titulo }}
                 </p>
                 <p class="m-0 text-sm tramitacao-descricao-texto">
                     <span class="font-medium">Parecer operacional:</span>
@@ -2600,7 +2608,7 @@ const devolverAoProtocolo = async () => {
         <Dialog v-model:visible="despachoDialog" header="Despachar demanda (assinatura eletrônica)" :modal="true" style="width: 640px">
             <div class="flex flex-col gap-4">
                 <p v-if="demanda" class="m-0 text-sm text-muted-color">
-                    {{ demanda.protocolo_legislativo || `#${demanda.id}` }} — {{ demanda.titulo }}
+                    {{ formatarProtocoloLegislativo(demanda.protocolo_legislativo) || `#${demanda.id}` }} — {{ demanda.titulo }}
                 </p>
                 <FormularioTramitacao
                     v-if="despachoDialog"

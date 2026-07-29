@@ -681,12 +681,24 @@ def _filtro_demandas_participacao_orgaos(user, orgaos: list[int]):
     )
 
 
+def _ids_demandas_vinculadas_vereador(user) -> list[int]:
+    from core.models import DemandaVereadorVinculo
+
+    if not getattr(user, "pk", None):
+        return []
+    return list(
+        DemandaVereadorVinculo.objects.filter(vereador_id=user.pk).values_list(
+            "demanda_id", flat=True
+        )
+    )
+
+
 def aplicar_escopo_rascunho(qs: QuerySet[Demanda], user) -> QuerySet[Demanda]:
-    """Rascunhos só visíveis ao autor vereador; demais perfis nunca veem RASCUNHO."""
+    """Rascunhos só visíveis ao autor vereador/câmara; demais perfis nunca veem RASCUNHO."""
     perfil = getattr(user, "perfil", None)
-    if perfil == "VEREADOR" and getattr(user, "pk", None):
+    if perfil in ("VEREADOR", "CAMARA") and getattr(user, "pk", None):
         return qs.filter(Q(~Q(status="RASCUNHO")) | Q(status="RASCUNHO", autor_id=user.pk))
-    if perfil != "VEREADOR":
+    if perfil not in ("VEREADOR", "CAMARA"):
         return qs.exclude(status="RASCUNHO")
     return qs.exclude(status="RASCUNHO")
 
@@ -698,6 +710,11 @@ def aplicar_escopo_perfil(qs: QuerySet[Demanda], user) -> QuerySet[Demanda]:
 
     perfil = getattr(user, "perfil", None)
     if perfil == "VEREADOR" and getattr(user, "pk", None):
+        vinculadas = _ids_demandas_vinculadas_vereador(user)
+        if vinculadas:
+            return qs.filter(Q(autor_id=user.pk) | Q(pk__in=vinculadas))
+        return qs.filter(autor_id=user.pk)
+    if perfil == "CAMARA" and getattr(user, "pk", None):
         return qs.filter(autor_id=user.pk)
     if perfil == "SECRETARIA":
         orgao_id = getattr(user, "sinapse_orgao_id", None)
@@ -762,8 +779,14 @@ def usuario_pode_acessar_demanda(user, demanda: Demanda) -> bool:
 
     perfil = getattr(user, "perfil", None)
     if demanda.status == "RASCUNHO":
+        if perfil == "CAMARA":
+            return demanda.autor_id == user.pk
         return perfil == "VEREADOR" and demanda.autor_id == user.pk
     if perfil == "VEREADOR":
+        if demanda.autor_id == user.pk:
+            return True
+        return demanda.pk in _ids_demandas_vinculadas_vereador(user)
+    if perfil == "CAMARA":
         return demanda.autor_id == user.pk
     if perfil == "SECRETARIA":
         orgao_id = getattr(user, "sinapse_orgao_id", None)

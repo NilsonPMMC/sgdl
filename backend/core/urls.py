@@ -18,6 +18,7 @@ from .views import (
     ChatIgnorarServicoAPIView,
     ChatAtualizarLocalizacaoAPIView,
     ChatMarcarDemandaRascunhoAPIView,
+    ChatAtualizarIndicacaoCopilotoAPIView,
 )
 from .views_geocoding import GeocodingCepAPIView, GeocodingLogradourosAPIView, GeocodingResolverAPIView
 from .views_cluster import ClusterExecucaoViewSet
@@ -53,6 +54,7 @@ from .views_configuracao_oficio import (
     ConfiguracaoOficioPreviewPDFAPIView,
 )
 from .views_configuracao_carta import ConfiguracaoCartaAPIView
+from .views_indicacao_camara import NumeracaoIndicacaoCamaraAPIView
 from .views_carta_setor import CartaSetorViewSet
 from .views_consulta_hub import ConsultaHubAPIView, ConsultaHubBuscaAPIView
 from .views_depara_rm import DeParaRmSinapseViewSet
@@ -177,6 +179,11 @@ urlpatterns = [
         name='chat-remover-anexo-sessao',
     ),
     path(
+        'v1/chat/atualizar-indicacao/',
+        ChatAtualizarIndicacaoCopilotoAPIView.as_view(),
+        name='chat-atualizar-indicacao',
+    ),
+    path(
         'v1/chat/confirmar-tendencia/',
         ChatConfirmarTendenciaAPIView.as_view(),
         name='chat-confirmar-tendencia',
@@ -249,6 +256,11 @@ urlpatterns = [
     ),
     path('consulta/hub/', ConsultaHubAPIView.as_view(), name='consulta-hub'),
     path('consulta/busca/', ConsultaHubBuscaAPIView.as_view(), name='consulta-busca'),
+    path(
+        'indicacoes/numeracao/',
+        NumeracaoIndicacaoCamaraAPIView.as_view(),
+        name='indicacoes-numeracao',
+    ),
     path(
         'demandas/<int:demanda_pk>/operacional/estado/',
         DemandaOperacionalEstadoAPIView.as_view(),

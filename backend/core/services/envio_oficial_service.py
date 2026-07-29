@@ -12,6 +12,11 @@ from core.services.assinatura_eletronica_service import (
     DECLARACAO_ENVIO,
     AssinaturaEletronicaService,
 )
+from core.services.indicacao_numeracao_service import IndicacaoNumeracaoService
+from core.services.indicacao_service import (
+    demanda_eh_indicacao,
+    validar_rascunho_indicacao,
+)
 from core.services.protocolo_numeracao_service import proximo_protocolo_legislativo
 from integrations import sinapse_catalog
 
@@ -40,10 +45,20 @@ class EnvioOficialService:
     def _pode_enviar_demanda(self, demanda: Demanda, usuario) -> None:
         if demanda.status != "RASCUNHO":
             raise ValueError("Esta demanda já foi enviada.")
-        if demanda.autor_id != usuario.pk and getattr(usuario, "perfil", None) != "GESTOR":
+        perfil = getattr(usuario, "perfil", None)
+        if demanda_eh_indicacao(demanda):
+            if perfil not in ("CAMARA", "GESTOR"):
+                raise ValueError("Apenas a Câmara Municipal (ou gestor) pode protocolar indicações.")
+            if demanda.autor_id != usuario.pk and perfil != "GESTOR":
+                raise ValueError("Apenas o usuário da Câmara autor da indicação (ou gestor) pode protocolar.")
+            return
+        if demanda.autor_id != usuario.pk and perfil != "GESTOR":
             raise ValueError("Apenas o autor do ofício (ou gestor) pode enviar oficialmente.")
 
     def _validar_requisitos_envio(self, demanda: Demanda) -> None:
+        if demanda_eh_indicacao(demanda):
+            validar_rascunho_indicacao(demanda)
+            return
         trilha_tendencia = demanda_trilha_tendencia(demanda)
         if trilha_tendencia:
             if not demanda.tendencia_id:
@@ -154,7 +169,18 @@ class EnvioOficialService:
 
         trilha_tendencia = demanda_trilha_tendencia(demanda)
         orgao_id = orgao_id_para_envio_demanda(demanda)
-        protocolo_leg = proximo_protocolo_legislativo(demanda.autor_id)
+
+        if demanda_eh_indicacao(demanda):
+            numero_raw = getattr(demanda, "numero_indicacao", None)
+            numero, ano_ref, protocolo_leg = IndicacaoNumeracaoService().reservar_numero(
+                int(numero_raw) if numero_raw else None,
+                demanda.ano_indicacao,
+                excluir_demanda_id=demanda.pk,
+            )
+            demanda.numero_indicacao = numero
+            demanda.ano_indicacao = ano_ref
+        else:
+            protocolo_leg = proximo_protocolo_legislativo(demanda.autor_id)
 
         if orgao_id:
             demanda.sinapse_orgao_id = orgao_id
@@ -173,6 +199,11 @@ class EnvioOficialService:
                 f"Ofício enviado (trilha tendência «{tendencia_titulo}»). "
                 f"Protocolo legislativo: {protocolo_leg}. "
                 "Aguardando despacho do Protocolo (órgão pode ser definido na carta depois)."
+            )
+        elif demanda_eh_indicacao(demanda):
+            desc_tram = (
+                f"Indicação protocolada pela Câmara Municipal. "
+                f"Número: {protocolo_leg}. Aguardando despacho do Protocolo Executivo."
             )
         else:
             desc_tram = (

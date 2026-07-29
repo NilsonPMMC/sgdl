@@ -44,9 +44,9 @@ const model = computed(() =>
     [
         secao('Principal', [
             link('Copiloto', 'pi-comments', '/copiloto', ...PERFIS_COPILOTO),
-            link('Consulta rápida', 'pi-search', '/consulta', 'VEREADOR', 'PROTOCOLO', 'SECRETARIA', 'GESTOR'),
+            link('Consulta rápida', 'pi-search', '/consulta', 'VEREADOR', 'PROTOCOLO', 'SECRETARIA', 'GESTOR', 'CAMARA'),
             link('Dashboard', 'pi-home', '/'),
-            link('Demandas', 'pi-book', '/demandas'),
+            link(perfil.value === 'CAMARA' ? 'Indicações' : 'Demandas', 'pi-book', '/demandas'),
             link('Mapa operacional', 'pi-map', '/mapa-calor'),
             link('Notificações', 'pi-bell', '/notificacoes'),
             link('Assinaturas pendentes', 'pi-verified', '/assinaturas-pendentes', 'GESTOR', 'PROTOCOLO')

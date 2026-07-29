@@ -128,6 +128,8 @@ class ConsultaHubService:
         perfil = getattr(user, "perfil", None)
         if perfil == "VEREADOR":
             return self._atalhos_vereador(user)
+        if perfil == "CAMARA":
+            return self._atalhos_camara(user)
         if perfil == "PROTOCOLO":
             return self._atalhos_protocolo(user)
         if perfil == "SECRETARIA":
@@ -135,6 +137,54 @@ class ConsultaHubService:
         if perfil == "GESTOR":
             return self._atalhos_gestor(user)
         return []
+
+    def _atalhos_camara(self, user) -> list[dict[str, Any]]:
+        uid = str(user.pk)
+        return [
+            AtalhoConsulta(
+                "rascunhos",
+                "Rascunhos de indicação",
+                "Indicações ainda não protocoladas",
+                "/demandas",
+                {"status": "RASCUNHO"},
+                self._count(user, {"autor": uid, "status": "RASCUNHO", "tipo_legislativo": "INDICACAO"}),
+                "pi pi-file-edit",
+            ).as_dict(),
+            AtalhoConsulta(
+                "aguardando",
+                "Aguardando protocolo",
+                "Enviadas à fila do Protocolo Executivo",
+                "/demandas",
+                {"status": "AGUARDANDO_PROTOCOLO"},
+                self._count(user, {"autor": uid, "status": "AGUARDANDO_PROTOCOLO", "tipo_legislativo": "INDICACAO"}),
+                "pi pi-send",
+            ).as_dict(),
+            AtalhoConsulta(
+                "tramitacao",
+                "Em tramitação",
+                "Indicações protocoladas em execução",
+                "/demandas",
+                {"status__in": "PROTOCOLADO,EM_EXECUCAO,AGUARDANDO_TRANSFERENCIA"},
+                self._count(
+                    user,
+                    {
+                        "autor": uid,
+                        "tipo_legislativo": "INDICACAO",
+                        "status__in": "PROTOCOLADO,EM_EXECUCAO,AGUARDANDO_TRANSFERENCIA",
+                    },
+                ),
+                "pi pi-sync",
+            ).as_dict(),
+            AtalhoConsulta(
+                "nova",
+                "Nova indicação",
+                "Abrir o Copiloto para registrar indicação",
+                "/copiloto",
+                {},
+                None,
+                "pi pi-comments",
+            ).as_dict(),
+        ]
 
     def _atalhos_vereador(self, user) -> list[dict[str, Any]]:
         uid = str(user.pk)
@@ -318,6 +368,9 @@ class ConsultaHubService:
         params: dict[str, str] = {"q": texto}
         if perfil == "VEREADOR":
             params["autor"] = str(user.pk)
+        elif perfil == "CAMARA":
+            params["autor"] = str(user.pk)
+            params["tipo_legislativo"] = "INDICACAO"
         elif perfil == "SECRETARIA" and getattr(user, "sinapse_orgao_id", None):
             params["secretaria_destino"] = str(user.sinapse_orgao_id)
             params["fila"] = "operacionais"
@@ -340,6 +393,7 @@ class ConsultaHubService:
                         "status": d.status,
                         "protocolo_executivo": d.protocolo_executivo,
                         "protocolo_legislativo": d.protocolo_legislativo,
+                        "tipo_legislativo": d.tipo_legislativo,
                         "bairro": d.bairro,
                         "endereco": OficioService._formatar_endereco(d) or None,
                     }

@@ -31,8 +31,8 @@ class ProtocoloNumeracaoServiceTests(TestCase):
     def test_primeiro_oficio_por_vereador_mesmo_numero(self):
         num_a = proximo_protocolo_legislativo(self.vereador_a.id, ano=self.ano)
         num_b = proximo_protocolo_legislativo(self.vereador_b.id, ano=self.ano)
-        self.assertEqual(num_a, f"OFICIO-{self.ano}-0001")
-        self.assertEqual(num_b, f"OFICIO-{self.ano}-0001")
+        self.assertEqual(num_a, f"{self.ano}-0001")
+        self.assertEqual(num_b, f"{self.ano}-0001")
 
     def test_sequencia_independente_por_autor(self):
         Demanda.objects.create(
@@ -51,11 +51,11 @@ class ProtocoloNumeracaoServiceTests(TestCase):
         )
         self.assertEqual(
             proximo_protocolo_legislativo(self.vereador_a.id, ano=self.ano),
-            f"OFICIO-{self.ano}-0002",
+            f"{self.ano}-0002",
         )
         self.assertEqual(
             proximo_protocolo_legislativo(self.vereador_b.id, ano=self.ano),
-            f"OFICIO-{self.ano}-0002",
+            f"{self.ano}-0002",
         )
 
     def test_clone_multi_destino_nao_regride_sequencia(self):
@@ -76,7 +76,20 @@ class ProtocoloNumeracaoServiceTests(TestCase):
         )
         self.assertEqual(
             proximo_protocolo_legislativo(self.vereador_a.id, ano=self.ano),
-            f"OFICIO-{self.ano}-0036",
+            f"{self.ano}-0036",
+        )
+
+    def test_sequencia_continua_apos_formato_legado_oficio(self):
+        Demanda.objects.create(
+            titulo="Legado",
+            descricao="x",
+            autor=self.vereador_a,
+            protocolo_legislativo=f"OFICIO-{self.ano}-0010",
+            status="PROTOCOLADO",
+        )
+        self.assertEqual(
+            proximo_protocolo_legislativo(self.vereador_a.id, ano=self.ano),
+            f"{self.ano}-0011",
         )
 
     def test_protocolo_executivo_global(self):
@@ -132,8 +145,8 @@ class ProtocoloNumeracaoEnviarAPITests(SinapseCatalogTestMixin, TestCase):
 
         d_a.refresh_from_db()
         d_b.refresh_from_db()
-        self.assertEqual(d_a.protocolo_legislativo, f"OFICIO-{self.ano}-0001")
-        self.assertEqual(d_b.protocolo_legislativo, f"OFICIO-{self.ano}-0001")
+        self.assertEqual(d_a.protocolo_legislativo, f"{self.ano}-0001")
+        self.assertEqual(d_b.protocolo_legislativo, f"{self.ano}-0001")
 
     def test_mesmo_vereador_segundo_oficio_incrementa(self):
         d1 = self._criar_rascunho(self.vereador_a)
@@ -141,4 +154,4 @@ class ProtocoloNumeracaoEnviarAPITests(SinapseCatalogTestMixin, TestCase):
         self._enviar(d1, self.vereador_a)
         self._enviar(d2, self.vereador_a)
         d2.refresh_from_db()
-        self.assertEqual(d2.protocolo_legislativo, f"OFICIO-{self.ano}-0002")
+        self.assertEqual(d2.protocolo_legislativo, f"{self.ano}-0002")

@@ -256,3 +256,43 @@ class ConfiguracaoCarta(models.Model):
     def carregar(cls) -> "ConfiguracaoCarta":
         obj, _ = cls.objects.get_or_create(pk_fixo=1)
         return obj
+
+
+class NumeracaoIndicacaoCamara(models.Model):
+    """Contador de indicações da Câmara — singleton pk=1; último número informado pela Câmara."""
+
+    pk_fixo = models.PositiveSmallIntegerField(
+        primary_key=True,
+        default=1,
+        editable=False,
+    )
+    ano = models.PositiveSmallIntegerField(
+        default=2026,
+        help_text="Ano corrente da sequência de indicações.",
+    )
+    ultimo_numero = models.PositiveIntegerField(
+        default=0,
+        help_text="Último número de indicação já utilizado no ano (informado pela Câmara).",
+    )
+    mascara = models.CharField(
+        max_length=64,
+        default="{numero}/{ano}",
+        help_text="Formato exibido; use {numero} e {ano}.",
+    )
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Numeração de indicações (Câmara)"
+        verbose_name_plural = "Numeração de indicações (Câmara)"
+
+    def save(self, *args, **kwargs):
+        self.pk_fixo = 1
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"Indicações {self.ano} — último nº {self.ultimo_numero}"
+
+    @classmethod
+    def carregar(cls) -> "NumeracaoIndicacaoCamara":
+        obj, _ = cls.objects.get_or_create(pk_fixo=1)
+        return obj

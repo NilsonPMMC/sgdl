@@ -642,6 +642,25 @@ class AssinaturaEletronicaService:
         self._remover_preview_arquivo(demanda_id)
 
     def preparar_preview_envio(self, demanda: Demanda) -> dict[str, Any]:
+        from core.services.indicacao_numeracao_service import anexo_pdf_indicacao
+        from core.services.indicacao_service import demanda_eh_indicacao
+
+        if demanda_eh_indicacao(demanda):
+            anexo = anexo_pdf_indicacao(demanda)
+            if not anexo or not anexo.arquivo:
+                raise ValueError("Anexe o PDF da indicação antes de protocolar.")
+            pdf_bytes = anexo.arquivo.read()
+            if hasattr(anexo.arquivo, "seek"):
+                anexo.arquivo.seek(0)
+            hash_doc = self.hash_documento_pdf(pdf_bytes)
+            self._gravar_preview_arquivo(int(demanda.pk), pdf_bytes)
+            return {
+                "hash_documento": hash_doc,
+                "preview_pdf_disponivel": True,
+                "declaracao_exigida": DECLARACAO_ENVIO,
+                "origem_documento": "anexo_indicacao",
+            }
+
         pdf_bytes = self.render_pdf_bytes(demanda)
         hash_doc = self.hash_documento_pdf(pdf_bytes)
         self._gravar_preview_arquivo(int(demanda.pk), pdf_bytes)
@@ -1082,7 +1101,14 @@ class AssinaturaEletronicaService:
         if decl != DECLARACAO_ENVIO:
             raise ValueError(f'Declaração inválida. Informe exatamente: "{DECLARACAO_ENVIO}".')
 
-        if demanda.autor_id != usuario.pk and getattr(usuario, "perfil", None) not in ("GESTOR",):
+        from core.services.indicacao_service import demanda_eh_indicacao
+
+        if demanda_eh_indicacao(demanda):
+            if getattr(usuario, "perfil", None) not in ("CAMARA", "GESTOR"):
+                raise ValueError("Apenas usuário da Câmara (ou gestor) pode assinar o protocolo da indicação.")
+            if demanda.autor_id != usuario.pk and getattr(usuario, "perfil", None) != "GESTOR":
+                raise ValueError("Apenas o usuário da Câmara autor da indicação (ou gestor) pode assinar.")
+        elif demanda.autor_id != usuario.pk and getattr(usuario, "perfil", None) not in ("GESTOR",):
             raise ValueError("Apenas o autor do ofício (ou gestor) pode assinar o envio.")
 
         pdf_preview = self._ler_preview_arquivo(int(demanda.pk))
@@ -1093,7 +1119,17 @@ class AssinaturaEletronicaService:
                 "Preview em disco ausente para demanda %s; regenerando PDF para assinatura.",
                 demanda.pk,
             )
-            pdf_bytes = self.render_pdf_bytes(demanda)
+            if demanda_eh_indicacao(demanda):
+                from core.services.indicacao_numeracao_service import anexo_pdf_indicacao
+
+                anexo = anexo_pdf_indicacao(demanda)
+                if not anexo or not anexo.arquivo:
+                    raise ValueError("Anexo PDF da indicação não encontrado.")
+                pdf_bytes = anexo.arquivo.read()
+                if hasattr(anexo.arquivo, "seek"):
+                    anexo.arquivo.seek(0)
+            else:
+                pdf_bytes = self.render_pdf_bytes(demanda)
         hash_doc = self.hash_documento_pdf(pdf_bytes)
         informado = (hash_documento_informado or "").strip().lower()
         if informado and informado != hash_doc:
@@ -1102,19 +1138,20 @@ class AssinaturaEletronicaService:
                 "Feche o diálogo, abra novamente a pré-visualização e tente enviar."
             )
 
-        self._limpar_anexos_oficio(demanda)
         self._remover_preview_arquivo(int(demanda.pk))
 
-        pasta = Path(settings.MEDIA_ROOT) / "oficios"
-        pasta.mkdir(parents=True, exist_ok=True)
-        nome_final = f"oficio_demanda_{demanda.id}_assinado.pdf"
-        caminho_final = pasta / nome_final
-        caminho_final.write_bytes(pdf_bytes)
-        OficioService.anexar_pdf_a_demandas(
-            [demanda],
-            str(caminho_final.resolve()),
-            descricao="Ofício assinado eletronicamente (SGDL)",
-        )
+        if not demanda_eh_indicacao(demanda):
+            self._limpar_anexos_oficio(demanda)
+            pasta = Path(settings.MEDIA_ROOT) / "oficios"
+            pasta.mkdir(parents=True, exist_ok=True)
+            nome_final = f"oficio_demanda_{demanda.id}_assinado.pdf"
+            caminho_final = pasta / nome_final
+            caminho_final.write_bytes(pdf_bytes)
+            OficioService.anexar_pdf_a_demandas(
+                [demanda],
+                str(caminho_final.resolve()),
+                descricao="Ofício assinado eletronicamente (SGDL)",
+            )
 
         return self._criar_assinatura(
             demanda,

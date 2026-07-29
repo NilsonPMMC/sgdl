@@ -62,7 +62,9 @@ def filtrar_demandas_mapa(request) -> QuerySet:
 
     autor_id = params.get('autor') or params.get('vereador_id')
     if autor_id:
-        queryset = queryset.filter(autor_id=autor_id)
+        from core.services.indicacao_service import filtro_demandas_por_vereador
+
+        queryset = queryset.filter(filtro_demandas_por_vereador(int(autor_id))).distinct()
 
     q = (params.get('q') or '').strip()
     if q:

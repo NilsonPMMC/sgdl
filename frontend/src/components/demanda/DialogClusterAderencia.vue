@@ -3,6 +3,7 @@ import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import Tag from 'primevue/tag';
 import Message from 'primevue/message';
+import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
 
 defineProps({
     visible: { type: Boolean, default: false },
@@ -31,7 +32,7 @@ function fechar() {
         <div v-if="demanda && situacao?.lider" class="flex flex-col gap-4">
             <p class="m-0 text-sm">
                 A demanda
-                <strong>{{ demanda.protocolo_legislativo || `#${demanda.id}` }}</strong>
+                <strong>{{ formatarProtocoloLegislativo(demanda.protocolo_legislativo) || `#${demanda.id}` }}</strong>
                 está vinculada a um cluster cujo processo líder já foi despachado.
             </p>
 
@@ -46,7 +47,7 @@ function fechar() {
                 <div class="text-sm text-muted-color">
                     <div>
                         Ofício:
-                        <strong>{{ situacao.lider.protocolo_legislativo || `#${situacao.lider.id}` }}</strong>
+                        <strong>{{ formatarProtocoloLegislativo(situacao.lider.protocolo_legislativo) || `#${situacao.lider.id}` }}</strong>
                     </div>
                     <div v-if="situacao.lider.protocolo_executivo">
                         Protocolo executivo:

@@ -116,11 +116,11 @@ class NotificacaoService:
     # ------------------------------------------------------------------ audiências
 
     def vereadores_interessados(self, demanda: Demanda) -> list[Usuario]:
-        """Autor e vereadores do cluster/Super OS."""
+        """Autor vereador e coautores do cluster/Super OS (ofícios)."""
         from core.services.cluster_service import CLUSTER_MIN_DEMANDAS, ClusterService
 
         autor_ids: set[int] = set()
-        if demanda.autor_id:
+        if demanda.autor_id and getattr(demanda.autor, "perfil", None) == "VEREADOR":
             autor_ids.add(int(demanda.autor_id))
 
         if demanda.cluster_id:
@@ -141,6 +141,30 @@ class NotificacaoService:
                 pk__in=autor_ids, perfil="VEREADOR", is_active=True
             ).order_by("pk")
         )
+
+    def interessados_legislativos(self, demanda: Demanda) -> list[Usuario]:
+        """Câmara (autor da indicação), vereadores vinculados ou autor do ofício."""
+        from core.services.indicacao_service import demanda_eh_indicacao
+
+        if not demanda_eh_indicacao(demanda):
+            return self.vereadores_interessados(demanda)
+
+        destinatarios: list[Usuario] = []
+        vistos: set[int] = set()
+        if demanda.autor_id:
+            autor = demanda.autor
+            if getattr(autor, "is_active", True) and autor.pk not in vistos:
+                vistos.add(int(autor.pk))
+                destinatarios.append(autor)
+        for vereador in Usuario.objects.filter(
+            pk__in=demanda.vinculos_vereador.values_list("vereador_id", flat=True),
+            perfil="VEREADOR",
+            is_active=True,
+        ).order_by("pk"):
+            if vereador.pk not in vistos:
+                vistos.add(int(vereador.pk))
+                destinatarios.append(vereador)
+        return destinatarios
 
     def usuarios_protocolo(self) -> list[Usuario]:
         return list(Usuario.objects.filter(perfil="PROTOCOLO", is_active=True))
@@ -360,7 +384,7 @@ class NotificacaoService:
         link: str | None = None,
     ) -> int:
         return self.criar_em_lote(
-            self.vereadores_interessados(demanda),
+            self.interessados_legislativos(demanda),
             tipo=tipo,
             mensagem=mensagem,
             link=link or self.link_demanda(demanda.pk),
@@ -373,8 +397,18 @@ class NotificacaoService:
         orgao_nome: str = "",
         super_os: str | None = None,
     ) -> int:
+        from core.services.indicacao_service import demanda_eh_indicacao
+
         protocolo_exec = self.protocolo_rotulo(demanda)
         link = self.link_demanda(demanda.pk)
+        if demanda_eh_indicacao(demanda):
+            mensagem = (
+                f"Indicação nº {demanda.protocolo_legislativo} protocolada "
+                f"(ref. {protocolo_exec}) e despachada."
+            )
+            if orgao_nome:
+                mensagem += f" Destino: {orgao_nome}."
+            return self._notificar_vereadores(demanda, "DESPACHO", mensagem, link=link)
         if super_os:
             orgao_txt = orgao_nome or "secretaria competente"
             mensagem = (
@@ -419,11 +453,19 @@ class NotificacaoService:
         return total
 
     def notificar_conclusao_final(self, demanda: Demanda) -> int:
+        from core.services.indicacao_service import demanda_eh_indicacao
+
         protocolo = self.protocolo_rotulo(demanda)
-        mensagem = (
-            f"Conclusão final do processo {protocolo}. "
-            "Revise o laudo digital na tela do processo."
-        )
+        if demanda_eh_indicacao(demanda):
+            mensagem = (
+                f"Conclusão final da indicação {demanda.protocolo_legislativo} "
+                f"(processo {protocolo}). Revise o laudo digital na tela do processo."
+            )
+        else:
+            mensagem = (
+                f"Conclusão final do processo {protocolo}. "
+                "Revise o laudo digital na tela do processo."
+            )
         return self._notificar_vereadores(
             demanda, "CONCLUSAO", mensagem, link=self.link_demanda(demanda.pk)
         ) + self._notificar_acompanhantes(demanda, "CONCLUSAO", mensagem)
@@ -431,13 +473,22 @@ class NotificacaoService:
     # ------------------------------------------------------------------ eventos — protocolo
 
     def notificar_oficio_enviado(self, demanda: Demanda) -> int:
+        from core.services.indicacao_service import demanda_eh_indicacao
+
         link = self.link_demanda(demanda.pk)
-        mensagem = (
-            f"Novo ofício nº {demanda.protocolo_legislativo} aguardando protocolo."
-        )
+        if demanda_eh_indicacao(demanda):
+            mensagem = (
+                f"Nova indicação nº {demanda.protocolo_legislativo} aguardando protocolo."
+            )
+            tipo = "NOVA_INDICACAO"
+        else:
+            mensagem = (
+                f"Novo ofício nº {demanda.protocolo_legislativo} aguardando protocolo."
+            )
+            tipo = "NOVO_OFICIO"
         return self.criar_em_lote(
             self.usuarios_protocolo(),
-            tipo="NOVO_OFICIO",
+            tipo=tipo,
             mensagem=mensagem,
             link=link,
         )

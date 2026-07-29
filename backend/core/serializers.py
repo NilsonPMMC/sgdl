@@ -453,11 +453,23 @@ class DemandaSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Alias de sinapse_servico_id (ID CatalogServico).",
     )
+    tipo_legislativo_display = serializers.CharField(
+        source="get_tipo_legislativo_display", read_only=True
+    )
+    vereadores_vinculados = serializers.SerializerMethodField()
+    vereadores_vinculados_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        write_only=True,
+        required=False,
+    )
+    autor_vereador_id = serializers.IntegerField(write_only=True, required=False)
 
     class Meta:
         model = Demanda
         fields = [
             'id', 'protocolo_legislativo', 'protocolo_executivo', 'titulo', 'descricao',
+            'tipo_legislativo', 'tipo_legislativo_display', 'numero_indicacao', 'ano_indicacao',
+            'vereadores_vinculados', 'vereadores_vinculados_ids', 'autor_vereador_id',
             'cep', 'logradouro', 'numero', 'complemento', 'bairro', 'latitude', 'longitude',
             'status', 'status_display', 'data_criacao', 'autor', 'servico', 'secretaria_destino',
             'servico_id', 'sinapse_servico_id', 'sinapse_orgao_id',
@@ -739,9 +751,41 @@ class DemandaSerializer(serializers.ModelSerializer):
 
         return EncerramentoLegislativoService().montar_pacote_devolutiva(obj)
 
+    def get_vereadores_vinculados(self, obj: Demanda) -> list:
+        from core.models import DemandaVereadorVinculo
+
+        vinculos = (
+            obj.vinculos_vereador.select_related("vereador")
+            .order_by("papel", "vereador__first_name")
+        )
+        return [
+            {
+                "id": v.vereador_id,
+                "nome": v.vereador.get_full_name() or v.vereador.username,
+                "papel": v.papel,
+                "papel_display": dict(DemandaVereadorVinculo.PAPEL_CHOICES).get(v.papel, v.papel),
+            }
+            for v in vinculos
+        ]
+
     def validate(self, attrs):
         servico_id = attrs.pop("servico_id", None)
+        attrs.pop("vereadores_vinculados_ids", None)
+        attrs.pop("autor_vereador_id", None)
         instance: Demanda | None = getattr(self, "instance", None)
+        tipo = attrs.get("tipo_legislativo") or (
+            instance.tipo_legislativo if instance is not None else Demanda.TIPO_LEGISLATIVO_OFICIO
+        )
+        if tipo == Demanda.TIPO_LEGISLATIVO_INDICACAO:
+            numero = attrs.get("numero_indicacao")
+            if numero is not None and int(numero) < 1:
+                raise serializers.ValidationError(
+                    {"numero_indicacao": "Número da indicação deve ser positivo."}
+                )
+            request = self.context.get("request")
+            if request and getattr(request.user, "perfil", None) == "CAMARA":
+                attrs["tipo_legislativo"] = Demanda.TIPO_LEGISLATIVO_INDICACAO
+            return attrs
         is_tendencia = (
             attrs.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA
             or (instance is not None and instance.tendencia_id is not None)
@@ -1004,6 +1048,7 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
     assinaturas_resumo = serializers.SerializerMethodField()
     acompanhando = serializers.SerializerMethodField()
     pode_acompanhar = serializers.SerializerMethodField()
+    vereadores_vinculados = serializers.SerializerMethodField()
 
     class Meta:
         model = Demanda
@@ -1011,6 +1056,7 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'titulo',
+            'tipo_legislativo',
             'protocolo_legislativo',
             'protocolo_executivo',
             'status',
@@ -1039,6 +1085,22 @@ class DemandaPainelListSerializer(serializers.ModelSerializer):
             'assinaturas_resumo',
             'acompanhando',
             'pode_acompanhar',
+            'vereadores_vinculados',
+        ]
+
+    def get_vereadores_vinculados(self, obj: Demanda) -> list:
+        from core.models import DemandaVereadorVinculo
+
+        if obj.tipo_legislativo != Demanda.TIPO_LEGISLATIVO_INDICACAO:
+            return []
+        return [
+            {
+                "id": v.vereador_id,
+                "nome": v.vereador.get_full_name() or v.vereador.username,
+                "papel": v.papel,
+                "papel_display": dict(DemandaVereadorVinculo.PAPEL_CHOICES).get(v.papel, v.papel),
+            }
+            for v in obj.vinculos_vereador.select_related("vereador").order_by("papel")
         ]
 
     def get_acompanhando(self, obj: Demanda) -> bool:
@@ -1726,6 +1788,39 @@ class UsuarioVereadorWriteSerializer(serializers.Serializer):
     def create(self, validated_data):
         password = validated_data.pop("password")
         return Usuario.objects.create_user(password=password, perfil="VEREADOR", **validated_data)
+
+    def update(self, instance: Usuario, validated_data):
+        password = validated_data.pop("password", None)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
+        if password:
+            instance.set_password(password)
+        instance.save()
+        return instance
+
+
+class UsuarioCamaraWriteSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    first_name = serializers.CharField(required=False, allow_blank=True, default="")
+    last_name = serializers.CharField(required=False, allow_blank=True, default="")
+    email = serializers.EmailField(required=False, allow_blank=True, default="")
+    cargo = serializers.CharField(required=False, allow_blank=True, default="")
+    telefone = serializers.CharField(required=False, allow_blank=True, default="")
+    is_active = serializers.BooleanField(required=False, default=True)
+
+    def validate_username(self, value: str) -> str:
+        return _validar_username_unico(value, self.instance)
+
+    def validate(self, attrs):
+        attrs = _normalizar_senha_opcional(attrs)
+        if not self.instance and not attrs.get("password"):
+            raise serializers.ValidationError({"password": "Senha é obrigatória na criação."})
+        return attrs
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+        return Usuario.objects.create_user(password=password, perfil="CAMARA", **validated_data)
 
     def update(self, instance: Usuario, validated_data):
         password = validated_data.pop("password", None)

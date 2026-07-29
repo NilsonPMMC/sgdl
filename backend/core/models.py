@@ -17,6 +17,7 @@ class Usuario(AbstractUser):
     PERFIL_CHOICES = (
         ('VEREADOR', 'Vereador'),
         ('ASSESSOR', 'Assessor Legislativo'),
+        ('CAMARA', 'Câmara Municipal'),
         ('PROTOCOLO', 'Protocolo'),
         ('SECRETARIA', 'Secretaria'),
         ('GESTOR', 'Gestor'),
@@ -101,7 +102,7 @@ class Demanda(models.Model):
         max_length=20,
         blank=True,
         null=True,
-        help_text="Nº do ofício (OFICIO-AAAA-NNNN), sequência anual por autor.",
+        help_text="Nº do ofício (AAAA-NNNN), sequência anual por autor.",
     )
     protocolo_executivo = models.CharField(max_length=20, unique=True, blank=True, null=True)
     titulo = models.CharField(max_length=200)
@@ -251,12 +252,43 @@ class Demanda(models.Model):
         help_text="Demanda registrada na base stand-by de estudo e viabilidade.",
     )
 
+    TIPO_LEGISLATIVO_OFICIO = "OFICIO"
+    TIPO_LEGISLATIVO_INDICACAO = "INDICACAO"
+    TIPO_LEGISLATIVO_CHOICES = (
+        (TIPO_LEGISLATIVO_OFICIO, "Ofício"),
+        (TIPO_LEGISLATIVO_INDICACAO, "Indicação"),
+    )
+    tipo_legislativo = models.CharField(
+        max_length=16,
+        choices=TIPO_LEGISLATIVO_CHOICES,
+        default=TIPO_LEGISLATIVO_OFICIO,
+        help_text="Ofício (gabinete) ou indicação (protocolo legislativo da Câmara).",
+    )
+    numero_indicacao = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Número sequencial da indicação no ano (parte numérica do protocolo Câmara).",
+    )
+    ano_indicacao = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Ano de referência da numeração da indicação.",
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
                 fields=["autor", "protocolo_legislativo"],
                 condition=models.Q(protocolo_legislativo__isnull=False),
                 name="unique_oficio_legislativo_por_autor",
+            ),
+            models.UniqueConstraint(
+                fields=["protocolo_legislativo"],
+                condition=models.Q(
+                    tipo_legislativo="INDICACAO",
+                    protocolo_legislativo__isnull=False,
+                ),
+                name="unique_protocolo_indicacao_camara",
             ),
         ]
 
@@ -284,6 +316,46 @@ class Demanda(models.Model):
     def __str__(self):
         protocolo = self.protocolo_executivo or self.protocolo_legislativo or "Rascunho"
         return f'[{protocolo}] {self.titulo}'
+
+    @property
+    def eh_indicacao(self) -> bool:
+        return self.tipo_legislativo == self.TIPO_LEGISLATIVO_INDICACAO
+
+
+class DemandaVereadorVinculo(models.Model):
+    """Vereador(es) vinculados à indicação (registro institucional)."""
+
+    PAPEL_AUTOR = "AUTOR"
+    PAPEL_COAUTOR = "COAUTOR"
+    PAPEL_CHOICES = (
+        (PAPEL_AUTOR, "Autor"),
+        (PAPEL_COAUTOR, "Coautor"),
+    )
+
+    demanda = models.ForeignKey(
+        Demanda,
+        on_delete=models.CASCADE,
+        related_name="vinculos_vereador",
+    )
+    vereador = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="indicacoes_vinculadas",
+        limit_choices_to={"perfil": "VEREADOR"},
+    )
+    papel = models.CharField(max_length=16, choices=PAPEL_CHOICES, default=PAPEL_COAUTOR)
+    data_vinculo = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["demanda", "vereador"],
+                name="unique_vereador_por_indicacao",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.demanda_id} — {self.vereador_id} ({self.papel})"
 
 
 class Anexo(models.Model):

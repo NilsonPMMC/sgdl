@@ -25,6 +25,7 @@ class DemandaFilter(django_filters.FilterSet):
     trilha = django_filters.CharFilter(method='filter_trilha', label='Trilha (carta/tendencia)')
     consulta = django_filters.CharFilter(method='filter_consulta', label='Atalho de consulta (hub)')
     stand_by_estudo = django_filters.BooleanFilter(field_name='stand_by_estudo_viabilidade')
+    tipo_legislativo = django_filters.ChoiceFilter(choices=Demanda.TIPO_LEGISLATIVO_CHOICES)
 
     class Meta:
         model = Demanda
@@ -36,6 +37,7 @@ class DemandaFilter(django_filters.FilterSet):
             'cluster',
             'origem_vinculo',
             'trilha',
+            'tipo_legislativo',
             'q',
             'fila',
             'minha_unidade',

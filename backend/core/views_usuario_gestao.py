@@ -14,21 +14,24 @@ from core.serializers import (
     UsuarioGestaoUnificadoSerializer,
     UsuarioGestorSerializer,
     UsuarioGestorWriteSerializer,
+    UsuarioCamaraWriteSerializer,
     UsuarioProtocoloWriteSerializer,
     UsuarioSecretariaWriteSerializer,
     UsuarioVereadorWriteSerializer,
 )
 
 _PERFIS_GESTAO = frozenset({"GESTOR"})
-_PERFIS_CRIAVEIS = frozenset({"VEREADOR", "PROTOCOLO", "SECRETARIA", "GESTOR"})
+_PERFIS_CRIAVEIS = frozenset({"VEREADOR", "CAMARA", "PROTOCOLO", "SECRETARIA", "GESTOR"})
 _WRITE_BY_PERFIL = {
     "VEREADOR": UsuarioVereadorWriteSerializer,
+    "CAMARA": UsuarioCamaraWriteSerializer,
     "PROTOCOLO": UsuarioProtocoloWriteSerializer,
     "SECRETARIA": UsuarioSecretariaWriteSerializer,
     "GESTOR": UsuarioGestorWriteSerializer,
 }
 _READ_BY_PERFIL = {
     "VEREADOR": UsuarioGestaoUnificadoSerializer,
+    "CAMARA": UsuarioGestaoUnificadoSerializer,
     "PROTOCOLO": UsuarioGestaoUnificadoSerializer,
     "SECRETARIA": UsuarioGestaoSerializer,
     "GESTOR": UsuarioGestorSerializer,

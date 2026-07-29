@@ -23,6 +23,7 @@ import {
 } from '@/constants/assinaturaEletronica';
 import { payloadDespachoDestinos, buildDevolutivaPayload, estadoFormularioDevolutiva } from '@/utils/protocoloFormData';
 import { filtrarArquivosDuplicados, mensagemAnexosRejeitados } from '@/utils/anexoValidacao';
+import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
 import FormularioTramitacao from '@/components/tramitacao/FormularioTramitacao.vue';
 import FormularioDevolutivaProtocolo from '@/components/devolutiva/FormularioDevolutivaProtocolo.vue';
 import DialogAssinaturaEletronica from '@/components/tramitacao/DialogAssinaturaEletronica.vue';
@@ -56,6 +57,7 @@ import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import Message from 'primevue/message';
 import Checkbox from 'primevue/checkbox';
+import ProgressSpinner from 'primevue/progressspinner';
 
 const DECLARACAO_ENVIO = 'ASSINO E ENVIO';
 
@@ -160,7 +162,11 @@ const opcoesPainelVisiveis = computed(() => {
     return [];
 });
 
+const isCamara = computed(() => userStore.currentUser?.perfil === 'CAMARA');
 const isSecretaria = computed(() => userStore.currentUser?.perfil === 'SECRETARIA');
+const tituloPaginaDemandas = computed(() =>
+    isCamara.value ? 'Indicações legislativas' : 'Gestão de Demandas'
+);
 const vinculoSecretaria = computed(() => userStore.currentUser?.vinculo_secretaria || null);
 const vinculoSecretariaIncompleto = computed(
     () => vinculoSecretaria.value?.aplicavel && !vinculoSecretaria.value?.completo
@@ -267,8 +273,12 @@ const isVereadorOuGestor = computed(() =>
     ['VEREADOR', 'GESTOR'].includes(userStore.currentUser?.perfil)
 );
 
+const isCriadorLegislativoLote = computed(() =>
+    ['VEREADOR', 'GESTOR', 'CAMARA'].includes(userStore.currentUser?.perfil)
+);
+
 const mostrarSelecaoLote = computed(() => {
-    if (!isVereadorOuGestor.value) return false;
+    if (!isCriadorLegislativoLote.value) return false;
     if (filtros.value.status === 'RASCUNHO') return true;
     const qs = route.query?.status;
     return qs === 'RASCUNHO';
@@ -565,6 +575,9 @@ const mensagemListaVazia = computed(() => {
     if (isPainelProtocolo.value && painelFila.value === 'operacionais' && escopoSecretaria.value === 'acompanhando') {
         return 'Nenhum processo fixado para acompanhamento.';
     }
+    if (isCamara.value) {
+        return 'Nenhuma indicação registrada. Use o Copiloto para criar uma nova indicação legislativa.';
+    }
     if (userStore.currentUser?.perfil === 'VEREADOR') {
         return 'Você ainda não possui demandas. Use o Copiloto para criar um novo ofício.';
     }
@@ -701,6 +714,10 @@ function montarParamsDemandas() {
     }
 
     switch (currentUser?.perfil) {
+        case 'CAMARA':
+            params.autor = currentUser.id;
+            params.tipo_legislativo = 'INDICACAO';
+            break;
         case 'VEREADOR':
             params.autor = currentUser.id;
             break;
@@ -1102,6 +1119,7 @@ watch(escopoSecretaria, () => {
 });
 
 const editarDemanda = (id) => router.push(`/demandas/editar/${id}`);
+const editarIndicacao = (id) => router.push({ name: 'indicacao-editar', params: { id } });
 const visualizarDemanda = (id) => router.push(`/demandas/detalhes/${id}`);
 
 const excluirDemanda = (id) => {
@@ -1684,7 +1702,10 @@ async function tentarEnvioLoteDaQuery() {
                 <Toolbar class="mb-4">
                     <template #start>
                         <div>
-                            <h5 class="m-0">Gestão de Demandas</h5>
+                            <h5 class="m-0">{{ tituloPaginaDemandas }}</h5>
+                            <p v-if="isCamara" class="m-0 mt-1 text-sm text-muted-color">
+                                Protocolo da Câmara — encaminhamento ao Protocolo Executivo após assinatura.
+                            </p>
                         </div>
                     </template>
                     <template #end>
@@ -1696,7 +1717,14 @@ async function tentarEnvioLoteDaQuery() {
                             @click="abrirEnvioLote()"
                         />
                         <Button
-                            v-if="['VEREADOR', 'GESTOR'].includes(userStore.currentUser?.perfil)"
+                            v-if="isCamara"
+                            label="Nova indicação (Copiloto)"
+                            icon="pi pi-comments"
+                            class="p-button-success mr-2"
+                            @click="router.push('/copiloto')"
+                        />
+                        <Button
+                            v-else-if="['VEREADOR', 'GESTOR'].includes(userStore.currentUser?.perfil)"
                             label="Novo ofício (Copiloto)"
                             icon="pi pi-comments"
                             class="p-button-success mr-2"
@@ -1859,7 +1887,7 @@ async function tentarEnvioLoteDaQuery() {
                             <Select id="status" v-model="filtros.status" :options="statusOptions" optionLabel="label" optionValue="value" placeholder="Selecione" />
                         </div>
                         <div
-                            v-if="userStore.currentUser?.perfil !== 'SECRETARIA' && !isPainelGestorSetorial"
+                            v-if="!isCamara && userStore.currentUser?.perfil !== 'SECRETARIA' && !isPainelGestorSetorial"
                             class="flex flex-col gap-2 w-full"
                         >
                             <label for="secretaria">Secretaria</label>
@@ -2008,6 +2036,26 @@ async function tentarEnvioLoteDaQuery() {
                                     v-tooltip.top="'Ver — acompanhar'"
                                 />
                             </template>
+                            <template v-else-if="isCamara">
+                                <Button
+                                    v-if="slotProps.data.status === 'RASCUNHO'"
+                                    icon="pi pi-pencil"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="editarIndicacao(slotProps.data.id)"
+                                    v-tooltip.top="'Revisar rascunho'"
+                                />
+                                <Button
+                                    icon="pi pi-eye"
+                                    severity="secondary"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="visualizarDemanda(slotProps.data.id)"
+                                    v-tooltip.top="'Ver detalhes e acompanhar'"
+                                />
+                            </template>
                             <template v-else>
                                 <Button
                                     v-if="podeAcaoAcompanhamentoRapida(slotProps.data)"
@@ -2131,8 +2179,52 @@ async function tentarEnvioLoteDaQuery() {
                             <span v-else class="text-muted-color text-xs">—</span>
                         </template>
                     </Column>
-                    <Column field="protocolo_legislativo" header="Ofício" :sortable="true" style="min-width: 9rem"></Column>
-                    <Column field="protocolo_executivo" header="Protocolo" :sortable="true" style="min-width: 7rem"></Column>
+                    <Column
+                        field="protocolo_legislativo"
+                        :header="isCamara ? 'Número' : 'Ofício'"
+                        :sortable="true"
+                        style="min-width: 9rem"
+                    >
+                        <template #body="{ data }">
+                            <div class="flex flex-col gap-1">
+                                <span>{{ formatarProtocoloLegislativo(data.protocolo_legislativo) || (isCamara ? 'Rascunho' : '—') }}</span>
+                                <Tag
+                                    v-if="data.tipo_legislativo === 'INDICACAO'"
+                                    value="Indicação"
+                                    severity="help"
+                                    class="w-fit text-xs"
+                                />
+                                <Tag
+                                    v-else-if="!isCamara && data.tipo_legislativo !== 'INDICACAO'"
+                                    value="Ofício"
+                                    severity="info"
+                                    class="w-fit text-xs"
+                                />
+                            </div>
+                        </template>
+                    </Column>
+                    <Column
+                        v-if="isCamara"
+                        header="Vereadores"
+                        style="min-width: 10rem"
+                    >
+                        <template #body="{ data }">
+                            <span class="text-sm">
+                                {{
+                                    (data.vereadores_vinculados || [])
+                                        .map((v) => v.nome)
+                                        .join(', ') || '—'
+                                }}
+                            </span>
+                        </template>
+                    </Column>
+                    <Column
+                        v-if="!isCamara"
+                        field="protocolo_executivo"
+                        header="Protocolo"
+                        :sortable="true"
+                        style="min-width: 7rem"
+                    />
                     <Column field="data_criacao" header="Criado em" :sortable="true" style="min-width: 7rem">
                         <template #body="{ data }">
                             {{ new Date(data.data_criacao).toLocaleDateString('pt-BR') }}
@@ -2202,10 +2294,11 @@ async function tentarEnvioLoteDaQuery() {
                         </template>
                     </Column>
                     <Column
+                        v-if="!isCamara"
                         :header="isSecretaria && escopoSecretaria === 'encerrado' ? 'Secretaria encaminhada' : 'Secretaria Destino'"
                         field="secretaria_destino.nome"
                         style="min-width: 11rem"
-                    ></Column>
+                    />
                     <Column v-if="showSuperOsColumn" header="Super OS" style="min-width: 10rem">
                         <template #body="{ data }">
                             <template v-if="(data.super_os?.ativo) || (data.cluster && clusterComMinimo(data))">
@@ -2286,7 +2379,7 @@ async function tentarEnvioLoteDaQuery() {
                 <Dialog v-model:visible="despachoDialog" header="Despachar demanda (assinatura eletrônica)" :modal="true" style="width: 640px">
                     <div class="flex flex-col gap-4">
                         <p v-if="demandaParaDespacho" class="m-0 text-sm text-muted-color">
-                            {{ demandaParaDespacho.protocolo_legislativo || `#${demandaParaDespacho.id}` }} — {{ demandaParaDespacho.titulo }}
+                            {{ formatarProtocoloLegislativo(demandaParaDespacho.protocolo_legislativo) || `#${demandaParaDespacho.id}` }} — {{ demandaParaDespacho.titulo }}
                         </p>
                         <FormularioTramitacao
                             v-if="despachoDialog"

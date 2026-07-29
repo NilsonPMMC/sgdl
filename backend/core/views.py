@@ -173,6 +173,56 @@ class ChatMarcarDemandaRascunhoAPIView(APIView):
         return Response(payload, status=status.HTTP_200_OK)
 
 
+class ChatAtualizarIndicacaoCopilotoAPIView(APIView):
+    """POST /api/v1/chat/atualizar-indicacao/ — vereadores e número no rascunho (perfil CAMARA)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        session_id = request.data.get("session_id")
+        indice = request.data.get("indice_demanda")
+        if not session_id:
+            return Response({"detail": "session_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            indice_i = int(indice)
+        except (TypeError, ValueError):
+            return Response({"detail": "indice_demanda inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        raw_ids = request.data.get("vereadores_vinculados_ids")
+        vereadores_ids = None
+        if raw_ids is not None:
+            if not isinstance(raw_ids, list):
+                return Response(
+                    {"detail": "vereadores_vinculados_ids deve ser uma lista."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            vereadores_ids = raw_ids
+        autor_vereador_id = request.data.get("autor_vereador_id")
+        numero = request.data.get("numero_indicacao")
+        numero_i = None
+        if numero is not None and numero != "":
+            try:
+                numero_i = int(numero)
+            except (TypeError, ValueError):
+                return Response({"detail": "numero_indicacao inválido."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            payload = ChatbotService().atualizar_metadados_indicacao_copiloto(
+                usuario=request.user,
+                session_id=str(session_id),
+                indice_demanda=indice_i,
+                vereadores_vinculados_ids=vereadores_ids,
+                autor_vereador_id=autor_vereador_id,
+                numero_indicacao=numero_i,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except PermissionError:
+            return Response(
+                {"detail": "Sessão inexistente ou não pertence ao usuário."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 class ChatConfirmarServicoAPIView(APIView):
     """POST /api/v1/chat/confirmar-servico/ — vínculo explícito demanda ↔ serviço da carta."""
 
@@ -1048,7 +1098,40 @@ class DemandaViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         """Associa o usuário logado como autor da nova demanda."""
-        serializer.save(autor=self.request.user)
+        user = self.request.user
+        extra = {}
+        if getattr(user, "perfil", None) == "CAMARA":
+            extra["tipo_legislativo"] = Demanda.TIPO_LEGISLATIVO_INDICACAO
+        demanda = serializer.save(autor=user, **extra)
+        self._sincronizar_vinculos_indicacao(demanda)
+
+    def perform_update(self, serializer):
+        demanda = serializer.save()
+        self._sincronizar_vinculos_indicacao(demanda)
+
+    def _sincronizar_vinculos_indicacao(self, demanda):
+        if demanda.tipo_legislativo != Demanda.TIPO_LEGISLATIVO_INDICACAO:
+            return
+        from core.services.indicacao_service import sincronizar_vinculos_vereador
+
+        data = getattr(self.request, "data", {}) or {}
+        if "vereadores_vinculados_ids" not in data and "autor_vereador_id" not in data:
+            return
+        ids = data.get("vereadores_vinculados_ids")
+        if ids is None:
+            ids = list(
+                demanda.vinculos_vereador.values_list("vereador_id", flat=True)
+            )
+        try:
+            sincronizar_vinculos_vereador(
+                demanda,
+                ids if isinstance(ids, list) else [],
+                autor_vereador_id=data.get("autor_vereador_id"),
+            )
+        except ValueError as exc:
+            from rest_framework.exceptions import ValidationError
+
+            raise ValidationError({"vereadores_vinculados_ids": str(exc)}) from exc
 
     @action(detail=True, methods=['post'])
     def enviar(self, request, pk=None):
@@ -1819,6 +1902,8 @@ class TramitacaoViewSet(viewsets.ModelViewSet):
     
 class DashboardStatsAPIView(APIView):
     def get(self, request, *args, **kwargs):
+        from core.services.indicacao_service import agregar_demandas_por_vereador
+
         demandas_validas = aplicar_escopo_demanda(Demanda.objects.all(), request.user)
         status_aberto = [
             'AGUARDANDO_PROTOCOLO',
@@ -1874,14 +1959,7 @@ class DashboardStatsAPIView(APIView):
             reverse=True,
         )
 
-        demandas_por_vereador = list(
-            demandas_validas.filter(autor__perfil='VEREADOR')
-            .values('autor__first_name', 'autor__last_name')
-            .annotate(
-                total=Count('id'),
-                abertas=Count('id', filter=Q(status__in=status_aberto))
-            ).order_by('-total')
-        )
+        demandas_por_vereador = agregar_demandas_por_vereador(demandas_validas, status_aberto)
 
         status_protocolado = demandas_validas.filter(status='PROTOCOLADO').count()
         status_em_aberto_real = demandas_validas.filter(status__in=['AGUARDANDO_PROTOCOLO', 'EM_EXECUCAO', 'AGUARDANDO_TRANSFERENCIA']).count()

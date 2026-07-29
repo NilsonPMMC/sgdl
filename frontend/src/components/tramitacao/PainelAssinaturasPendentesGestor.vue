@@ -13,6 +13,7 @@ import {
     MODO_PAINEL_ASSINATURA,
     rotuloEtapaAssinatura
 } from '@/constants/assinaturaEletronica';
+import { exibirProtocoloDemanda } from '@/utils/protocoloLegislativo';
 import { useToast } from 'primevue/usetoast';
 
 const props = defineProps({
@@ -147,7 +148,7 @@ defineExpose({ carregarPendentes, abrirValidacao });
         >
             <Column field="protocolo_executivo" header="Protocolo" style="min-width: 8rem">
                 <template #body="{ data }">
-                    {{ data.protocolo_executivo || data.protocolo_legislativo || `#${data.demanda_id}` }}
+                    {{ exibirProtocoloDemanda(data, `#${data.demanda_id}`) }}
                 </template>
             </Column>
             <Column header="Etapa" style="min-width: 12rem">

@@ -8,12 +8,12 @@ PORTAL_VEREADOR = "vereador"
 PORTAL_PREFEITURA = "prefeitura"
 
 PORTAL_PERFIS: dict[str, frozenset[str]] = {
-    PORTAL_VEREADOR: frozenset({"VEREADOR", "ASSESSOR"}),
+    PORTAL_VEREADOR: frozenset({"VEREADOR", "ASSESSOR", "CAMARA"}),
     PORTAL_PREFEITURA: frozenset({"PROTOCOLO", "SECRETARIA", "GESTOR"}),
 }
 
 PORTAL_LABELS: dict[str, str] = {
-    PORTAL_VEREADOR: "Portal do Vereador",
+    PORTAL_VEREADOR: "Portal dos Vereadores",
     PORTAL_PREFEITURA: "Portal Operacional",
 }
 

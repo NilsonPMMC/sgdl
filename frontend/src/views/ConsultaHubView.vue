@@ -16,6 +16,7 @@ import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
 import { filtrarAtalhosConsultaSemSla, ocultarMetricasSla } from '@/utils/metricasSlaVereador';
+import { exibirProtocoloDemanda } from '@/utils/protocoloLegislativo';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -33,6 +34,7 @@ let debounceTimer = null;
 const perfilLabel = computed(() => {
     const map = {
         VEREADOR: 'Vereador',
+        CAMARA: 'Câmara Municipal',
         PROTOCOLO: 'Protocolo',
         SECRETARIA: 'Secretaria',
         GESTOR: 'Gestão'
@@ -174,13 +176,27 @@ onMounted(carregarHub);
                     >
                         <Column field="titulo" header="Assunto">
                             <template #body="{ data }">
-                                <span class="font-medium cursor-pointer">{{ data.titulo }}</span>
+                                <div class="flex flex-col gap-1">
+                                    <span class="font-medium cursor-pointer">{{ data.titulo }}</span>
+                                    <Tag
+                                        v-if="data.tipo_legislativo === 'INDICACAO'"
+                                        value="Indicação"
+                                        severity="help"
+                                        class="w-fit text-xs"
+                                    />
+                                    <Tag
+                                        v-else-if="data.tipo_legislativo"
+                                        value="Ofício"
+                                        severity="info"
+                                        class="w-fit text-xs"
+                                    />
+                                </div>
                             </template>
                         </Column>
                         <Column header="Protocolo">
                             <template #body="{ data }">
                                 <span class="text-sm">
-                                    {{ data.protocolo_executivo || data.protocolo_legislativo || '—' }}
+                                    {{ exibirProtocoloDemanda(data) }}
                                 </span>
                             </template>
                         </Column>

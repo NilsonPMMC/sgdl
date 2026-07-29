@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from core.services.consulta_hub_service import ConsultaHubService
 
-_PERFIS_HUB = frozenset({"VEREADOR", "PROTOCOLO", "SECRETARIA", "GESTOR"})
+_PERFIS_HUB = frozenset({"VEREADOR", "PROTOCOLO", "SECRETARIA", "GESTOR", "CAMARA"})
 
 
 class ConsultaHubAPIView(APIView):

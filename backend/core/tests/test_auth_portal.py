@@ -45,3 +45,19 @@ class AuthPortalLoginTests(APITestCase):
     def test_sem_portal_mantem_compatibilidade(self):
         r = self._login("ver_portal")
         self.assertEqual(r.status_code, status.HTTP_200_OK)
+
+    def test_camara_no_portal_vereador(self):
+        camara = Usuario.objects.create_user(
+            username="cam_portal", password="secret123", perfil="CAMARA"
+        )
+        r = self._login("cam_portal", "vereador")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertIn("access", r.data)
+
+    def test_camara_bloqueada_no_portal_prefeitura(self):
+        Usuario.objects.create_user(
+            username="cam_portal2", password="secret123", perfil="CAMARA"
+        )
+        r = self._login("cam_portal2", "prefeitura")
+        self.assertEqual(r.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(r.data.get("portal_correto"), "vereador")

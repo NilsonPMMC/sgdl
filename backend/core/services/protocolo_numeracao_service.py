@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 
+from django.db.models import Q
 from django.utils import timezone
 
 from core.models import Demanda
@@ -12,22 +13,24 @@ from core.models import Demanda
 logger = logging.getLogger(__name__)
 
 _PREFIXO_OFICIO = "OFICIO"
-_RE_OFICIO = re.compile(r"^OFICIO-(\d{4})-(\d+)(?:-D\d+)?$")
+_RE_OFICIO = re.compile(r"^(?:OFICIO-)?(\d{4})-(\d+)(?:-D\d+)?$", re.IGNORECASE)
 
 
 def proximo_protocolo_legislativo(autor_id: int, *, ano: int | None = None) -> str:
-    """Retorna OFICIO-AAAA-NNNN com sequência anual **por autor** (vereador)."""
+    """Retorna AAAA-NNNN com sequência anual **por autor** (vereador)."""
     if not autor_id:
         raise ValueError("Autor da demanda é obrigatório para gerar o número do ofício.")
 
     ano_ref = ano or timezone.now().year
-    prefixo = f"{_PREFIXO_OFICIO}-{ano_ref}-"
+    prefixo_novo = f"{ano_ref}-"
+    prefixo_legado = f"{_PREFIXO_OFICIO}-{ano_ref}-"
 
     max_seq = 0
-    for protocolo in Demanda.objects.filter(
-        autor_id=autor_id,
-        protocolo_legislativo__startswith=prefixo,
-    ).values_list("protocolo_legislativo", flat=True):
+    qs = Demanda.objects.filter(autor_id=autor_id).filter(
+        Q(protocolo_legislativo__startswith=prefixo_novo)
+        | Q(protocolo_legislativo__startswith=prefixo_legado)
+    )
+    for protocolo in qs.values_list("protocolo_legislativo", flat=True):
         if not protocolo:
             continue
         texto = protocolo.strip()
@@ -35,11 +38,11 @@ def proximo_protocolo_legislativo(autor_id: int, *, ano: int | None = None) -> s
         if match and int(match.group(1)) == ano_ref:
             max_seq = max(max_seq, int(match.group(2)))
             continue
-        if texto.startswith(prefixo):
+        if texto.startswith(prefixo_legado) or texto.startswith(prefixo_novo):
             logger.warning(
                 "Formato inesperado de protocolo_legislativo para autor %s: %s",
                 autor_id,
                 texto,
             )
 
-    return f"{prefixo}{max_seq + 1:04d}"
+    return f"{prefixo_novo}{max_seq + 1:04d}"
