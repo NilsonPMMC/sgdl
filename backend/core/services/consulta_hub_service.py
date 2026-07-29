@@ -158,15 +158,6 @@ class ConsultaHubService:
                 "pi pi-send",
             ).as_dict(),
             AtalhoConsulta(
-                "atrasadas",
-                "Prazo crítico",
-                "Protocolados ou em execução com SLA vencido",
-                "/demandas",
-                {"consulta": "atrasadas"},
-                self._atrasadas_count(user, {"autor": uid}),
-                "pi pi-exclamation-triangle",
-            ).as_dict(),
-            AtalhoConsulta(
                 "novo",
                 "Novo ofício",
                 "Abrir o Copiloto para registrar demanda",

@@ -38,6 +38,8 @@ const mostrarKpisTrilha = computed(() =>
     ['GESTOR', 'PROTOCOLO'].includes(perfilUsuario.value)
 );
 
+const mostrarKpiAtrasadas = computed(() => perfilUsuario.value !== 'VEREADOR');
+
 const clustersResumo = ref([]);
 const loadingClusters = ref(false);
 
@@ -291,7 +293,7 @@ function formatChartData(data) {
                 </div>
             </div>
         </div>
-        <div class="col-span-12 lg:col-span-6 xl:col-span-3">
+        <div v-if="mostrarKpiAtrasadas" class="col-span-12 lg:col-span-6 xl:col-span-3">
             <div class="card mb-0">
                 <div class="flex justify-between mb-4">
                     <div>

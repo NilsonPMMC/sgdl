@@ -15,6 +15,7 @@ import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
+import { filtrarAtalhosConsultaSemSla, ocultarMetricasSla } from '@/utils/metricasSlaVereador';
 
 const router = useRouter();
 const userStore = useUserStore();
@@ -39,6 +40,8 @@ const perfilLabel = computed(() => {
     return map[perfilHub.value] || userStore.currentUser?.perfil || '';
 });
 
+const ocultarSlaVereador = computed(() => ocultarMetricasSla(userStore.currentUser?.perfil));
+
 const extrairErro = (error) => {
     const data = error?.response?.data;
     if (data?.detail) return String(data.detail);
@@ -49,7 +52,7 @@ const carregarHub = async () => {
     carregando.value = true;
     try {
         const { data } = await ApiService.getConsultaHub();
-        atalhos.value = data?.atalhos || [];
+        atalhos.value = filtrarAtalhosConsultaSemSla(data?.atalhos || [], userStore.currentUser?.perfil);
         perfilHub.value = data?.perfil || userStore.currentUser?.perfil || '';
     } catch (error) {
         atalhos.value = [];
@@ -209,7 +212,7 @@ onMounted(carregarHub);
                                 <span class="font-medium">{{ svc.nome }}</span>
                                 <p v-if="svc.orgao" class="text-xs text-surface-500 m-0">{{ svc.orgao }}</p>
                             </div>
-                            <Tag v-if="svc.prazo_dias" :value="`${svc.prazo_dias}d`" severity="info" />
+                            <Tag v-if="svc.prazo_dias && !ocultarSlaVereador" :value="`${svc.prazo_dias}d`" severity="info" />
                         </li>
                     </ul>
                 </template>

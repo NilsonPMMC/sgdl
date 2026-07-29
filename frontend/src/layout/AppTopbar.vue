@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { useLayout } from '@/layout/composables/layout';
 import { useUserStore } from '@/stores/userStore';
 import ApiService from '@/service/ApiService';
+import { filtrarNotificacoesSemAtraso } from '@/utils/metricasSlaVereador';
 
 import Button from 'primevue/button';
 import Avatar from 'primevue/avatar';
@@ -90,13 +91,13 @@ const userInitial = computed(() => {
 const fetchNotificacoes = async () => {
     try {
         const response = await ApiService.getNotificacoes();
-        if (response.data && Array.isArray(response.data.results)) {
-            notificacoes.value = response.data.results;
-        } else if (Array.isArray(response.data)) {
-            notificacoes.value = response.data;
-        } else {
-            notificacoes.value = [];
-        }
+        const lista =
+            response.data && Array.isArray(response.data.results)
+                ? response.data.results
+                : Array.isArray(response.data)
+                  ? response.data
+                  : [];
+        notificacoes.value = filtrarNotificacoesSemAtraso(lista, perfil.value);
         unreadCount.value = notificacoes.value.filter((n) => n && !n.lida).length;
     } catch (error) {
         console.error('Erro ao buscar notificações:', error);

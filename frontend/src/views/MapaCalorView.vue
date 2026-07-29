@@ -27,10 +27,12 @@ import SelectButton from 'primevue/selectbutton';
 import Tag from 'primevue/tag';
 import ToggleSwitch from 'primevue/toggleswitch';
 import { SGDL_BRAND } from '@/theme/sgdl-preset';
+import { ocultarMetricasSla } from '@/utils/metricasSlaVereador';
 
 const userStore = useUserStore();
 const route = useRoute();
 const perfil = computed(() => userStore.currentUser?.perfil);
+const ocultarSlaVereador = computed(() => ocultarMetricasSla(perfil.value));
 const podeFiltrarOrgao = computed(() => ['GESTOR', 'PROTOCOLO'].includes(perfil.value));
 const podeFiltrarVereador = computed(() => ['GESTOR', 'PROTOCOLO'].includes(perfil.value));
 
@@ -83,11 +85,14 @@ const STATUS_CORES = {
     DEVOLVIDO_VEREADOR: { cor: '#06b6d4', rotulo: 'Devolutiva ao vereador' }
 };
 
-const legendaItens = computed(() => [
-    STATUS_CORES.ATRASADA,
-    ...Object.values(STATUS_CORES).filter((x) => x !== STATUS_CORES.ATRASADA),
-    { cor: '#7c3aed', rotulo: 'Super OS (contorno)', superOs: true }
-]);
+const legendaItens = computed(() => {
+    const itens = Object.values(STATUS_CORES).filter((x) => x !== STATUS_CORES.ATRASADA);
+    if (!ocultarSlaVereador.value) {
+        itens.unshift(STATUS_CORES.ATRASADA);
+    }
+    itens.push({ cor: '#7c3aed', rotulo: 'Super OS (contorno)', superOs: true });
+    return itens;
+});
 
 const chartMeses = computed(() => {
     const meses = agregacao.value.por_mes || [];
@@ -115,7 +120,7 @@ const chartOptions = {
 };
 
 const estiloMarcador = (loc) => {
-    if (loc.is_atrasada) return STATUS_CORES.ATRASADA;
+    if (!ocultarSlaVereador.value && loc.is_atrasada) return STATUS_CORES.ATRASADA;
     return STATUS_CORES[loc.status] || { cor: '#64748b', rotulo: loc.status_display || loc.status };
 };
 
@@ -149,7 +154,7 @@ const popupHtml = (loc) => {
             <div class="font-semibold">${loc.protocolo || loc.protocolo_legislativo || 'Sem protocolo'}</div>
             <div class="text-sm mt-1">${loc.titulo}</div>
             <div class="mt-2">
-                <span class="map-popup-badge" style="background:${cor}">${loc.is_atrasada ? 'Atrasada' : rotulo}</span>
+                <span class="map-popup-badge" style="background:${cor}">${!ocultarSlaVereador.value && loc.is_atrasada ? 'Atrasada' : rotulo}</span>
             </div>
             ${loc.bairro ? `<div class="text-xs mt-2">${loc.bairro}</div>` : ''}
             ${setor ? `<div class="text-xs">Setor: ${setor}</div>` : ''}
@@ -191,7 +196,7 @@ const montarParams = () => {
 const pontosHeatmap = (lista) =>
     lista.map((loc) => {
         let peso = 0.45;
-        if (loc.is_atrasada) peso = 1;
+        if (!ocultarSlaVereador.value && loc.is_atrasada) peso = 1;
         else if (loc.super_os?.ativo) peso = 0.75;
         return [parseFloat(loc.lat), parseFloat(loc.lng), peso];
     });
@@ -221,11 +226,11 @@ const initMapa = () => {
             let superOs = 0;
             markers.forEach((m) => {
                 const d = m.options.customData;
-                if (d?.is_atrasada) atrasadas++;
+                if (!ocultarSlaVereador.value && d?.is_atrasada) atrasadas++;
                 if (d?.super_os?.ativo) superOs++;
             });
             let cssClass = 'marker-cluster-blue';
-            if (atrasadas > 0) cssClass = 'marker-cluster-red';
+            if (!ocultarSlaVereador.value && atrasadas > 0) cssClass = 'marker-cluster-red';
             else if (superOs > 0) cssClass = 'marker-cluster-purple';
             return L.divIcon({
                 html: `<div><span>${cluster.getChildCount()}</span></div>`,
@@ -317,9 +322,12 @@ const carregarLocalizacoes = async () => {
         ultimaLista.value = lista;
         resumo.value = data?.resumo || {
             total: lista.length,
-            atrasadas: lista.filter((x) => x.is_atrasada).length,
+            atrasadas: ocultarSlaVereador.value ? 0 : lista.filter((x) => x.is_atrasada).length,
             super_os: lista.filter((x) => x.super_os?.ativo).length
         };
+        if (ocultarSlaVereador.value && resumo.value) {
+            resumo.value = { ...resumo.value, atrasadas: 0 };
+        }
         renderizarCamadas(lista);
         const focoId = route.query.demanda_id;
         if (focoId && markerClusterGroup.value) {
@@ -457,7 +465,7 @@ onUnmounted(() => {
                     </div>
                 </template>
             </Card>
-            <Card>
+            <Card v-if="!ocultarSlaVereador">
                 <template #content>
                     <div class="text-center py-1">
                         <div class="text-2xl font-bold text-red-500">{{ resumo.atrasadas }}</div>
@@ -641,7 +649,7 @@ onUnmounted(() => {
                                         :style="{ width: `${(b.total / maxBairroTotal) * 100}%` }"
                                     />
                                 </div>
-                                <div v-if="b.atrasadas" class="text-xs text-red-500 mt-0.5">
+                                <div v-if="b.atrasadas && !ocultarSlaVereador" class="text-xs text-red-500 mt-0.5">
                                     {{ b.atrasadas }} atrasada(s)
                                 </div>
                             </li>

@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import ApiService from '@/service/ApiService.js';
 import { useUserStore } from '@/stores/userStore'; // Importa o store
+import { filtrarNotificacoesSemAtraso } from '@/utils/metricasSlaVereador';
 import { useToast } from 'primevue/usetoast';
 import DataView from 'primevue/dataview';
 import Button from 'primevue/button';
@@ -20,13 +21,13 @@ const fetchNotificacoes = async () => {
     try {
         const response = await ApiService.getNotificacoes();
 
-        if (response.data && Array.isArray(response.data.results)) {
-            notificacoes.value = response.data.results.filter((n) => n != null);
-        } else if (Array.isArray(response.data)) {
-            notificacoes.value = response.data.filter((n) => n != null);
-        } else {
-            notificacoes.value = [];
-        }
+        const bruto =
+            response.data && Array.isArray(response.data.results)
+                ? response.data.results
+                : Array.isArray(response.data)
+                  ? response.data
+                  : [];
+        notificacoes.value = filtrarNotificacoesSemAtraso(bruto, userStore.currentUser?.perfil);
     } catch (error) {
         console.error('Erro ao buscar notificações:', error);
         toast.add({ severity: 'error', summary: 'Erro', detail: 'Falha ao carregar notificações.', life: 3000 });

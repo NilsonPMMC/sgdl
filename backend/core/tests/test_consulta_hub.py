@@ -41,6 +41,11 @@ class ConsultaHubServiceTests(SinapseCatalogTestMixin, TestCase):
         self.assertGreaterEqual(rasc["contagem"], 1)
         self.assertEqual(rasc["rota"], "/demandas")
 
+    def test_atalhos_vereador_nao_incluem_prazo_critico_sla(self):
+        atalhos = self.svc.atalhos(self.vereador)
+        ids = {a["id"] for a in atalhos}
+        self.assertNotIn("atrasadas", ids)
+
     def test_gestor_tem_atalhos_administrativos(self):
         gestor = Usuario.objects.create_user(
             username=f"ges_hub_{self.suffix}", password="x", perfil="GESTOR"

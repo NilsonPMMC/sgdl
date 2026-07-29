@@ -39,6 +39,7 @@ import {
 import {
     rotuloFluxo
 } from '@/constants/operacionalEstado';
+import { ocultarMetricasSla, isDemandaAtrasadaParaExibicao } from '@/utils/metricasSlaVereador';
 
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -64,6 +65,8 @@ const route = useRoute();
 const toast = useToast();
 const confirm = useConfirm();
 const userStore = useUserStore();
+
+const ocultarSlaVereador = computed(() => ocultarMetricasSla(userStore.currentUser?.perfil));
 const loading = ref(false);
 const erroCarregamento = ref(null);
 const sincronizandoDemandasRota = ref(true);
@@ -630,12 +633,9 @@ const statusOptions = ref([
 const showVereadorFilter = computed(() => ['GESTOR', 'PROTOCOLO', 'SECRETARIA'].includes(userStore.currentUser?.perfil));
 
 const getStatusSeverity = (demanda) => {
-    // 1. Verifica o atraso PRIMEIRO
-    if (isAtrasada(demanda)) {
-        return 'danger'; // Vermelho para atrasados
+    if (isDemandaAtrasadaParaExibicao(demanda, userStore.currentUser?.perfil, isAtrasada)) {
+        return 'danger';
     }
-
-    // 2. Se não estiver atrasado, usa a lógica de status normal
     const map = {
         RASCUNHO: 'info',
         AGUARDANDO_PROTOCOLO: 'warn',
@@ -696,7 +696,7 @@ function montarParamsDemandas() {
     let params = { ...filtros.value };
     const currentUser = userStore.currentUser;
 
-    if (filtroHubAtrasadas.value) {
+    if (filtroHubAtrasadas.value && !ocultarMetricasSla(currentUser?.perfil)) {
         params.consulta = 'atrasadas';
     }
 
@@ -1004,6 +1004,11 @@ const carregarAuxiliaresDemandas = () => {
 };
 
 onMounted(() => {
+    if (ocultarMetricasSla(userStore.currentUser?.perfil) && route.query?.consulta === 'atrasadas') {
+        const query = { ...route.query };
+        delete query.consulta;
+        router.replace({ name: 'demandas', query });
+    }
     const qs = route.query?.status;
     if (typeof qs === 'string' && qs) {
         filtros.value.status = qs;
@@ -1897,7 +1902,7 @@ async function tentarEnvioLoteDaQuery() {
                 </Panel>
 
                 <Message
-                    v-if="filtroHubAtrasadas"
+                    v-if="filtroHubAtrasadas && !ocultarSlaVereador"
                     severity="warn"
                     :closable="true"
                     class="mb-3"
@@ -2151,7 +2156,11 @@ async function tentarEnvioLoteDaQuery() {
                         <template #body="{ data }">
                             <div class="flex flex-col items-start gap-1">
                                 <Tag
-                                    :value="isAtrasada(data) ? 'ATRASADO' : data.status_display"
+                                    :value="
+                                        isDemandaAtrasadaParaExibicao(data, userStore.currentUser?.perfil, isAtrasada)
+                                            ? 'ATRASADO'
+                                            : data.status_display
+                                    "
                                     :severity="getStatusSeverity(data)"
                                 />
                                 <Tag
