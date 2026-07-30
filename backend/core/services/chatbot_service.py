@@ -640,7 +640,6 @@ class ChatbotService:
         self._aplicar_classificacao_competencia_rascunho(merged, texto_sessao=texto)
         if self._usuario_modo_indicacao(usuario):
             self._marcar_rascunho_indicacao(merged, usuario)
-            parsed["acionar_triagem_sinapse"] = False
         self._limpar_triagem_fora_competencia(merged)
         bloqueados_pos = self._indices_fora_competencia(merged)
         if bloqueados_pos and len(bloqueados_pos) == len(merged):
@@ -663,7 +662,7 @@ class ChatbotService:
                 self._atualizar_triagem_demandas(session, merged, forcar=True)
         ChatbotService._normalizar_lista_demandas_compostas(merged)
         merged = self._preservar_relato_rascunho(session, merged)
-        if not corpus_servico_turno and not self._usuario_modo_indicacao(usuario):
+        if not corpus_servico_turno:
             self._retriagem_pendentes_se_necessario(session, merged, ultimo_texto=texto)
         parsed["demandas_extraidas"] = merged
         self._processar_anexos_turno(
@@ -688,20 +687,28 @@ class ChatbotService:
             modo_ind = self._usuario_modo_indicacao(usuario)
             if modo_ind:
                 rascunho_filtrado = self._filtrar_rascunho_para_materializacao(rascunho)
+                sem_servico = self._indices_demandas_sem_servico_confirmado(rascunho_filtrado)
+                if sem_servico:
+                    nums = ", ".join(str(i + 1) for i in sem_servico)
+                    parsed["resposta_agente"] = (
+                        f"Antes de gerar a indicação, confirme o serviço da carta ou registre "
+                        f"como tendência na(s) solicitação(ões) {nums}."
+                    )
+                    parsed["estado_atual"] = ChatSession.ESTADO_VALIDACAO_FINAL
                 incompletos = self._indices_indicacao_incompleta(rascunho_filtrado)
-                if incompletos:
+                if not sem_servico and incompletos:
                     nums = ", ".join(str(i + 1) for i in incompletos)
                     parsed["resposta_agente"] = (
                         f"Antes de gerar o rascunho, vincule vereadores e informe o número "
                         f"na(s) solicitação(ões) {nums}."
                     )
                     parsed["estado_atual"] = ChatSession.ESTADO_VALIDACAO_FINAL
-                elif not self._sessao_tem_anexo_pdf(session):
+                elif not sem_servico and not self._sessao_tem_anexo_pdf(session):
                     parsed["resposta_agente"] = (
                         "Anexe o PDF da indicação assinada pelos vereadores antes de confirmar."
                     )
                     parsed["estado_atual"] = ChatSession.ESTADO_VALIDACAO_FINAL
-                else:
+                elif not sem_servico:
                     demandas_criadas = self._materializar_demandas(
                         usuario, rascunho_filtrado, session=session
                     )
@@ -1284,8 +1291,6 @@ class ChatbotService:
 
     @staticmethod
     def _item_vinculo_catalogo_resolvido(item: dict[str, Any]) -> bool:
-        if item.get("modo_indicacao"):
-            return True
         if item.get("corpus_preselecao_servico_id") or item.get("corpus_atalho_eixo_id"):
             if ChatbotService._servico_confirmado_pelo_usuario(item):
                 return True
@@ -1767,8 +1772,22 @@ class ChatbotService:
                 "confirmar_criacao_demandas": False,
             }
 
+        sem_servico = self._indices_demandas_sem_servico_confirmado(rascunho)
+        if sem_servico:
+            return {
+                "usuario_forneceu_endereco_real": False,
+                "resposta_agente": self._resposta_escolha_carta_sinapse(
+                    {"demandas_extraidas": rascunho}
+                ),
+                "estado_atual": ChatSession.ESTADO_COLETA_DADOS,
+                "demandas_extraidas": rascunho,
+                "acionar_triagem_sinapse": True,
+                "confirmar_criacao_demandas": False,
+            }
+
+        self._sanitizar_enderecos_demandas(rascunho)
+
         if modo_ind:
-            self._sanitizar_enderecos_demandas(rascunho)
             if not self._rascunho_endereco_indicacao_resolvido(rascunho):
                 session.estado_atual = ChatSession.ESTADO_COLETA_ENDERECO
                 return {
@@ -1786,12 +1805,12 @@ class ChatbotService:
             metadados_ok = not self._indices_indicacao_incompleta(rascunho)
             if apos_sem_anexos and metadados_ok:
                 msg = (
-                    "Revise vereadores, número e PDF no painel abaixo e confirme "
+                    "Revise serviço/tendência, vereadores, número e PDF no painel abaixo e confirme "
                     "para gerar o rascunho da indicação."
                 )
             elif apos_sem_anexos:
                 msg = (
-                    "Revise vereadores e número da Câmara no painel abaixo e confirme "
+                    "Revise serviço/tendência, vereadores e número da Câmara no painel abaixo e confirme "
                     "para gerar o rascunho da indicação."
                 )
             elif not self._sessao_tem_anexo_pdf(session):
@@ -1806,7 +1825,7 @@ class ChatbotService:
                 )
             else:
                 msg = (
-                    "Tudo pronto. Revise vereadores, número e PDF e confirme para gerar o rascunho."
+                    "Tudo pronto. Revise serviço/tendência, vereadores, número e PDF e confirme para gerar o rascunho."
                 )
             return {
                 "usuario_forneceu_endereco_real": False,
@@ -1816,21 +1835,6 @@ class ChatbotService:
                 "acionar_triagem_sinapse": False,
                 "confirmar_criacao_demandas": False,
             }
-
-        sem_servico = self._indices_demandas_sem_servico_confirmado(rascunho)
-        if sem_servico:
-            return {
-                "usuario_forneceu_endereco_real": False,
-                "resposta_agente": self._resposta_escolha_carta_sinapse(
-                    {"demandas_extraidas": rascunho}
-                ),
-                "estado_atual": ChatSession.ESTADO_COLETA_DADOS,
-                "demandas_extraidas": rascunho,
-                "acionar_triagem_sinapse": True,
-                "confirmar_criacao_demandas": False,
-            }
-
-        self._sanitizar_enderecos_demandas(rascunho)
 
         forneceu = self._rascunho_tem_endereco_suficiente(rascunho)
         if not forneceu:
@@ -1927,6 +1931,17 @@ class ChatbotService:
 
         if modo_ind:
             incompletos = self._indices_indicacao_incompleta(rascunho_filtrado)
+            sem_servico = self._indices_demandas_sem_servico_confirmado(rascunho_filtrado)
+            if sem_servico:
+                nums = ", ".join(str(i + 1) for i in sem_servico)
+                parsed = {
+                    **plano,
+                    "resposta_agente": (
+                        f"Antes de finalizar, confirme o serviço da carta ou registre como tendência "
+                        f"na(s) solicitação(ões) {nums}."
+                    ),
+                }
+                return parsed, demandas_criadas
             if incompletos:
                 nums = ", ".join(str(i + 1) for i in incompletos)
                 parsed = {
@@ -2061,12 +2076,6 @@ class ChatbotService:
 
         if session is not None and self._usuario_modo_indicacao(session.autor):
             self._marcar_rascunho_indicacao(dems, session.autor)
-            if dems and any(
-                isinstance(x, dict) and self._item_tem_problema_relato(x) for x in dems
-            ):
-                parsed["estado_atual"] = ChatSession.ESTADO_VALIDACAO_FINAL
-                parsed["acionar_triagem_sinapse"] = False
-            return
 
         forneceu = parsed.get("usuario_forneceu_endereco_real") is True
         pendente_carta = self._demandas_pendentes_vinculo_carta(dems)
@@ -4885,8 +4894,6 @@ class ChatbotService:
             if not isinstance(item, dict):
                 continue
             item["modo_indicacao"] = True
-            item.pop("fora_competencia", None)
-            item["competencia_municipal"] = "sim"
 
     @staticmethod
     def _indicacao_metadados_ok(item: dict[str, Any]) -> bool:
@@ -4924,8 +4931,6 @@ class ChatbotService:
         out: list[int] = []
         for i, item in enumerate(rascunho or []):
             if not isinstance(item, dict):
-                continue
-            if item.get("modo_indicacao"):
                 continue
             if item.get("fora_competencia"):
                 continue
@@ -6621,7 +6626,7 @@ class ChatbotService:
             self._limpar_triagem_fora_competencia(rascunho)
             session.demandas_rascunho = rascunho
             self._marcar_rascunho_indicacao(rascunho, session.autor)
-            if not self._usuario_modo_indicacao(session.autor) and not any(
+            if not any(
                 item.get("fora_competencia") for item in rascunho if isinstance(item, dict)
             ):
                 self._popular_candidatos_sinapse_rascunho(session, rascunho)
@@ -7397,6 +7402,27 @@ class ChatbotService:
                 cep=cep,
             )
         )
+
+        trilha_tendencia = (
+            item.get("tendencia_id")
+            or item.get("origem_vinculo") == Demanda.ORIGEM_VINCULO_TENDENCIA
+            or (
+                copiloto_tendencias_habilitadas()
+                and (
+                    item.get("vinculo_servico_ignorado")
+                    or self._item_sugere_trilha_tendencia(item, texto_sessao=texto_sessao)
+                )
+            )
+        )
+        sinapse_id = self._resolver_sinapse_id_confirmado(item)
+        if not trilha_tendencia and sinapse_id is None:
+            if not self._item_vinculo_catalogo_resolvido(item):
+                logger.warning(
+                    "Indicação ignorada (serviço/tendência não confirmados): %s",
+                    titulo[:80],
+                )
+                return None
+
         campos_demanda: dict[str, Any] = {
             "titulo": titulo,
             "descricao": relato_usuario,
@@ -7413,6 +7439,53 @@ class ChatbotService:
             "sinapse_servico_id": None,
             "sinapse_orgao_id": None,
         }
+
+        tendencia_obj = None
+        if trilha_tendencia:
+            from .tendencia_service import TendenciaService
+
+            svc_tend = TendenciaService()
+            tid = item.get("tendencia_id")
+            if tid:
+                tendencia_obj = Tendencia.objects.filter(pk=int(tid)).first()
+            if not tendencia_obj:
+                tendencia_obj = svc_tend.buscar_ou_criar(
+                    titulo=(item.get("titulo") or titulo or "Indicação fora da carta"),
+                    texto_embedding=(item.get("texto_para_embedding") or titulo or ""),
+                    descricao_resumo=(item.get("descricao") or relato_usuario or ""),
+                    sinapse_orgao_id=item.get("sinapse_orgao_id_sugerido"),
+                    criado_por=usuario,
+                    score_triagem_max=self._score_max_candidatos(item),
+                )
+            orgao_id = tendencia_obj.sinapse_orgao_id
+            if orgao_id is None and item.get("sinapse_orgao_id_sugerido"):
+                try:
+                    orgao_id = int(item["sinapse_orgao_id_sugerido"])
+                except (TypeError, ValueError):
+                    orgao_id = None
+            campos_demanda["origem_vinculo"] = Demanda.ORIGEM_VINCULO_TENDENCIA
+            campos_demanda["tendencia"] = tendencia_obj
+            campos_demanda["sinapse_orgao_id"] = orgao_id
+        elif sinapse_id is not None:
+            from core.services.carta_utilizacao_service import CartaUtilizacaoService
+
+            try:
+                CartaUtilizacaoService().validar_protocolo(
+                    sinapse_id,
+                    contexto="materializar_indicacao_copiloto",
+                )
+            except ValueError as exc:
+                logger.info(
+                    "Materialização indicação bloqueada (serviço informativo): %s — %s",
+                    sinapse_id,
+                    exc,
+                )
+                return None
+            orgao_id = sinapse_catalog.get_orgao_id_for_servico(sinapse_id)
+            campos_demanda["sinapse_servico_id"] = sinapse_id
+            campos_demanda["sinapse_orgao_id"] = orgao_id
+            campos_demanda["origem_vinculo"] = Demanda.ORIGEM_VINCULO_CARTA
+
         if latitude is not None and longitude is not None:
             campos_demanda["latitude"] = Decimal(str(round(latitude, 6)))
             campos_demanda["longitude"] = Decimal(str(round(longitude, 6)))
@@ -7425,6 +7498,17 @@ class ChatbotService:
                     item.get("vereadores_vinculados_ids"),
                     autor_vereador_id=item.get("autor_vereador_id"),
                 )
+                if trilha_tendencia and tendencia_obj is not None:
+                    from .tendencia_service import TendenciaService
+
+                    TendenciaService().registrar_ocorrencia(
+                        tendencia_obj,
+                        demanda=d,
+                        session=session,
+                        indice_demanda=None,
+                        texto_origem=texto_item[:8000],
+                        score_triagem_max=self._score_max_candidatos(item),
+                    )
         except ValueError as exc:
             logger.info("Materialização indicação bloqueada (vínculos): %s", exc)
             return None

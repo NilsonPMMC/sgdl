@@ -109,6 +109,16 @@
 
 **Status:** em andamento (jul/2026).
 
+**Implementado nesta rodada:**
+
+- Indicações (perfil CAMARA) passam pelo **mesmo pipeline semântico** de ofícios: triagem Sinapse → painel «Serviço na carta» ou tendência
+- Removidos bypasses: `acionar_triagem_sinapse`, `_item_vinculo_catalogo_resolvido`, `_forcar_regras_estado_rigidas`, `_indices_demandas_sem_servico_confirmado`
+- Materialização de indicação propaga `sinapse_servico_id` (carta) ou `tendencia` (fora da carta)
+- Frontend `CopilotoView`: painel de serviço visível; exige vínculo carta/tendência antes de finalizar
+- Testes: `test_copiloto_indicacao_carta.py` (vínculo, nivelamento, materialização)
+
+**Pendente validação:** homologação com caso «Manutenção com nivelamento e cascalhamento» no perfil Câmara.
+
 **Objetivo:** Indicações legislativas devem se comportar como **Ofícios** na triagem semântica do Copiloto: se a descrição reconhecer um serviço presente na carta Sinapse, **classificar e vincular**; se não estiver na carta, registrar como **tendência** — com exceções para pedidos de estudo, ações, implantações ou revitalizações em larga escala.
 
 **Contexto (piloto jul/2026):** teste com indicação solicitando *«Manutenção com nivelamento e cascalhamento»* (serviço existente na carta) — esperado: Copiloto sugere/vincula o serviço; comportamento atual diverge do fluxo de Ofícios.

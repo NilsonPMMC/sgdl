@@ -240,7 +240,6 @@ function demandaForaCompetencia(demanda) {
 
 /** Cada item do rascunho tem carta confirmada, tendência confirmada, descartado, ou não exige vínculo. */
 function demandaVinculada(demanda, indice = null) {
-    if (demanda?.modo_indicacao || isModoIndicacao.value) return true;
     if (demandaForaCompetencia(demanda)) return false;
     if (demanda?.descartada) return true;
     if (servicoConfirmado(demanda)) return true;
@@ -325,7 +324,6 @@ const mostrarBlocoForaCompetenciaNoChat = computed(
 const demandasComCartaNoChat = demandasNoPainelServico;
 
 const mostrarBlocoServicoNoChat = computed(() => {
-    if (isModoIndicacao.value) return false;
     if (sucessoCriacao.value) return false;
     if (revisaoAtiva.value?.etapa === 'servico') return true;
     return demandasPendentesVinculo.value.length > 0;
@@ -500,6 +498,7 @@ const mostrarBlocoEnderecoNoChat = computed(() => {
     if (mostrarBlocoForaCompetenciaNoChat.value) return false;
     if (revisaoAtiva.value?.etapa === 'local') return true;
     if (isModoIndicacao.value) {
+        if (!todosServicosConfirmados.value || mostrarBlocoServicoNoChat.value) return false;
         return estadoAtual.value === 'COLETA_ENDERECO';
     }
     if (!todosServicosConfirmados.value || mostrarBlocoServicoNoChat.value) return false;
@@ -1443,6 +1442,7 @@ function indicacaoMetadadosOk(demanda) {
 
 const indicacaoProntaParaFinalizar = computed(() => {
     if (!isModoIndicacao.value) return true;
+    if (!todosServicosConfirmados.value) return false;
     const ativas = demandasParaAprovacaoFinal.value;
     if (!ativas.length) return false;
     return ativas.every(({ d, i }) => indicacaoMetadadosOk(d) && temPdfNaDemanda(i));
