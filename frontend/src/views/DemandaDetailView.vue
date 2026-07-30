@@ -65,6 +65,7 @@ import ValidacaoGestorDemandaBanner from '@/components/tramitacao/ValidacaoGesto
 import FormularioDevolutivaProtocolo from '@/components/devolutiva/FormularioDevolutivaProtocolo.vue';
 import ConclusaoDigitalVereador from '@/components/devolutiva/ConclusaoDigitalVereador.vue';
 import DialogClusterAderencia from '@/components/demanda/DialogClusterAderencia.vue';
+import DialogVincularSuperOsDemanda from '@/components/cluster/DialogVincularSuperOsDemanda.vue';
 import {
     estadoFormularioTramitacao,
     inicializarDestinosAndamento,
@@ -252,6 +253,21 @@ const executandoAssinatura = ref(false);
 const clusterAderenciaDialog = ref(false);
 const clusterAderenciaSituacao = ref(null);
 const clusterAderenciaLoading = ref(false);
+const vincularSuperOsDialog = ref(false);
+const vincularSuperOsLoading = ref(false);
+
+const podeGerirClusterOperacional = computed(() =>
+    ['PROTOCOLO', 'GESTOR', 'SECRETARIA'].includes(userStore.currentUser?.perfil)
+);
+
+const podeVincularSuperOs = computed(
+    () =>
+        podeGerirClusterOperacional.value &&
+        demanda.value &&
+        !demanda.value.cluster?.id &&
+        demanda.value.status === 'AGUARDANDO_PROTOCOLO' &&
+        Boolean(demanda.value.sinapse_servico_id)
+);
 const despachoPreview = ref(null);
 const despachoAssinatura = ref({
     declaracaoOperador: false,
@@ -1034,6 +1050,35 @@ const confirmarDesvincularClusterDespacho = async () => {
         });
     } finally {
         clusterAderenciaLoading.value = false;
+    }
+};
+
+const abrirDialogoVincularSuperOs = () => {
+    vincularSuperOsDialog.value = true;
+};
+
+const confirmarVincularSuperOs = async (clusterId) => {
+    if (!demanda.value?.id || !clusterId) return;
+    vincularSuperOsLoading.value = true;
+    try {
+        await ApiService.vincularDemandaCluster(clusterId, demanda.value.id);
+        toast.add({
+            severity: 'success',
+            summary: 'Vinculado',
+            detail: 'Ofício integrado ao grupo Super OS.',
+            life: 4000
+        });
+        vincularSuperOsDialog.value = false;
+        await recarregarDemandaCompleta();
+    } catch (error) {
+        toast.add({
+            severity: 'error',
+            summary: 'Erro',
+            detail: error?.response?.data?.detail || 'Não foi possível vincular ao grupo.',
+            life: 4000
+        });
+    } finally {
+        vincularSuperOsLoading.value = false;
     }
 };
 
@@ -2055,6 +2100,15 @@ const devolverAoProtocolo = async () => {
                     @click="abrirDialogoDespacho"
                     size="small"
                 />
+                <Button
+                    v-if="podeVincularSuperOs"
+                    label="Vincular a Super OS"
+                    icon="pi pi-link"
+                    severity="help"
+                    outlined
+                    size="small"
+                    @click="abrirDialogoVincularSuperOs"
+                />
                 <Button v-if="podeIniciarExecucao" label="Iniciar Execução" icon="pi pi-play" severity="success" @click="iniciarExecucao" size="small" />
                 <Button
                     v-if="podeEncerrarDevolutiva && isProtocolo"
@@ -2099,8 +2153,8 @@ const devolverAoProtocolo = async () => {
                     <span class="text-sm text-muted-color">processos vinculados</span>
                 </div>
                 <Button
-                    v-if="isProtocoloPerfil && superOs.cluster_id"
-                    label="Gestor de clusters"
+                    v-if="podeGerirClusterOperacional && superOs.cluster_id"
+                    label="Abrir Super OS"
                     icon="pi pi-objects-column"
                     size="small"
                     text
@@ -2701,6 +2755,13 @@ const devolverAoProtocolo = async () => {
                 />
             </template>
         </Dialog>
+
+        <DialogVincularSuperOsDemanda
+            v-model:visible="vincularSuperOsDialog"
+            :demanda="demanda"
+            :vinculando="vincularSuperOsLoading"
+            @vinculado="confirmarVincularSuperOs"
+        />
 
         <DialogClusterAderencia
             v-model:visible="clusterAderenciaDialog"

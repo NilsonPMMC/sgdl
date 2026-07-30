@@ -469,6 +469,55 @@ class ClusterService:
             )
         return resultado[:limit]
 
+    def listar_clusters_para_vincular_demanda(
+        self,
+        demanda: Demanda,
+        *,
+        q: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Grupos Super OS ativos compatíveis com a vinculação manual desta demanda."""
+        qs = (
+            ClusterExecucao.objects.filter(status__in=CLUSTER_STATUS_ABERTOS)
+            .annotate(demandas_count=Count("demandas"))
+            .filter(demandas_count__gte=CLUSTER_MIN_DEMANDAS)
+            .order_by("-atualizado_em")
+        )
+        termo = (q or "").strip()
+        if termo:
+            filtro = Q(titulo__icontains=termo) | Q(bairro_referencia__icontains=termo)
+            if termo.isdigit():
+                filtro |= Q(pk=int(termo))
+            qs = qs.filter(filtro)
+
+        resultado: list[dict[str, Any]] = []
+        for cluster in qs[: max(limit * 4, 40)]:
+            aval = self.avaliar_compatibilidade_vinculo(demanda, cluster)
+            if not aval["compativel"]:
+                continue
+            sid = self._servico_id_do_cluster(cluster)
+            servico = sinapse_catalog.get_servico(sid) if sid else None
+            orgao_nome = None
+            if cluster.sinapse_orgao_id:
+                orgao_nome = sinapse_catalog.get_orgao_nome(cluster.sinapse_orgao_id)
+            resultado.append(
+                {
+                    "id": cluster.pk,
+                    "titulo": cluster.titulo,
+                    "bairro_referencia": cluster.bairro_referencia or "",
+                    "status": cluster.status,
+                    "demandas_count": cluster.demandas_count,
+                    "protocolo_super_os": cluster.protocolo_super_os,
+                    "servico_nome": (servico.titulo.strip() if servico and servico.titulo else ""),
+                    "orgao_competente_nome": orgao_nome,
+                    "compativel": True,
+                    "motivo": aval.get("motivo") or "ok",
+                }
+            )
+            if len(resultado) >= limit:
+                break
+        return resultado
+
     @staticmethod
     def _serializar_candidata_vinculo(
         demanda: Demanda, aval: dict[str, Any]

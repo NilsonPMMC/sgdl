@@ -781,6 +781,49 @@ class DemandaViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=["get"],
+        url_path="clusters-vinculo",
+        permission_classes=[IsAuthenticated],
+    )
+    def clusters_vinculo(self, request, pk=None):
+        """Grupos Super OS ativos nos quais esta demanda pode ser vinculada manualmente."""
+        from core.models import ClusterExecucao
+        from core.services.cluster_service import ClusterService
+        from core.views_cluster import _aplicar_escopo_clusters, _pode_gerir_cluster
+
+        if not _pode_gerir_cluster(request.user):
+            return Response(
+                {"detail": "Sem permissão para vincular demandas a grupos Super OS."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        demanda = self.get_object()
+        q = (request.query_params.get("q") or "").strip() or None
+        try:
+            limit = min(int(request.query_params.get("limit", 20)), 50)
+        except (TypeError, ValueError):
+            limit = 20
+        svc = ClusterService()
+        candidatos = svc.listar_clusters_para_vincular_demanda(demanda, q=q, limit=limit)
+        if candidatos:
+            ids = [c["id"] for c in candidatos]
+            permitidos = set(
+                _aplicar_escopo_clusters(
+                    ClusterExecucao.objects.filter(pk__in=ids), request.user
+                ).values_list("pk", flat=True)
+            )
+            candidatos = [c for c in candidatos if c["id"] in permitidos]
+        return Response(
+            {
+                "demanda_id": demanda.pk,
+                "demanda_titulo": demanda.titulo,
+                "demanda_protocolo": demanda.protocolo_legislativo or demanda.protocolo_executivo,
+                "total": len(candidatos),
+                "results": candidatos,
+            }
+        )
+
+    @action(
+        detail=True,
+        methods=["get"],
         url_path="cluster-situacao-aderencia",
         permission_classes=[IsAuthenticated],
     )

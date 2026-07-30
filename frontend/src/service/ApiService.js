@@ -559,6 +559,10 @@ export default {
         return apiClient.get(`clusters/${clusterId}/demandas-candidatas/`, { params });
     },
 
+    listarClustersVinculoDemanda(demandaId, params = {}) {
+        return apiClient.get(`demandas/${demandaId}/clusters-vinculo/`, { params });
+    },
+
     despacharClusterSuperOs(clusterId, despachoData) {
         return apiClient.post(`clusters/${clusterId}/despachar/`, despachoData);
     },

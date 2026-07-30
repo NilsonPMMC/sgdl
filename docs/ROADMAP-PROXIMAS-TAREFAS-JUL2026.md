@@ -3,7 +3,7 @@
 > Backlog acordado após conclusão da **geocodificação MC (fases 1–3)**.  
 > Referência geocodificação: [especificacoes/geocodificacao-endereco-mogi.md](especificacoes/geocodificacao-endereco-mogi.md)
 
-**Atualizado:** 2026-07-30 (Fase 5 concluída)
+**Atualizado:** 2026-07-30 (Fase 3 concluída)
 
 ---
 
@@ -13,7 +13,7 @@
 |---|--------|--------|------------|
 | 1 | Delay pós despacho — janela CRUD (60 s) | **Concluída** | Alta |
 | 2 | Módulo de gestão de textos padrão de despachos | **Concluída** | Alta |
-| 3 | Gestão Cluster — Super OS manual (UI secretaria/gestor) | Adiada | Média |
+| 3 | Gestão Cluster — vinculação manual a Super OS existente | **Concluída** | Média |
 | 4 | Análise base legada de serviços × carta Sinapse (prioridades Copiloto) | Adiada | Média |
 | 5 | Copiloto Indicações — classificação semântica × carta Sinapse | **Concluída** | Alta |
 
@@ -75,18 +75,26 @@
 
 ---
 
-## 3. Gestão Cluster — Super OS manual ⏸
+## 3. Gestão Cluster — vinculação manual a Super OS existente ✅
 
-**Status:** adiada.
+**Status:** concluída (jul/2026).
 
-**Objetivo:** Interface para usuários operacionais (Secretaria, Gestor) **criar manualmente** Super OS / agrupar demandas, além do fluxo automático (~300 m).
+**Objetivo:** Permitir que operadores (**Protocolo, Gestor, Secretaria**) integrem manualmente ofícios que o agrupamento automático (~300 m / mesmo serviço) não reconheceu a um **grupo Super OS já ativo** — sem criar Super OS do zero.
 
-**Entregáveis previstos:**
-- Tela ou extensão de `/clusters` com «Nova Super OS»
-- Seleção de demandas elegíveis + confirmação
-- Regras de visibilidade por perfil (RBAC)
+**Escopo implementado:**
 
-**Critério de pronto:** Super OS manual criada, despachada e visível nas filas corretas.
+- **`/clusters`**: botão «Vincular ofício» com busca por ofício, vereador, bairro ou logradouro (substitui digitação de ID)
+- API `GET /api/clusters/{id}/demandas-candidatas/` — candidatos com flag «Pode vincular» e motivo de bloqueio
+- **`DemandaDetailView`**: atalho «Vincular a Super OS» para ofícios aguardando protocolo, sem cluster
+- API `GET /api/demandas/{id}/clusters-vinculo/` — grupos compatíveis com o ofício aberto
+- RBAC: vincular/desvincular → Protocolo, Gestor, Secretaria; despacho em lote Super OS → somente Protocolo
+- Escopo Secretaria/Gestor setorial por órgão na listagem de clusters
+
+**Fora de escopo (deliberado):** botão «Nova Super OS» — grupos nascem do fluxo automático; a ferramenta apenas **completa/corrige** o agrupamento.
+
+**Critério de pronto:** operador localiza grupo → busca ofício → vincula com feedback claro → grupo atualizado na tela e no detalhe da demanda.
+
+**Evidências:** `npm run build` · commit `8217755` e complementos · testes `test_cluster_vinculo_candidatas.py`
 
 ---
 
