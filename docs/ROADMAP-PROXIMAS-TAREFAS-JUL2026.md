@@ -3,7 +3,7 @@
 > Backlog acordado após conclusão da **geocodificação MC (fases 1–3)**.  
 > Referência geocodificação: [especificacoes/geocodificacao-endereco-mogi.md](especificacoes/geocodificacao-endereco-mogi.md)
 
-**Atualizado:** 2026-07-30
+**Atualizado:** 2026-07-30 (Fase 5 concluída)
 
 ---
 
@@ -15,7 +15,7 @@
 | 2 | Módulo de gestão de textos padrão de despachos | **Concluída** | Alta |
 | 3 | Gestão Cluster — Super OS manual (UI secretaria/gestor) | Adiada | Média |
 | 4 | Análise base legada de serviços × carta Sinapse (prioridades Copiloto) | Adiada | Média |
-| 5 | Copiloto Indicações — classificação semântica × carta Sinapse | **Próxima** | Alta |
+| 5 | Copiloto Indicações — classificação semântica × carta Sinapse | **Concluída** | Alta |
 
 ---
 
@@ -77,7 +77,7 @@
 
 ## 3. Gestão Cluster — Super OS manual ⏸
 
-**Status:** adiada — prioridade para Fase 5 (Copiloto Indicações).
+**Status:** adiada.
 
 **Objetivo:** Interface para usuários operacionais (Secretaria, Gestor) **criar manualmente** Super OS / agrupar demandas, além do fluxo automático (~300 m).
 
@@ -92,7 +92,7 @@
 
 ## 4. Análise base legada × carta Sinapse ⏸
 
-**Status:** adiada — prioridade para Fase 5 (Copiloto Indicações).
+**Status:** adiada.
 
 **Objetivo:** Importar/comparar base histórica de serviços (gestão anterior) com `CatalogServico` Sinapse; definir **prioridades e sinônimos** no Copiloto/triagem.
 
@@ -105,38 +105,34 @@
 
 ---
 
-## 5. Copiloto Indicações — classificação semântica × carta 🔄
-
-**Status:** em andamento (jul/2026).
-
-**Implementado nesta rodada:**
-
-- Indicações (perfil CAMARA) passam pelo **mesmo pipeline semântico** de ofícios: triagem Sinapse → painel «Serviço na carta» ou tendência
-- Removidos bypasses: `acionar_triagem_sinapse`, `_item_vinculo_catalogo_resolvido`, `_forcar_regras_estado_rigidas`, `_indices_demandas_sem_servico_confirmado`
-- Materialização de indicação propaga `sinapse_servico_id` (carta) ou `tendencia` (fora da carta)
-- Frontend `CopilotoView`: painel de serviço visível; exige vínculo carta/tendência antes de finalizar
-- Testes: `test_copiloto_indicacao_carta.py` (vínculo, nivelamento, materialização)
-
-**Pendente validação:** homologação com caso «Manutenção com nivelamento e cascalhamento» no perfil Câmara.
+## 5. Copiloto Indicações — classificação semântica × carta ✅
 
 **Objetivo:** Indicações legislativas devem se comportar como **Ofícios** na triagem semântica do Copiloto: se a descrição reconhecer um serviço presente na carta Sinapse, **classificar e vincular**; se não estiver na carta, registrar como **tendência** — com exceções para pedidos de estudo, ações, implantações ou revitalizações em larga escala.
 
-**Contexto (piloto jul/2026):** teste com indicação solicitando *«Manutenção com nivelamento e cascalhamento»* (serviço existente na carta) — esperado: Copiloto sugere/vincula o serviço; comportamento atual diverge do fluxo de Ofícios.
+**Escopo implementado (jul/2026):**
 
-**Regras de negócio:**
-| Situação | Comportamento esperado |
-|----------|------------------------|
-| Serviço reconhecido **na carta** | Classificar e propor vínculo (`sinapse_servico_id`) como Ofício |
-| Serviço **fora da carta** | Entrada como **tendência** (sem forçar serviço inexistente) |
-| Pedido de estudo, ação, implantação ou revitalização **em larga escala** | **Não** forçar vínculo carta; manter como tendência / encaminhamento amplo |
+- Indicações (perfil **CAMARA**) passam pelo **mesmo pipeline semântico** de ofícios: LLM → triagem Sinapse → painel «Serviço na carta» ou tendência → endereço (opcional) → PDF → vereadores/número → rascunho
+- Removidos bypasses de triagem/vínculo (`acionar_triagem_sinapse`, `_item_vinculo_catalogo_resolvido`, `_forcar_regras_estado_rigidas`, `_indices_demandas_sem_servico_confirmado`)
+- Materialização propaga `sinapse_servico_id` + `origem_vinculo=CARTA` ou `tendencia` + `origem_vinculo=TENDENCIA`
+- Frontend `CopilotoView`: painel de serviço visível; exige vínculo carta/tendência antes de finalizar
+- `CopilotoIndicacaoCampos`: persistência explícita de vereadores/número na sessão antes de gerar rascunho; card «Gerar rascunho da indicação»
+- Correções homologação: `NameError` de `session` na triagem; metadados não salvos ao digitar «finalizar»
+- Testes: `test_copiloto_indicacao_carta.py` (vínculo, nivelamento/cascalhamento, materialização com serviço carta)
+- Commits: `a91e2d5`, `97930d3`, `19edf5d`
 
-**Entregáveis previstos:**
-- Reuso/alinhamento do pipeline semântico Ofício → Indicação (`copiloto_faq`, competência, LLM assistivo)
-- Ajuste em `CopilotoView` / serviços de indicação e triagem
-- Testes com amostra incluindo «Manutenção com nivelamento e cascalhamento»
-- Documentação operacional para perfil Câmara
+**Regras de negócio (atendidas):**
 
-**Critério de pronto:** indicação com serviço carta classificada corretamente; indicação fora da carta vira tendência; exceções de larga escala respeitadas; validação humana antes de protocolar.
+| Situação | Comportamento |
+|----------|---------------|
+| Serviço reconhecido **na carta** | Triagem + confirmação humana → `sinapse_servico_id` |
+| Serviço **fora da carta** | Opção «Nenhuma das opções» → tendência |
+| Pedido amplo (estudo/revitalização) | Heurística existente `_item_sugere_trilha_tendencia` / escolha humana |
+
+**Fora de escopo (futuro):** documentação operacional dedicada perfil Câmara; refinamento heurística «larga escala» dedicada.
+
+**Critério de pronto:** indicação com serviço carta classificada e confirmada; fora da carta vira tendência; validação humana antes de protocolar.
+
+**Evidências:** `manage.py check` · `npm run build` · homologação caso «nivelamento e cascalhamento» (Estrada da Mineração)
 
 ---
 
