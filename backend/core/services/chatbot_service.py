@@ -1135,6 +1135,7 @@ class ChatbotService:
             marcador_sinapse = self._aplicar_triagem_sinapse_local(
                 parsed,
                 n_demandas_antes=n_demandas_antes_sinapse,
+                session=session,
             )
             if marcador_sinapse:
                 historico_out.append({"role": "system", "content": marcador_sinapse})
@@ -1157,6 +1158,7 @@ class ChatbotService:
         parsed: dict[str, Any],
         *,
         n_demandas_antes: int,
+        session: ChatSession | None = None,
     ) -> str | None:
         """
         Executa busca na carta Sinapse e atualiza o rascunho sem segunda chamada ao LLM.
