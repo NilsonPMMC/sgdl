@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import ApiService from '@/service/ApiService';
+import { useToast } from 'primevue/usetoast';
 import MultiSelect from 'primevue/multiselect';
 import Select from 'primevue/select';
 import InputNumber from 'primevue/inputnumber';
@@ -13,7 +14,9 @@ const props = defineProps({
     demanda: { type: Object, default: () => ({}) }
 });
 
-const emit = defineEmits(['atualizado']);
+const emit = defineEmits(['atualizado', 'metadados-locais']);
+
+const toast = useToast();
 
 const vereadores = ref([]);
 const numeracao = ref(null);
@@ -70,8 +73,20 @@ async function carregarBase() {
 
 const camposDesabilitados = computed(() => salvando.value || !props.sessionId);
 
+const metadadosLocaisOk = computed(
+    () => vereadoresIds.value.length > 0 && Number(numeroIndicacao.value) >= 1
+);
+
+function emitirEstadoLocal() {
+    emit('metadados-locais', {
+        indice: props.indiceDemanda,
+        ok: metadadosLocaisOk.value
+    });
+}
+
 async function persistir() {
-    if (!props.sessionId || salvando.value || ignorarPersistencia.value) return;
+    if (!props.sessionId || salvando.value || ignorarPersistencia.value) return false;
+    if (!metadadosLocaisOk.value) return false;
     salvando.value = true;
     try {
         const { data } = await ApiService.atualizarIndicacaoCopiloto({
@@ -82,19 +97,37 @@ async function persistir() {
             numero_indicacao: numeroIndicacao.value
         });
         emit('atualizado', data);
-    } catch {
-        // falha silenciosa — usuário pode tentar de novo ao alterar o campo
+        return true;
+    } catch (err) {
+        toast.add({
+            severity: 'error',
+            summary: 'Indicação',
+            detail: String(err?.response?.data?.detail || err?.message || 'Não foi possível salvar vereadores/número.'),
+            life: 5000
+        });
+        return false;
     } finally {
         salvando.value = false;
     }
 }
 
+/** Aguarda debounce pendente e persiste na sessão (ex.: antes de finalizar). */
+async function persistirAguardando() {
+    if (debouncePersistir) {
+        clearTimeout(debouncePersistir);
+        debouncePersistir = null;
+    }
+    if (!metadadosLocaisOk.value) return false;
+    return persistir();
+}
+
 function agendarPersistir() {
     if (ignorarPersistencia.value) return;
+    emitirEstadoLocal();
     if (debouncePersistir) clearTimeout(debouncePersistir);
-    debouncePersistir = setTimeout(() => {
+    debouncePersistir = setTimeout(async () => {
         debouncePersistir = null;
-        persistir();
+        await persistir();
     }, 350);
 }
 
@@ -113,7 +146,10 @@ watch([vereadoresIds, autorVereadorId, numeroIndicacao], () => {
             ignorarPersistencia.value = false;
         });
     }
-    agendarPersistir();
+    emitirEstadoLocal();
+    if (metadadosLocaisOk.value) {
+        agendarPersistir();
+    }
 });
 
 watch(
@@ -125,7 +161,12 @@ watch(
     }
 );
 
-onMounted(carregarBase);
+defineExpose({ persistirAguardando, metadadosLocaisOk });
+
+onMounted(async () => {
+    await carregarBase();
+    emitirEstadoLocal();
+});
 </script>
 
 <template>

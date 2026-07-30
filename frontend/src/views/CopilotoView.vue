@@ -1043,6 +1043,18 @@ async function finalizarComAprovacao() {
         });
         return;
     }
+    if (isModoIndicacao.value) {
+        const salvou = await persistirMetadadosIndicacaoNaSessao();
+        if (!salvou) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Indicação',
+                detail: 'Confira vereadores e número — não foi possível salvar na sessão.',
+                life: 5000
+            });
+            return;
+        }
+    }
     if (isModoIndicacao.value && !indicacaoProntaParaFinalizar.value) {
         toast.add({
             severity: 'warn',
@@ -1440,12 +1452,42 @@ function indicacaoMetadadosOk(demanda) {
     return ids.length > 0 && Number(demanda?.numero_indicacao) >= 1;
 }
 
+/** Refs dos formulários de metadados (vereadores/número) por índice de demanda. */
+const indicacaoCamposRefs = ref({});
+
+function registrarIndicacaoCamposRef(el, indice) {
+    if (el) indicacaoCamposRefs.value[indice] = el;
+    else delete indicacaoCamposRefs.value[indice];
+}
+
+const metadadosIndicacaoLocalOk = ref({});
+
+function onMetadadosIndicacaoLocais({ indice, ok }) {
+    metadadosIndicacaoLocalOk.value = { ...metadadosIndicacaoLocalOk.value, [indice]: ok };
+}
+
+function indicacaoMetadadosCompleto(indice, demanda) {
+    return indicacaoMetadadosOk(demanda) || Boolean(metadadosIndicacaoLocalOk.value[indice]);
+}
+
+async function persistirMetadadosIndicacaoNaSessao() {
+    const ativas = demandasParaAprovacaoFinal.value;
+    if (!ativas.length) return true;
+    if (ativas.every(({ d }) => indicacaoMetadadosOk(d))) return true;
+    const refs = Object.values(indicacaoCamposRefs.value).filter(Boolean);
+    if (!refs.length) return false;
+    const resultados = await Promise.all(
+        refs.map((comp) => comp.persistirAguardando?.() ?? Promise.resolve(false))
+    );
+    return resultados.every(Boolean);
+}
+
 const indicacaoProntaParaFinalizar = computed(() => {
     if (!isModoIndicacao.value) return true;
     if (!todosServicosConfirmados.value) return false;
     const ativas = demandasParaAprovacaoFinal.value;
     if (!ativas.length) return false;
-    return ativas.every(({ d, i }) => indicacaoMetadadosOk(d) && temPdfNaDemanda(i));
+    return ativas.every(({ d, i }) => indicacaoMetadadosCompleto(i, d) && temPdfNaDemanda(i));
 });
 
 const mostrarMetadadosIndicacao = computed(() => {
@@ -1678,6 +1720,34 @@ async function enviarMensagem(textoOpcional, extras = {}) {
             : inputTexto.value.trim();
     const pendentes = [...anexosPendentes.value];
     if ((!texto && !pendentes.length) || carregando.value) return;
+
+    const textoFinalizar =
+        /^(?:finalizar|sim)$/i.test(texto) && estadoAtual.value === 'VALIDACAO_FINAL';
+    if (isModoIndicacao.value && textoFinalizar) {
+        const salvou = await persistirMetadadosIndicacaoNaSessao();
+        if (!salvou) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Indicação',
+                detail: 'Preencha vereadores e número antes de finalizar.',
+                life: 5000
+            });
+            return;
+        }
+        if (!indicacaoProntaParaFinalizar.value) {
+            toast.add({
+                severity: 'warn',
+                summary: 'Indicação',
+                detail: 'Vincule vereadores, informe o número e anexe o PDF assinado.',
+                life: 5000
+            });
+            return;
+        }
+        if (/^finalizar$/i.test(texto)) {
+            await finalizarComAprovacao();
+            return;
+        }
+    }
 
     if (mostrarVinculoAnexoDemanda.value && pendentes.some((p) => p.indiceDemanda === null)) {
         toast.add({
@@ -2739,10 +2809,12 @@ novaConversa();
                             <CopilotoIndicacaoCampos
                                 v-for="{ d, i } in demandasParaAprovacaoFinal"
                                 :key="`ind-campos-${i}`"
+                                :ref="(el) => registrarIndicacaoCamposRef(el, i)"
                                 :session-id="sessionId"
                                 :indice-demanda="i"
                                 :demanda="d"
                                 @atualizado="aplicarMetadadosIndicacao"
+                                @metadados-locais="onMetadadosIndicacaoLocais"
                             />
                         </div>
 
