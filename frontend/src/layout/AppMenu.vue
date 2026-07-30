@@ -60,7 +60,8 @@ const model = computed(() =>
         secao('Operação', [
             link('Super Ordens', 'pi-objects-column', '/clusters', 'GESTOR', 'PROTOCOLO'),
             linkOperacaoAvancada('Fluxo por serviço', 'pi-directions', '/gestao-fluxo-servicos'),
-            link('Setores (UA)', 'pi-sitemap', '/gestao-setores', 'GESTOR', 'PROTOCOLO', 'SECRETARIA')
+            link('Setores (UA)', 'pi-sitemap', '/gestao-setores', 'GESTOR', 'PROTOCOLO', 'SECRETARIA'),
+            link('Textos padrão', 'pi-file-edit', '/textos-padrao-despacho', 'GESTOR', 'PROTOCOLO', 'SECRETARIA')
         ]),
         secao('Administração', [
             linkGestorAdmin('Gestão de usuários', 'pi-users', '/gestao-usuarios'),

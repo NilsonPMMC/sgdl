@@ -9,6 +9,9 @@ import PanelNosEquivalentes from '@/components/demanda/PanelNosEquivalentes.vue'
 import { computed, ref } from 'vue';
 import { filtrarArquivosDuplicados, mensagemAnexosRejeitados } from '@/utils/anexoValidacao';
 import {
+    extrairDestinosPlaceholder
+} from '@/constants/textoPadraoDespacho';
+import {
     MODO_ANDAMENTO,
     MODO_DESPACHO,
     REGRAS_ASSINATURA,
@@ -44,6 +47,8 @@ const props = defineProps({
     exibirAssinaturaFormulario: { type: Boolean, default: true },
     /** Scatter-gather — painel de nós do operador (1+ na secretaria). */
     demandaId: { type: [Number, String], default: null },
+    /** Contexto para placeholders em textos padrão (protocolo, autor, etc.). */
+    demandaContext: { type: Object, default: () => ({}) },
     gruposNosPainel: { type: Array, default: () => [] },
     /** @deprecated use gruposNosPainel */
     gruposNosEquivalentes: { type: Array, default: () => [] },
@@ -118,6 +123,11 @@ function onAnexoInvalido(event) {
 const contextoDescricao = computed(() =>
     props.modo === MODO_DESPACHO ? 'despacho' : props.modelValue.tipo || 'andamento'
 );
+
+const contextoPlaceholdersDemanda = computed(() => ({
+    ...props.demandaContext,
+    ...extrairDestinosPlaceholder(props.modelValue?.destinos, props.orgaos)
+}));
 
 const editorDestinosRef = ref(null);
 
@@ -199,6 +209,8 @@ defineExpose({
         <DescricaoTramitacaoEditor
             :model-value="modelValue.descricao"
             :contexto="contextoDescricao"
+            :demanda-id="demandaId"
+            :demanda-context="contextoPlaceholdersDemanda"
             :label="
                 labelDescricao ||
                 (modo === MODO_DESPACHO

@@ -242,6 +242,15 @@ const router = createRouter({
                         perfis: ['GESTOR'],
                         gestorAdmin: true
                     }
+                },
+                {
+                    path: '/textos-padrao-despacho',
+                    name: 'textos-padrao-despacho',
+                    component: () => import('@/views/TextosPadraoDespachoView.vue'),
+                    meta: {
+                        requiresAuth: true,
+                        perfis: ['GESTOR', 'PROTOCOLO', 'SECRETARIA']
+                    }
                 }
             ]
         },

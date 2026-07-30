@@ -26,6 +26,7 @@ from .models_unidade_administrativa import (
 )
 from .models_depara_rm import DeParaRmSinapse
 from .models_assunto_carta import AssuntoCarta
+from .models_texto_padrao_despacho import TextoPadraoDespacho
 from .models_copiloto_faq import CopilotoFaqOrientacao, CopilotoFaqPadraoRegex
 from .models_config import ConfiguracaoCarta, ConfiguracaoOficio
 from integrations.models import SinapseServiceSync
@@ -1022,6 +1023,96 @@ class AssuntoCartaSerializer(serializers.ModelSerializer):
             "atualizado_em",
         )
         read_only_fields = ("id", "slug", "criado_em", "atualizado_em")
+
+
+class TextoPadraoDespachoSerializer(serializers.ModelSerializer):
+    escopo_resumo = serializers.SerializerMethodField()
+    criado_por_nome = serializers.SerializerMethodField()
+    pode_editar = serializers.SerializerMethodField()
+    unidades_administrativas_ids = serializers.PrimaryKeyRelatedField(
+        source="unidades",
+        queryset=UnidadeAdministrativa.objects.all(),
+        many=True,
+        required=False,
+    )
+    unidades_resumo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = TextoPadraoDespacho
+        fields = (
+            "id",
+            "titulo",
+            "categoria",
+            "corpo",
+            "escopo_tipo",
+            "sinapse_orgao_id",
+            "unidades_administrativas_ids",
+            "unidades_resumo",
+            "escopo_resumo",
+            "criado_por",
+            "criado_por_nome",
+            "pode_editar",
+            "ordem",
+            "ativo",
+            "criado_em",
+            "atualizado_em",
+        )
+        read_only_fields = (
+            "id",
+            "escopo_tipo",
+            "sinapse_orgao_id",
+            "criado_por",
+            "criado_em",
+            "atualizado_em",
+        )
+
+    def validate_categoria(self, value):
+        if not value:
+            return value
+        from core.services.texto_padrao_despacho_service import (
+            categorias_visiveis_usuario,
+            normalizar_categoria_legada,
+        )
+
+        request = self.context.get("request")
+        if not request or not request.user:
+            return normalizar_categoria_legada(value)
+        cat = normalizar_categoria_legada(value)
+        if cat not in categorias_visiveis_usuario(request.user):
+            raise serializers.ValidationError("Categoria não permitida para o seu perfil.")
+        return cat
+
+    def get_unidades_resumo(self, obj):
+        return [
+            {"id": u.pk, "sigla": u.sigla, "nome": u.nome, "rotulo": u.sigla or u.nome}
+            for u in obj.unidades.all()
+        ]
+
+    def get_escopo_resumo(self, obj):
+        from core.services.texto_padrao_despacho_service import escopo_resumo
+
+        return escopo_resumo(obj)
+
+    def get_criado_por_nome(self, obj):
+        if not obj.criado_por:
+            return None
+        return getattr(obj.criado_por, "nome_completo", None) or obj.criado_por.username
+
+    def get_pode_editar(self, obj):
+        request = self.context.get("request")
+        if not request or not request.user:
+            return False
+        from core.services.texto_padrao_despacho_service import pode_editar
+
+        return pode_editar(request.user, obj)
+
+    def create(self, validated_data):
+        validated_data.pop("unidades", None)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop("unidades", None)
+        return super().update(instance, validated_data)
 
 
 class DemandaPainelListListSerializer(serializers.ListSerializer):

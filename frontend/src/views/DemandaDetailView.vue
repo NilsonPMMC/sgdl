@@ -88,6 +88,7 @@ import {
     rotuloInstitucionalTramitacao
 } from '@/constants/tramitacaoVisibilidade';
 import { descricaoTramitacaoParaExibicao, pareceHtmlRico } from '@/utils/tramitacaoTexto';
+import { buildContextoPlaceholders } from '@/constants/textoPadraoDespacho';
 import { payloadDespachoDestinos, buildDevolutivaPayload, buildMultipartPayload, estadoFormularioDevolutiva } from '@/utils/protocoloFormData';
 
 const route = useRoute();
@@ -235,6 +236,12 @@ const enderecoSugeridoDemanda = computed(() => {
     const partes = [d.logradouro, d.numero ? `nº ${d.numero}` : null, d.bairro].filter(Boolean);
     return partes.join(', ');
 });
+
+const demandaContextoTextoPadrao = computed(() =>
+    buildContextoPlaceholders(demanda.value, {
+        orgao_destino: orgaoAndamentoNome.value || ''
+    })
+);
 
 const todasSecretarias = ref([]);
 const despachoDialog = ref(false);
@@ -2245,6 +2252,7 @@ const devolverAoProtocolo = async () => {
                 ref="formDevolutivaRef"
                 v-model="formDevolutiva"
                 :demanda-id="demanda.id"
+                :demanda-context="demandaContextoTextoPadrao"
                 :orgaos="orgaosCatalogo"
                 :usa-fluxo-operacional="usaFluxoOperacional"
                 :historico-tecnico="historicoTecnicoOperacional"
@@ -2543,6 +2551,7 @@ const devolverAoProtocolo = async () => {
                     <Divider />
                     <FormularioScatterGather
                         :demanda-id="demanda.id"
+                        :demanda-context="demandaContextoTextoPadrao"
                         :nos-usuario="nosUsuarioScatter"
                         :acoes-disponiveis="acoesOperacionais"
                         :orgaos="orgaosCatalogo"
@@ -2618,6 +2627,8 @@ const devolverAoProtocolo = async () => {
                             v-model="formAndamento"
                             :modo="MODO_ANDAMENTO"
                             layout="card"
+                            :demanda-id="demanda?.id"
+                            :demanda-context="demandaContextoTextoPadrao"
                             :orgaos="orgaosCatalogo"
                             :orgao-fixo-id="orgaoIdDemanda"
                             :orgao-competente-nome="orgaoAndamentoNome"
@@ -2711,6 +2722,8 @@ const devolverAoProtocolo = async () => {
                     v-model="formDespacho"
                     :modo="MODO_DESPACHO"
                     layout="dialog"
+                    :demanda-id="demanda?.id"
+                    :demanda-context="demandaContextoTextoPadrao"
                     :exibir-assinatura-formulario="false"
                     :orgaos="orgaosCatalogo"
                     :orgao-competente-id="orgaoCompetenteDespacho"

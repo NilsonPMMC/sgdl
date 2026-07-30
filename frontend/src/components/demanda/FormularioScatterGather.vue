@@ -42,6 +42,7 @@ import {
 
 const props = defineProps({
     demandaId: { type: [Number, String], required: true },
+    demandaContext: { type: Object, default: () => ({}) },
     nosUsuario: { type: Array, default: () => [] },
     acoesDisponiveis: { type: Array, default: () => [] },
     orgaos: { type: Array, default: () => [] },
@@ -808,6 +809,7 @@ watch(
             :modo="MODO_ANDAMENTO"
             :regras-assinatura="regrasAssinaturaScatterAtual"
             :demanda-id="demandaId"
+            :demanda-context="demandaContext"
             :grupos-nos-painel="gruposPainel"
             :no-ativo-id="form.no_id"
             :responder-todos="responderTodos"
@@ -1029,6 +1031,8 @@ watch(
             <FormularioTramitacao
                 v-model="formEncerrarLote"
                 :modo="MODO_ANDAMENTO"
+                :demanda-id="demandaId"
+                :demanda-context="demandaContext"
                 :orgaos="orgaos"
                 :orgao-fixo-id="orgaoFixoId"
                 :exibir-destinos="false"

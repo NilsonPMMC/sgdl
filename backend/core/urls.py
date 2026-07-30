@@ -64,6 +64,7 @@ from .views_carta_setor import CartaSetorViewSet
 from .views_consulta_hub import ConsultaHubAPIView, ConsultaHubBuscaAPIView
 from .views_depara_rm import DeParaRmSinapseViewSet
 from .views_assunto_carta import AssuntoCartaViewSet, CartaAssuntoViewSet
+from .views_texto_padrao_despacho import TextoPadraoDespachoViewSet
 from .views_usuario_gestao import (
     GestaoUsuarioGestorViewSet,
     GestaoUsuarioSecretariaViewSet,
@@ -101,6 +102,7 @@ router.register(r'fluxo-servicos', ServicoFluxoProtocoloViewSet, basename='fluxo
 router.register(r'carta-setores', CartaSetorViewSet, basename='carta-setor')
 router.register(r'carta-assuntos', CartaAssuntoViewSet, basename='carta-assunto')
 router.register(r'assuntos-carta', AssuntoCartaViewSet, basename='assunto-carta')
+router.register(r'textos-padrao-despacho', TextoPadraoDespachoViewSet, basename='texto-padrao-despacho')
 router.register(r'depara-rm-sinapse', DeParaRmSinapseViewSet, basename='depara-rm-sinapse')
 router.register(r'unidades-administrativas', UnidadeAdministrativaViewSet, basename='unidade-administrativa')
 router.register(r'copiloto-faq', CopilotoFaqOrientacaoViewSet, basename='copiloto-faq')

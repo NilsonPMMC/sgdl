@@ -603,6 +603,30 @@ export default {
         return apiClient.patch(`assuntos-carta/${id}/`, payload);
     },
 
+    listarTextosPadraoDespacho(params = {}) {
+        return apiClient.get('textos-padrao-despacho/', { params });
+    },
+
+    criarTextoPadraoDespacho(payload) {
+        return apiClient.post('textos-padrao-despacho/', payload);
+    },
+
+    atualizarTextoPadraoDespacho(id, payload) {
+        return apiClient.patch(`textos-padrao-despacho/${id}/`, payload);
+    },
+
+    excluirTextoPadraoDespacho(id) {
+        return apiClient.delete(`textos-padrao-despacho/${id}/`);
+    },
+
+    aplicarTextoPadraoDespacho(id, payload = {}) {
+        return apiClient.post(`textos-padrao-despacho/${id}/aplicar/`, payload);
+    },
+
+    metaCriacaoTextoPadraoDespacho() {
+        return apiClient.get('textos-padrao-despacho/meta-criacao/');
+    },
+
     upsertCartaAssunto(payload) {
         return apiClient.post('carta-assuntos/upsert/', payload);
     },

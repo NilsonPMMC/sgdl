@@ -12,6 +12,7 @@ from ..models import (
 )
 from ..models_assinatura_eletronica import AssinaturaPendingAcao
 from ..models_assunto_carta import AssuntoCarta
+from ..models_texto_padrao_despacho import TextoPadraoDespacho
 from ..models_carta_metadata import (
     EstatisticasOtimizacaoCarta,
     HistoricoOtimizacaoServico,
@@ -104,6 +105,25 @@ class AssuntoCartaAdmin(admin.ModelAdmin):
     search_fields = ("nome", "slug", "mensagem_orientacao")
     prepopulated_fields = {"slug": ("nome",)}
     ordering = ("ordem", "nome")
+
+
+@admin.register(TextoPadraoDespacho)
+class TextoPadraoDespachoAdmin(admin.ModelAdmin):
+    list_display = (
+        "titulo",
+        "categoria",
+        "escopo_tipo",
+        "sinapse_orgao_id",
+        "ativo",
+        "ordem",
+        "criado_por",
+        "atualizado_em",
+    )
+    list_filter = ("ativo", "categoria", "escopo_tipo")
+    search_fields = ("titulo", "corpo")
+    autocomplete_fields = ("criado_por",)
+    filter_horizontal = ("unidades",)
+    ordering = ("ordem", "titulo")
 
 
 # --- De-para RM ↔ Sinapse ----------------------------------------------------

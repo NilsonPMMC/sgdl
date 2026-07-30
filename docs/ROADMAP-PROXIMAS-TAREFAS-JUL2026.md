@@ -12,10 +12,10 @@
 | # | Tarefa | Status | Prioridade |
 |---|--------|--------|------------|
 | 1 | Delay pós despacho — janela CRUD (60 s) | **Concluída** | Alta |
-| 2 | Módulo de gestão de textos padrão de despachos | Pendente | Alta |
-| 3 | Gestão Cluster — Super OS manual (UI secretaria/gestor) | **Próxima** | Média |
-| 4 | Análise base legada de serviços × carta Sinapse (prioridades Copiloto) | Pendente | Média |
-| 5 | Copiloto Indicações — classificação semântica × carta Sinapse | Pendente | Alta |
+| 2 | Módulo de gestão de textos padrão de despachos | **Concluída** | Alta |
+| 3 | Gestão Cluster — Super OS manual (UI secretaria/gestor) | Adiada | Média |
+| 4 | Análise base legada de serviços × carta Sinapse (prioridades Copiloto) | Adiada | Média |
+| 5 | Copiloto Indicações — classificação semântica × carta Sinapse | **Próxima** | Alta |
 
 ---
 
@@ -47,22 +47,37 @@
 
 ---
 
-## 2. Módulo de textos padrão de despachos
+## 2. Módulo de textos padrão de despachos ✅
 
-**Objetivo:** CRUD administrativo de modelos de texto (despacho inicial, devolutiva, conclusão, scatter) com placeholders (órgão, protocolo, prazo).
+**Objetivo:** CRUD de modelos de texto com formatação rica (Editor/Quill) e placeholders (`{{protocolo_executivo}}`, `{{autor_nome}}`, etc.), reutilizáveis nos formulários de despacho/andamento/devolutiva.
 
-**Entregáveis previstos:**
-- Modelo `TextoPadraoDespacho` (categoria, perfil, corpo, ativo)
-- Tela de gestão (Protocolo / admin)
-- Integração nos formulários (`FormularioTramitacao`, despacho Protocolo)
+**Escopo implementado (jul/2026):**
 
-**Critério de pronto:** operador escolhe modelo, edita e assina; trilha de auditoria.
+- Modelo `TextoPadraoDespacho` + migrations `0077`–`0079` (M2M setores; categorias simplificadas)
+- **Duas famílias de categoria** (sem matriz por tipo de formulário):
+  - **PROTOCOLO** — despacho inicial e final (protocolo → secretaria/vereador/câmara)
+  - **OPERACIONAL** — tramitações secretaria ↔ setores
+- Picker e CRUD filtram **só a categoria do perfil logado** (gestor geral vê ambas)
+- Escopo automático por perfil: Protocolo → setor protocolo; Secretaria → órgão/setor; Gestor setorial → setores vinculados; Gestor geral → uso geral
+- Seleção explícita de setor(es) quando o usuário tem múltiplas UAs
+- Serviço `texto_padrao_despacho_service.py`: visibilidade, placeholders, `contexto_demanda` (`protocolo_executivo_efetivo`, autor, prazo)
+- API `/api/textos-padrao-despacho/` (CRUD + `aplicar/` + `meta-criacao/`)
+- Tela **Operação → Textos padrão** (`TextosPadraoDespachoView.vue`) com biblioteca de placeholders clicáveis
+- Integração via `DescricaoTramitacaoEditor` + `PlaceholdersTextoPadraoChips` nos formulários de tramitação
+- Correção placeholders: `demanda-id` + contexto completo ao abrir despacho/devolutiva pela lista
+- Testes: `test_texto_padrao_despacho.py`
 
-**Status:** não iniciado — priorizar após Tarefa 3 se necessário para piloto operacional.
+**Fora de escopo (futuro):** textos automáticos de envio vereador/câmara → protocolo (matriz gestor geral).
+
+**Critério de pronto:** operador escolhe modelo ou cria na hora, placeholders preenchidos na aplicação, edita no Editor e assina.
+
+**Evidências:** `manage.py check` · `npm run build` · migrations `0077`–`0079`
 
 ---
 
-## 3. Gestão Cluster — Super OS manual ⏭
+## 3. Gestão Cluster — Super OS manual ⏸
+
+**Status:** adiada — prioridade para Fase 5 (Copiloto Indicações).
 
 **Objetivo:** Interface para usuários operacionais (Secretaria, Gestor) **criar manualmente** Super OS / agrupar demandas, além do fluxo automático (~300 m).
 
@@ -75,7 +90,9 @@
 
 ---
 
-## 4. Análise base legada × carta Sinapse
+## 4. Análise base legada × carta Sinapse ⏸
+
+**Status:** adiada — prioridade para Fase 5 (Copiloto Indicações).
 
 **Objetivo:** Importar/comparar base histórica de serviços (gestão anterior) com `CatalogServico` Sinapse; definir **prioridades e sinônimos** no Copiloto/triagem.
 
@@ -88,7 +105,9 @@
 
 ---
 
-## 5. Copiloto Indicações — classificação semântica × carta
+## 5. Copiloto Indicações — classificação semântica × carta 🔄
+
+**Status:** em andamento (jul/2026).
 
 **Objetivo:** Indicações legislativas devem se comportar como **Ofícios** na triagem semântica do Copiloto: se a descrição reconhecer um serviço presente na carta Sinapse, **classificar e vincular**; se não estiver na carta, registrar como **tendência** — com exceções para pedidos de estudo, ações, implantações ou revitalizações em larga escala.
 

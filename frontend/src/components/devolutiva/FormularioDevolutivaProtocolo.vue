@@ -4,10 +4,10 @@ import Checkbox from 'primevue/checkbox';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Divider from 'primevue/divider';
-import Editor from 'primevue/editor';
 import FileUpload from 'primevue/fileupload';
 import Message from 'primevue/message';
 import Tag from 'primevue/tag';
+import DescricaoTramitacaoEditor from '@/components/tramitacao/DescricaoTramitacaoEditor.vue';
 import DestinosTramitacaoEditor from '@/components/tramitacao/DestinosTramitacaoEditor.vue';
 import { computed, onMounted, ref, watch } from 'vue';
 import { MODO_DESPACHO } from '@/constants/tramitacaoFormulario';
@@ -18,6 +18,7 @@ import ApiService from '@/service/ApiService';
 const props = defineProps({
     modelValue: { type: Object, required: true },
     demandaId: { type: [Number, String], required: true },
+    demandaContext: { type: Object, default: () => ({}) },
     orgaos: { type: Array, default: () => [] },
     usaFluxoOperacional: { type: Boolean, default: false },
     historicoTecnico: { type: Object, default: null },
@@ -44,6 +45,10 @@ function patch(partial, { invalidate = false } = {}) {
 }
 
 const orgaosIntegraveisAlerta = computed(() => props.orgaos || []);
+
+const contextoResposta = computed(() =>
+    props.usaFluxoOperacional ? 'conclusao_final' : 'devolutiva'
+);
 
 const editorAlertaRef = ref(null);
 
@@ -212,9 +217,12 @@ const eventosHistoricoExibicao = computed(() =>
         </div>
 
         <div>
-            <label class="block mb-2 font-semibold">Resposta Final</label>
-            <Editor
+            <DescricaoTramitacaoEditor
                 :model-value="form.parecer_resposta"
+                label="Resposta Final"
+                :contexto="contextoResposta"
+                :demanda-id="demandaId"
+                :demanda-context="demandaContext"
                 editor-style="min-height: 220px"
                 @update:model-value="patch({ parecer_resposta: $event }, { invalidate: true })"
             />

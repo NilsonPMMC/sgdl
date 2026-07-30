@@ -24,6 +24,7 @@ import {
 import { payloadDespachoDestinos, buildDevolutivaPayload, estadoFormularioDevolutiva } from '@/utils/protocoloFormData';
 import { filtrarArquivosDuplicados, mensagemAnexosRejeitados } from '@/utils/anexoValidacao';
 import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
+import { buildContextoPlaceholders } from '@/constants/textoPadraoDespacho';
 import FormularioTramitacao from '@/components/tramitacao/FormularioTramitacao.vue';
 import FormularioDevolutivaProtocolo from '@/components/devolutiva/FormularioDevolutivaProtocolo.vue';
 import DialogAssinaturaEletronica from '@/components/tramitacao/DialogAssinaturaEletronica.vue';
@@ -98,6 +99,14 @@ const clustersFiltro = ref([]);
 const aprovacaoDialog = ref(false);
 const devolutivaDialog = ref(false);
 const demandaParaDevolutiva = ref(null);
+const devolutivaDemandaContext = computed(() => {
+    const d = demandaParaDevolutiva.value;
+    return d ? buildContextoPlaceholders(d) : {};
+});
+const despachoDemandaContext = computed(() => {
+    const d = demandaParaDespacho.value;
+    return d ? buildContextoPlaceholders(d) : {};
+});
 const formDevolutiva = ref(estadoFormularioDevolutiva());
 const formDevolutivaRef = ref(null);
 const devolutivaPreview = ref(null);
@@ -1231,7 +1240,16 @@ const invalidarPreviewDevolutiva = () => {
 };
 
 const abrirDialogoDespachoInterno = async (demanda) => {
-    demandaParaDespacho.value = demanda;
+    let demandaCtx = demanda;
+    if (demanda?.id && !demanda.autor) {
+        try {
+            const { data } = await ApiService.getDemandaById(demanda.id);
+            demandaCtx = { ...demanda, ...data };
+        } catch {
+            /* mantém resumo da lista */
+        }
+    }
+    demandaParaDespacho.value = demandaCtx;
     formDespacho.value = estadoFormularioTramitacao({
         destinos: inicializarDestinosDespacho(orgaoCompetenteDespacho.value)
     });
@@ -1440,7 +1458,16 @@ const confirmarDespachoSuperOs = async () => {
 };
 
 const abrirDialogoDevolutiva = async (demanda) => {
-    demandaParaDevolutiva.value = demanda;
+    let demandaCtx = demanda;
+    if (demanda?.id && !demanda.autor) {
+        try {
+            const { data } = await ApiService.getDemandaById(demanda.id);
+            demandaCtx = { ...demanda, ...data };
+        } catch {
+            /* mantém resumo da lista */
+        }
+    }
+    demandaParaDevolutiva.value = demandaCtx;
     formDevolutiva.value = estadoFormularioDevolutiva();
     invalidarPreviewDevolutiva();
     await carregarOrgaos();
@@ -2386,6 +2413,8 @@ async function tentarEnvioLoteDaQuery() {
                             v-model="formDespacho"
                             :modo="MODO_DESPACHO"
                             layout="dialog"
+                            :demanda-id="demandaParaDespacho?.id"
+                            :demanda-context="despachoDemandaContext"
                             :exibir-assinatura-formulario="false"
                             :orgaos="orgaosCatalogo"
                             :orgao-competente-id="orgaoCompetenteDespacho"
@@ -2449,6 +2478,7 @@ async function tentarEnvioLoteDaQuery() {
                             ref="formDevolutivaRef"
                             v-model="formDevolutiva"
                             :demanda-id="demandaParaDevolutiva.id"
+                            :demanda-context="devolutivaDemandaContext"
                             :orgaos="orgaosCatalogo"
                             :usa-fluxo-operacional="Boolean(demandaParaDevolutiva.fluxo_roteamento)"
                             :preview-ativa="Boolean(devolutivaPreview?.hash_documento)"
