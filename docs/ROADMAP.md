@@ -2,7 +2,7 @@
 
 Painel único de **status e prioridades**. O detalhamento por fase de produto está em [ROADMAP_PRODUTO.md](ROADMAP_PRODUTO.md).
 
-**Atualizado:** 2026-06-18 · **Gate piloto:** **GO condicional** (Onda B em andamento) · Meta piloto: **2ª quinzena jun/2026**
+**Atualizado:** 2026-06-22 · **Gate piloto:** **GO condicional** (Onda B em andamento) · Meta piloto: **2ª quinzena jun/2026**
 
 > **Roadmap limpo de ajustes (jun/2026):** [ROADMAP-AJUSTES-HOMOLOGACAO-JUN2026.md](ROADMAP-AJUSTES-HOMOLOGACAO-JUN2026.md) — consolida entregas dev, revalidações P0 e ondas C/D/E para validação.
 
@@ -37,6 +37,7 @@ Painel único de **status e prioridades**. O detalhamento por fase de produto es
 | **Revisão assessor (P2)** | **Removido** | Rascunho pós-Copiloto substitui etapa formal (migração `0056`) |
 | **Onda 2 (P1–P14)** | **Concluída** | Polimento UX e regras operacionais |
 | **Cluster / Super OS v2** | **~ homologação** | Mesmo serviço + 300 m + coorte AUTO + UX por perfil |
+| **Geocodificação endereço (MC)** | **OK** | Fases 1–3 + pin arrastável — [geocodificacao-endereco-mogi.md](especificacoes/geocodificacao-endereco-mogi.md) |
 | **Stand-by estudo/viabilidade** | **Fase 1 OK** | Registro na conclusão secretaria; fila executivo — ver [estudo-viabilidade-stand-by.md](especificacoes/estudo-viabilidade-stand-by.md) |
 
 > Tramitação **100% no SGDL** — integração SEI/1Doc removida (migração `0049`).

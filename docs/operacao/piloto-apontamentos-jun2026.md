@@ -37,7 +37,7 @@
 | **Backlog** | **B1** |
 | **Refs. técnicas** | `backend/core/views_geocoding.py`; componentes de endereço no Copiloto e formulário de demanda |
 | **Ação sugerida** | Auditar provedor geocoding (Nominatim/OSM ou equivalente); ampliar normalização (`logradouro`, sem acento, abreviações); fallback manual claro; amostra de 10 endereços reais de MC |
-| **Status dev** | **[~] Implementado em dev (2026-06-13)** — `GET /api/v1/geocoding/logradouros/` + AutoComplete em `DemandaForm.vue`; validar 10 endereços reais MC em homologação |
+| **Status dev** | **[x] Concluído (2026-06-22)** — Fases 1–3 geocodificação MC: normalização, autocomplete, base local de vias, pin arrastável, persistência `ajuste_mapa`. Doc: [geocodificacao-endereco-mogi.md](../especificacoes/geocodificacao-endereco-mogi.md). Validar amostra 10 endereços reais MC em homologação. |
 
 ---
 

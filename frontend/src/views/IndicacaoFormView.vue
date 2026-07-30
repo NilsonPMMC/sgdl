@@ -30,6 +30,7 @@ import {
     mensagemAnexosRejeitados,
     nomeAnexoSalvo
 } from '@/utils/anexoValidacao';
+import { aplicarAjusteManualMapa, vincularMarcadorArrastavel } from '@/utils/mapaLocalAjustavel';
 
 const toast = useToast();
 const router = useRouter();
@@ -166,10 +167,14 @@ const labelFonteGeo = (fonte) => {
         logradouro: 'Logradouro',
         viacep_logradouro: 'ViaCEP + logradouro',
         aproximada: 'Referência aproximada',
+        ajuste_mapa: 'Ajuste manual no mapa',
+        gps_dispositivo: 'GPS do dispositivo',
         indisponivel: 'Indisponível'
     };
     return mapa[fonte] || fonte;
 };
+
+const onMarkerDragEnd = (evento) => aplicarAjusteManualMapa(evento, demanda, fonteGeocodificacao, ApiService, toast);
 
 const initMap = (coords) => {
     nextTick(() => {
@@ -195,8 +200,9 @@ const updateMarker = (coords) => {
     if (marker.value) {
         marker.value.setLatLng(coords);
     } else {
-        marker.value = L.marker(coords, { icon: defaultIcon, draggable: false }).addTo(map.value);
+        marker.value = L.marker(coords, { icon: defaultIcon, draggable: true }).addTo(map.value);
     }
+    vincularMarcadorArrastavel(marker, onMarkerDragEnd);
     map.value.setView(coords, 17);
 };
 
@@ -775,6 +781,9 @@ const removerAnexo = async (anexoId, index) => {
                     id="indicacao-map"
                     class="h-[350px] w-full rounded-md border border-[var(--surface-border)]"
                 />
+                <p v-if="showMap" class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">
+                    Arraste o pin para o local exato no mapa.
+                </p>
                 <p v-if="!showMap" class="m-0 text-sm text-[var(--text-color-secondary)]">
                     Clique em «Atualizar mapa» após preencher o endereço para conferir a localização.
                 </p>

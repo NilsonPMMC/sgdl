@@ -11,8 +11,11 @@ import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
 import Select from 'primevue/select';
 import InputText from 'primevue/inputtext';
+import AutoComplete from 'primevue/autocomplete';
+import InputMask from 'primevue/inputmask';
 import CopilotoContextoPainel from '@/components/copiloto/CopilotoContextoPainel.vue';
 import CopilotoIndicacaoCampos from '@/components/copiloto/CopilotoIndicacaoCampos.vue';
+import MapaLocalAjustavel from '@/components/mapa/MapaLocalAjustavel.vue';
 import {
     filtrarArquivosDuplicados,
     mensagemAnexosRejeitados,
@@ -266,15 +269,6 @@ function rotuloHintHistorico(hint) {
     const rotulo = (hint?.atalho_sugerido || hint?.servico_legado || 'Pedido').trim();
     const rank = hint?.ranking ? `${hint.ranking}º — ` : '';
     return `${rank}${rotulo}`;
-}
-
-function urlMapaMini(lat, lng) {
-    const la = Number(lat);
-    const lo = Number(lng);
-    if (Number.isNaN(la) || Number.isNaN(lo)) return null;
-    const pad = 0.004;
-    const bbox = `${lo - pad},${la - pad},${lo + pad},${la + pad}`;
-    return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${la},${lo}`;
 }
 
 const temDemandaForaCompetencia = computed(() =>
@@ -829,6 +823,195 @@ function usarLocalizacaoAtual(indiceDemanda) {
     );
 }
 
+async function ajustarMapaCopiloto(indiceDemanda, { latitude, longitude }) {
+    if (!sessionId.value) return;
+
+    const lista = [...demandasExtraidas.value];
+    const atual = lista[indiceDemanda];
+    if (atual) {
+        lista[indiceDemanda] = {
+            ...atual,
+            latitude,
+            longitude,
+            coordenadas_fonte: 'ajuste_mapa',
+            coordenadas_observacao: 'Ponto ajustado manualmente no mapa.'
+        };
+        demandasExtraidas.value = lista;
+    }
+
+    carregando.value = true;
+    try {
+        const { data } = await ApiService.atualizarLocalizacaoCopiloto({
+            session_id: sessionId.value,
+            indice_demanda: indiceDemanda,
+            latitude,
+            longitude,
+            fonte: 'ajuste_mapa',
+            confirmar_local: false
+        });
+        aplicarRespostaCopiloto(data, {
+            limparRevisao:
+                revisaoAtiva.value?.etapa === 'local' &&
+                revisaoAtiva.value?.indiceDemanda === indiceDemanda
+        });
+        const d = data.demandas_extraidas?.[indiceDemanda];
+        if (d?.latitude != null && d?.longitude != null) {
+            toast.add({
+                severity: 'info',
+                summary: 'Mapa',
+                detail: `Ponto ajustado (${Number(d.latitude).toFixed(6)}, ${Number(d.longitude).toFixed(6)}). Confirme o local quando estiver correto.`,
+                life: 4000
+            });
+        }
+    } catch (err) {
+        toast.add({
+            severity: 'error',
+            summary: 'Mapa',
+            detail: String(err?.response?.data?.detail || err?.message || 'Falha ao ajustar o ponto'),
+            life: 5000
+        });
+    } finally {
+        carregando.value = false;
+    }
+}
+
+/** Formulário estruturado de endereço (Fase 2 — autocomplete alinhado ao DemandaForm). */
+const enderecoFormCopiloto = ref({});
+const sugLogradourosCopiloto = ref([]);
+const buscandoLogradourosCopiloto = ref(false);
+const indiceAutocompleteLogradouro = ref(0);
+let debounceLogradouroCopiloto = null;
+
+function obterFormEnderecoCopiloto(indice) {
+    const atual = enderecoFormCopiloto.value[indice];
+    const d = demandasExtraidas.value[indice];
+    const end = d?.endereco && typeof d.endereco === 'object' ? d.endereco : {};
+    const snapshot = {
+        cep: end.cep || '',
+        logradouro: end.logradouro || '',
+        bairro: end.bairro || '',
+        numero: end.numero || '',
+    };
+    if (!atual) {
+        enderecoFormCopiloto.value = { ...enderecoFormCopiloto.value, [indice]: { ...snapshot } };
+        return enderecoFormCopiloto.value[indice];
+    }
+    const mudou =
+        (atual.logradouro || '') !== (snapshot.logradouro || '') ||
+        (atual.bairro || '') !== (snapshot.bairro || '') ||
+        (atual.cep || '') !== (snapshot.cep || '');
+    if (mudou && !carregando.value) {
+        enderecoFormCopiloto.value = {
+            ...enderecoFormCopiloto.value,
+            [indice]: { ...atual, ...snapshot },
+        };
+    }
+    return enderecoFormCopiloto.value[indice];
+}
+
+function searchLogradouroCopiloto(event, indice) {
+    indiceAutocompleteLogradouro.value = indice;
+    const termo = (event.query || '').trim();
+    if (debounceLogradouroCopiloto) {
+        clearTimeout(debounceLogradouroCopiloto);
+    }
+    if (termo.length < 3) {
+        sugLogradourosCopiloto.value = [];
+        return;
+    }
+    const form = obterFormEnderecoCopiloto(indice);
+    debounceLogradouroCopiloto = setTimeout(async () => {
+        buscandoLogradourosCopiloto.value = true;
+        try {
+            const bairro = (form.bairro || '').trim() || null;
+            const { data } = await ApiService.buscarLogradouros(termo, bairro);
+            sugLogradourosCopiloto.value = data.resultados || [];
+        } catch {
+            sugLogradourosCopiloto.value = [];
+        } finally {
+            buscandoLogradourosCopiloto.value = false;
+        }
+    }, 350);
+}
+
+function onLogradouroSelecionadoCopiloto(event, indice) {
+    const item = event.value;
+    if (!item || typeof item === 'string') return;
+    const form = obterFormEnderecoCopiloto(indice);
+    form.logradouro = item.logradouro || item.label || form.logradouro;
+    if (item.bairro) form.bairro = item.bairro;
+    if (item.cep) form.cep = item.cep;
+}
+
+async function buscarCepCopiloto(indice) {
+    const form = obterFormEnderecoCopiloto(indice);
+    const cepLimpo = form.cep ? String(form.cep).replace(/\D/g, '') : '';
+    if (cepLimpo.length !== 8) return;
+    try {
+        const { data } = await ApiService.buscarCepGeocoding(cepLimpo);
+        form.logradouro = data.logradouro || form.logradouro;
+        form.bairro = data.bairro || form.bairro;
+        form.cep = data.cep || form.cep;
+        toast.add({
+            severity: 'success',
+            summary: 'CEP',
+            detail: 'Logradouro e bairro preenchidos via ViaCEP.',
+            life: 3000,
+        });
+    } catch (err) {
+        toast.add({
+            severity: 'error',
+            summary: 'CEP',
+            detail: String(err?.response?.data?.detail || 'CEP não encontrado.'),
+            life: 3500,
+        });
+    }
+}
+
+async function aplicarEnderecoCopiloto(indice) {
+    if (!sessionId.value || carregando.value) return;
+    const form = obterFormEnderecoCopiloto(indice);
+    const logr = (form.logradouro || '').trim();
+    const bairro = (form.bairro || '').trim();
+    const cep = (form.cep || '').trim();
+    if (!logr && !bairro && cep.replace(/\D/g, '').length < 8) {
+        toast.add({
+            severity: 'warn',
+            summary: 'Endereço',
+            detail: 'Informe CEP ou logradouro com bairro.',
+            life: 4000,
+        });
+        return;
+    }
+    carregando.value = true;
+    try {
+        const { data } = await ApiService.editarLocalCopiloto({
+            session_id: sessionId.value,
+            indice_demanda: indice,
+            endereco: {
+                cep: cep || undefined,
+                logradouro: logr || undefined,
+                bairro: bairro || undefined,
+                numero: (form.numero || '').trim() || undefined,
+            },
+        });
+        aplicarRespostaCopiloto(data, {
+            limparRevisao:
+                revisaoAtiva.value?.etapa === 'local' &&
+                revisaoAtiva.value?.indiceDemanda === indice,
+        });
+    } catch (err) {
+        toast.add({
+            severity: 'error',
+            summary: 'Endereço',
+            detail: String(err?.response?.data?.detail || err?.message || 'Falha ao aplicar endereço.'),
+            life: 5000,
+        });
+    } finally {
+        carregando.value = false;
+    }
+}
+
 function indicesAprovadosParaFinalizar() {
     const lista = demandasExtraidas.value;
     if (lista.length <= 1) {
@@ -1077,12 +1260,6 @@ const temAnexosSalvosNaSessao = computed(() =>
     demandasExtraidas.value.some((_, i) => anexosSalvosDemanda(i).length > 0)
 );
 
-const demandasComLocalInferido = computed(() => {
-    const idxRev =
-        revisaoAtiva.value?.etapa === 'local' ? revisaoAtiva.value.indiceDemanda : null;
-    return demandasEscopoLocal.value.filter(({ d }) => demandaPodeConfirmarLocal(d));
-});
-
 const demandasEscopoLocal = computed(() => {
     const idxRev =
         revisaoAtiva.value?.etapa === 'local' ? revisaoAtiva.value.indiceDemanda : null;
@@ -1106,6 +1283,21 @@ const demandasEscopoLocal = computed(() => {
         );
     }
     return base;
+});
+
+const indiceDemandaGps = computed(() => {
+    if (revisaoAtiva.value?.etapa === 'local') {
+        return revisaoAtiva.value.indiceDemanda;
+    }
+    return demandasEscopoLocal.value[0]?.i ?? 0;
+});
+
+const labelGpsCopiloto = computed(() => {
+    const idx = indiceDemandaGps.value;
+    if (demandasExtraidas.value.length > 1) {
+        return `Usar minha localização (solicitação ${idx + 1})`;
+    }
+    return 'Usar minha localização';
 });
 
 const indiceDemandaRevisaoAnexos = computed(() =>
@@ -2260,52 +2452,23 @@ novaConversa();
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
                                 <template v-if="isModoIndicacao">
-                                    Informe CEP, rua com bairro, nome do parque ou use a localização do aparelho,
+                                    Informe logradouro, bairro e CEP (recomendado), use a localização do aparelho
                                     ou continue sem local se a indicação não tiver endereço específico.
                                 </template>
                                 <template v-else>
-                                    Informe CEP, rua com bairro, nome do parque ou use a localização do aparelho.
-                                    Só o bairro também vale (ex.: «bairro Centro»).
+                                    Use o formulário abaixo (CEP recomendado), a mensagem de chat,
+                                    GPS ou «Continuar sem local». O fluxo não trava se o mapa não
+                                    localizar o ponto com precisão.
                                 </template>
                             </p>
-                            <div
-                                v-for="{ d, i } in demandasEscopoLocal"
-                                :key="`map-${i}`"
-                                class="mb-3"
-                            >
-                                <div
-                                    v-if="d.latitude != null && d.longitude != null && urlMapaMini(d.latitude, d.longitude)"
-                                    class="overflow-hidden rounded-lg border border-[var(--surface-border)]"
-                                >
-                                    <iframe
-                                        :title="`Mapa solicitação ${i + 1}`"
-                                        class="h-36 w-full border-0"
-                                        loading="lazy"
-                                        :src="urlMapaMini(d.latitude, d.longitude)"
-                                    />
-                                </div>
-                            </div>
-                            <div class="flex flex-wrap gap-2">
+                            <div class="mb-3 flex flex-wrap gap-2">
                                 <Button
-                                    v-for="{ d, i } in demandasComLocalInferido"
-                                    :key="`conf-local-${i}`"
-                                    :label="
-                                        demandasExtraidas.length > 1
-                                            ? `Confirmar local (solicitação ${i + 1})`
-                                            : 'Confirmar local'
-                                    "
-                                    icon="pi pi-check"
-                                    :disabled="carregando"
-                                    @click="confirmarLocalDemanda(i)"
-                                />
-                                <Button
-                                    v-if="demandasEscopoLocal.length === 1 || revisaoAtiva?.etapa === 'local' || isModoIndicacao"
-                                    label="Usar minha localização"
+                                    :label="labelGpsCopiloto"
                                     icon="pi pi-map"
                                     severity="secondary"
                                     outlined
                                     :disabled="carregando"
-                                    @click="usarLocalizacaoAtual(revisaoAtiva?.etapa === 'local' ? revisaoAtiva.indiceDemanda : demandasEscopoLocal[0]?.i ?? 0)"
+                                    @click="usarLocalizacaoAtual(indiceDemandaGps)"
                                 />
                                 <Button
                                     label="Continuar sem local"
@@ -2313,6 +2476,151 @@ novaConversa();
                                     text
                                     :disabled="carregando"
                                     @click="enviarMensagem('continuar sem local')"
+                                />
+                            </div>
+                            <div
+                                v-for="{ d, i } in demandasEscopoLocal"
+                                :key="`endereco-${i}`"
+                                class="mb-3 flex flex-col gap-2"
+                            >
+                                <p
+                                    v-if="demandasEscopoLocal.length > 1"
+                                    class="m-0 text-xs font-medium text-[var(--text-color-secondary)]"
+                                >
+                                    Solicitação {{ i + 1 }}
+                                </p>
+                                <div
+                                    class="grid grid-cols-1 gap-3 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3 sm:grid-cols-12"
+                                >
+                                    <div class="sm:col-span-3">
+                                        <label
+                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
+                                            :for="`copiloto-cep-${i}`"
+                                        >
+                                            CEP
+                                        </label>
+                                        <InputMask
+                                            :id="`copiloto-cep-${i}`"
+                                            v-model="obterFormEnderecoCopiloto(i).cep"
+                                            mask="99999-999"
+                                            placeholder="99999-999"
+                                            class="w-full"
+                                            :disabled="carregando"
+                                            @blur="buscarCepCopiloto(i)"
+                                        />
+                                    </div>
+                                    <div class="sm:col-span-9">
+                                        <label
+                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
+                                            :for="`copiloto-logr-${i}`"
+                                        >
+                                            Logradouro
+                                        </label>
+                                        <AutoComplete
+                                            :id="`copiloto-logr-${i}`"
+                                            v-model="obterFormEnderecoCopiloto(i).logradouro"
+                                            :suggestions="sugLogradourosCopiloto"
+                                            optionLabel="label"
+                                            :loading="buscandoLogradourosCopiloto && indiceAutocompleteLogradouro === i"
+                                            placeholder="Mín. 3 letras (vias de Mogi das Cruzes)"
+                                            class="w-full"
+                                            inputClass="w-full"
+                                            :disabled="carregando"
+                                            @complete="searchLogradouroCopiloto($event, i)"
+                                            @item-select="onLogradouroSelecionadoCopiloto($event, i)"
+                                        />
+                                    </div>
+                                    <div class="sm:col-span-3">
+                                        <label
+                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
+                                            :for="`copiloto-num-${i}`"
+                                        >
+                                            Número
+                                        </label>
+                                        <InputText
+                                            :id="`copiloto-num-${i}`"
+                                            v-model="obterFormEnderecoCopiloto(i).numero"
+                                            class="w-full"
+                                            :disabled="carregando"
+                                        />
+                                    </div>
+                                    <div class="sm:col-span-6">
+                                        <label
+                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
+                                            :for="`copiloto-bairro-${i}`"
+                                        >
+                                            Bairro
+                                        </label>
+                                        <InputText
+                                            :id="`copiloto-bairro-${i}`"
+                                            v-model="obterFormEnderecoCopiloto(i).bairro"
+                                            class="w-full"
+                                            :disabled="carregando"
+                                        />
+                                    </div>
+                                    <div class="flex items-end sm:col-span-3">
+                                        <Button
+                                            label="Aplicar endereço"
+                                            icon="pi pi-check"
+                                            size="small"
+                                            class="w-full"
+                                            :loading="carregando"
+                                            @click="aplicarEnderecoCopiloto(i)"
+                                        />
+                                    </div>
+                                </div>
+                                <div
+                                    v-if="d.endereco_resumo"
+                                    class="rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2 text-sm text-[var(--text-color)]"
+                                >
+                                    <span class="text-xs font-semibold text-[var(--text-color-secondary)]">
+                                        Endereço identificado:
+                                    </span>
+                                    {{ d.endereco_resumo }}
+                                </div>
+                                <Message
+                                    v-if="d.geocode_alerta"
+                                    severity="warn"
+                                    :closable="false"
+                                    class="m-0 text-xs"
+                                >
+                                    {{ d.geocode_alerta }}
+                                </Message>
+                                <p
+                                    v-else-if="d.coordenadas_observacao && d.latitude != null && d.longitude != null"
+                                    class="m-0 text-xs text-[var(--text-color-secondary)]"
+                                >
+                                    {{ d.coordenadas_observacao }}
+                                </p>
+                                <p
+                                    v-if="d.latitude != null && d.longitude != null"
+                                    class="m-0 text-xs text-[var(--text-color-secondary)]"
+                                >
+                                    Coordenadas: {{ Number(d.latitude).toFixed(6) }},
+                                    {{ Number(d.longitude).toFixed(6) }}
+                                </p>
+                                <MapaLocalAjustavel
+                                    v-if="d.latitude != null && d.longitude != null"
+                                    :key="`copiloto-mapa-${i}-${d.latitude}-${d.longitude}`"
+                                    :map-id="`copiloto-mapa-${i}`"
+                                    :latitude="Number(d.latitude)"
+                                    :longitude="Number(d.longitude)"
+                                    height="9rem"
+                                    :zoom="17"
+                                    :draggable="!carregando"
+                                    @ajustado="(coords) => ajustarMapaCopiloto(i, coords)"
+                                />
+                                <Button
+                                    v-if="demandaPodeConfirmarLocal(d)"
+                                    :label="
+                                        demandasExtraidas.length > 1
+                                            ? `Confirmar local (solicitação ${i + 1})`
+                                            : 'Confirmar local'
+                                    "
+                                    icon="pi pi-check"
+                                    class="self-start"
+                                    :disabled="carregando"
+                                    @click="confirmarLocalDemanda(i)"
                                 />
                             </div>
                         </div>
@@ -2484,14 +2792,7 @@ novaConversa();
                                     :disabled="carregando"
                                     @click="demandasParaAprovacaoFinal.length > 1 ? finalizarComAprovacao() : enviarMensagem('sim')"
                                 />
-                                <Button
-                                    label="Finalizar"
-                                    icon="pi pi-flag"
-                                    severity="success"
-                                    outlined
-                                    :disabled="carregando"
-                                    @click="finalizarComAprovacao"
-                                />
+
                                 <Button
                                     label="Não"
                                     icon="pi pi-times"

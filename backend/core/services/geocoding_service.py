@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import threading
@@ -11,6 +10,16 @@ from typing import Any
 
 import requests
 from django.conf import settings
+
+from core.services.endereco_normalizacao import (
+    chave_endereco_canonica,
+    coordenadas_elegiveis_cluster,
+    endereco_minimo_para_geocode,
+    filtrar_coordenadas_para_persistencia,
+    normalizar_bairro,
+    normalizar_logradouro,
+    variantes_tipo_via_logradouro,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +65,7 @@ class GeocodingService:
             getattr(settings, "GEOCODING_NOMINATIM_MIN_INTERVAL", 1.1)
         )
         self._cache_ttl = int(getattr(settings, "GEOCODING_CACHE_TTL", 86400))
-        self._max_variantes_via = int(getattr(settings, "GEOCODING_MAX_VARIANTES_VIA", 2))
+        self._max_variantes_via = int(getattr(settings, "GEOCODING_MAX_VARIANTES_VIA", 4))
         self._429_backoff_seconds = int(
             getattr(settings, "GEOCODING_NOMINATIM_429_BACKOFF", 90)
         )
@@ -86,6 +95,43 @@ class GeocodingService:
                 return lat, lng, "logradouro"
             return lat, lng, "cep"
         return lat, lng, fonte_busca
+
+    def resolver_endereco_geocode(
+        self,
+        logradouro: str | None,
+        bairro: str | None,
+        cep: str | None,
+    ) -> dict[str, Any]:
+        """
+        Geocode com normalização, enriquecimento reverso e gate para persistência/cluster.
+        """
+        logr = normalizar_logradouro(logradouro)
+        bai = normalizar_bairro(bairro)
+        cep_val = (cep or "").strip() or None
+
+        lat, lng, fonte = self.buscar_coordenadas_com_fonte(logr, bai, cep_val)
+        if lat is not None:
+            rev = self.buscar_endereco_por_coordenadas(float(lat), float(lng))
+            if rev:
+                logr = logr or normalizar_logradouro(rev.get("logradouro"))
+                bai = bai or normalizar_bairro(rev.get("bairro"))
+                cep_val = cep_val or rev.get("cep")
+
+        lat_p, lng_p, fonte_p = filtrar_coordenadas_para_persistencia(
+            lat, lng, fonte, logr, bai
+        )
+
+        return {
+            "logradouro": logr or None,
+            "bairro": bai or None,
+            "cep": cep_val,
+            "latitude": lat_p,
+            "longitude": lng_p,
+            "fonte": fonte_p if lat_p is not None else (fonte or "indisponivel"),
+            "latitude_bruta": lat,
+            "longitude_bruta": lng,
+            "fonte_bruta": fonte,
+        }
 
     def buscar_endereco_por_coordenadas(
         self, latitude: float, longitude: float
@@ -233,6 +279,19 @@ class GeocodingService:
         if cached is not None:
             return cached
 
+        if logr and bai:
+            from core.services.via_referencia_service import ViaReferenciaService
+
+            ref = ViaReferenciaService().buscar(logr, bai, cep_fmt or cep_limpo)
+            if ref and ref.latitude is not None and ref.longitude is not None:
+                resultado = (
+                    float(ref.latitude),
+                    float(ref.longitude),
+                    "via_referencia_local",
+                )
+                self._geo_cache_set(cache_key, resultado)
+                return resultado
+
         logr_sujo = bool(logr and _LOGRADOURO_SUJO_RE.search(logr))
         if logr_sujo:
             logr = None
@@ -274,6 +333,17 @@ class GeocodingService:
             if coords[0] is not None:
                 resultado = (coords[0], coords[1], fonte)
                 self._geo_cache_set(cache_key, resultado)
+                if logr and bai:
+                    from core.services.via_referencia_service import ViaReferenciaService
+
+                    ViaReferenciaService().registrar_de_geocode(
+                        logr,
+                        bai,
+                        cep_fmt or cep_limpo,
+                        coords[0],
+                        coords[1],
+                        fonte_osm=fonte,
+                    )
                 return resultado
 
         return None, None, "indisponivel"
@@ -283,15 +353,23 @@ class GeocodingService:
         logradouro: str | None, bairro: str | None, cep: str | None
     ) -> str:
         """Chave estável para reutilizar coordenadas já calculadas no rascunho."""
-        cep_limpo = re.sub(r"\D", "", (cep or "").strip())
-        logr = (logradouro or "").strip()
-        bai = (bairro or "").strip()
-        return GeocodingService._cache_key_endereco(logr, bai, cep_limpo)
+        return chave_endereco_canonica(logradouro, bairro, cep)
+
+    @staticmethod
+    def coordenadas_elegiveis_cluster(
+        latitude: float | None,
+        longitude: float | None,
+        fonte: str | None,
+        logradouro: str | None,
+        bairro: str | None,
+    ) -> bool:
+        return coordenadas_elegiveis_cluster(
+            latitude, longitude, fonte, logradouro, bairro
+        )
 
     @staticmethod
     def _cache_key_endereco(logr: str, bai: str, cep_limpo: str) -> str:
-        raw = f"{cep_limpo}|{logr.lower().strip()}|{bai.lower().strip()}"
-        return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
+        return chave_endereco_canonica(logr, bai, cep_limpo)
 
     def _geo_cache_get(
         self, key: str
@@ -321,8 +399,8 @@ class GeocodingService:
         cep: str | None,
     ) -> tuple[str, str, str, str, bool]:
         """Normaliza CEP/logradouro/bairro; retorna (logr, bai, cep_fmt, cep_limpo, usou_viacep)."""
-        logr = (logradouro or "").strip()
-        bai = (bairro or "").strip()
+        logr = normalizar_logradouro(logradouro)
+        bai = normalizar_bairro(bairro)
         cep_limpo = re.sub(r"\D", "", (cep or "").strip())
         cep_fmt = (
             f"{cep_limpo[:5]}-{cep_limpo[5:8]}" if len(cep_limpo) >= 8 else ""
@@ -334,9 +412,9 @@ class GeocodingService:
             if dados:
                 via_viacep = True
                 if dados.get("logradouro"):
-                    logr = dados["logradouro"].strip()
+                    logr = normalizar_logradouro(dados["logradouro"].strip())
                 if dados.get("bairro"):
-                    bai = dados["bairro"].strip()
+                    bai = normalizar_bairro(dados["bairro"].strip())
                 localidade = (dados.get("localidade") or "").strip()
                 uf = (dados.get("uf") or "").strip()
                 if localidade and localidade.lower() != self.cidade.lower():
@@ -353,8 +431,8 @@ class GeocodingService:
 
     @staticmethod
     def _variantes_logradouro(logradouro: str) -> list[str]:
-        """Gera nomes de via progressivamente mais curtos (OSM costuma abreviar)."""
-        logr = logradouro.strip()
+        """Gera variantes enxutas e Av./Avenida compatíveis com OSM."""
+        logr = normalizar_logradouro(logradouro)
         if not logr:
             return []
 
@@ -371,7 +449,8 @@ class GeocodingService:
             vistos.add(chave)
             ordem.append(v)
 
-        push(logr)
+        for variante in variantes_tipo_via_logradouro(logr):
+            push(variante)
 
         m = _TIPO_VIA_RE.match(logr)
         if not m:
@@ -618,12 +697,15 @@ class GeocodingService:
 
         self._aguardar_intervalo_nominatim()
 
+        lon_min, lat_max, lon_max, lat_min = MOGI_VIEWBOX
         params: dict[str, Any] = {
             "q": query,
             "format": "json",
             "limit": 1,
             "countrycodes": "br",
-            "addressdetails": 0,
+            "addressdetails": 1,
+            "viewbox": f"{lon_min},{lat_max},{lon_max},{lat_min}",
+            "bounded": 1,
         }
         headers = {
             "User-Agent": self.user_agent,

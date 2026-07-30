@@ -78,21 +78,72 @@ class GeocodingResolverAPIView(APIView):
             )
 
         svc = GeocodingService()
-        lat, lng, fonte = svc.buscar_coordenadas_com_fonte(logradouro, bairro, cep or None)
-        if lat is None or lng is None:
+        res = svc.resolver_endereco_geocode(logradouro, bairro, cep or None)
+        if res.get("latitude") is None or res.get("longitude") is None:
             return Response(
                 {
-                    "latitude": None,
-                    "longitude": None,
-                    "fonte": "indisponivel",
-                    "detail": "Não foi possível localizar o endereço em Mogi das Cruzes.",
+                    "latitude": res.get("latitude_bruta"),
+                    "longitude": res.get("longitude_bruta"),
+                    "fonte": res.get("fonte_bruta") or res.get("fonte") or "indisponivel",
+                    "logradouro": res.get("logradouro"),
+                    "bairro": res.get("bairro"),
+                    "cep": res.get("cep"),
+                    "persistivel": False,
+                    "detail": (
+                        "Endereço localizado de forma aproximada ou incompleta. "
+                        "Informe logradouro e bairro para coordenadas utilizáveis no cluster."
+                    ),
                 },
                 status=status.HTTP_200_OK,
             )
         return Response(
             {
-                "latitude": round(float(lat), 6),
-                "longitude": round(float(lng), 6),
-                "fonte": fonte,
+                "latitude": round(float(res["latitude"]), 6),
+                "longitude": round(float(res["longitude"]), 6),
+                "fonte": res.get("fonte"),
+                "logradouro": res.get("logradouro"),
+                "bairro": res.get("bairro"),
+                "cep": res.get("cep"),
+                "persistivel": True,
+            }
+        )
+
+
+class GeocodingReverseAPIView(APIView):
+    """POST /api/v1/geocoding/reverse/ — endereço a partir de latitude/longitude."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            lat = round(float(request.data.get("latitude")), 6)
+            lng = round(float(request.data.get("longitude")), 6)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Informe latitude e longitude válidas."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        svc = GeocodingService()
+        dados = svc.buscar_endereco_por_coordenadas(lat, lng)
+        if not dados:
+            return Response(
+                {
+                    "latitude": lat,
+                    "longitude": lng,
+                    "logradouro": None,
+                    "bairro": None,
+                    "cep": None,
+                    "detail": "Não foi possível identificar o endereço neste ponto.",
+                },
+                status=status.HTTP_200_OK,
+            )
+        return Response(
+            {
+                "latitude": lat,
+                "longitude": lng,
+                "logradouro": dados.get("logradouro"),
+                "bairro": dados.get("bairro"),
+                "cep": dados.get("cep"),
             }
         )

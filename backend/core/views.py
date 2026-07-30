@@ -108,6 +108,8 @@ class ChatAtualizarLocalizacaoAPIView(APIView):
         indice = request.data.get("indice_demanda")
         lat = request.data.get("latitude")
         lng = request.data.get("longitude")
+        fonte = request.data.get("fonte")
+        confirmar_local = request.data.get("confirmar_local")
         if not session_id:
             return Response({"detail": "session_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
         try:
@@ -119,6 +121,8 @@ class ChatAtualizarLocalizacaoAPIView(APIView):
                 {"detail": "indice_demanda, latitude e longitude são obrigatórios."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if confirmar_local is not None and not isinstance(confirmar_local, bool):
+            confirmar_local = str(confirmar_local).strip().lower() in {"1", "true", "yes", "sim"}
         try:
             payload = ChatbotService().atualizar_localizacao_demanda(
                 usuario=request.user,
@@ -126,6 +130,8 @@ class ChatAtualizarLocalizacaoAPIView(APIView):
                 indice_demanda=indice_i,
                 latitude=lat_f,
                 longitude=lng_f,
+                fonte=str(fonte) if fonte else "gps_dispositivo",
+                confirmar_local=confirmar_local,
             )
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)

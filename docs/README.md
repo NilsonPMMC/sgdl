@@ -26,6 +26,7 @@ Use este arquivo como ponto de entrada; documentos históricos ficam em [`arquiv
 | [**especificacoes/carta-consulta-evolucao.md**](especificacoes/carta-consulta-evolucao.md) | **Onda 3** — prazo padrão carta, vínculo setor, embedding + tendências, hub de consulta por perfil (C1–C4) |
 | [**especificacoes/modulo-usuarios-perfis.md**](especificacoes/modulo-usuarios-perfis.md) | **U1–U6** — perfis, vínculos, hub `/gestao-usuarios`, **Gestor Geral vs Setorial** (U7) |
 | [**especificacoes/gestao-operacional-portal-vereadores.md**](especificacoes/gestao-operacional-portal-vereadores.md) | **Gestão operacional** — máquina de estados, fluxo direto/transversal, RBAC, API operacional |
+| [**especificacoes/geocodificacao-endereco-mogi.md**](especificacoes/geocodificacao-endereco-mogi.md) | **Geocodificação MC** — Fases 1–3 concluídas (normalização, UX Copiloto, base local, pin arrastável) |
 | [**especificacoes/estudo-viabilidade-stand-by.md**](especificacoes/estudo-viabilidade-stand-by.md) | **Stand-by estudo/viabilidade** — Fase 1 concluída; Fases 2–3 (gestão executiva, Copiloto) |
 | [**especificacoes/carta-assuntos-utilizacao-unidades.md**](especificacoes/carta-assuntos-utilizacao-unidades.md) | **Onda 3 C5–C6** — assuntos temáticos, modo protocolável/informativo, importação RM271698 |
 | [arquivo/infra/ROADMAP_SGDL_SERVIDOR_APIS_LLM.md](arquivo/infra/ROADMAP_SGDL_SERVIDOR_APIS_LLM.md) | Trilha infra/API/LLM (Sprints 1–7 concluídas em abr/2026) — referência histórica |

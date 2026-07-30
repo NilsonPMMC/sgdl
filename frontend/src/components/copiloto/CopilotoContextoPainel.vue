@@ -53,11 +53,10 @@ function requerLocal(demanda) {
 }
 
 function temLocal(demanda) {
+    if (demanda?.endereco_opcional_dispensado) return true;
     if (demanda?.local_confirmado_usuario === true) return true;
-    if (demanda?.latitude != null && demanda?.longitude != null) return true;
-    const end = demanda?.endereco;
-    if (!end || typeof end !== 'object') return false;
-    return Boolean(end.logradouro || end.bairro || end.cep || end.referencia);
+    if (demanda?.latitude != null && demanda?.longitude != null) return false;
+    return false;
 }
 
 function formatarEndereco(demanda) {
@@ -178,7 +177,9 @@ function camposDemanda(demanda) {
             ok: localOk,
             valor:
                 enderecoFmt ||
-                (localNecessario ? 'Pendente — informe rua, bairro ou CEP' : null),
+                (demanda?.endereco_resumo && !localOk ? demanda.endereco_resumo : null) ||
+                (demanda?.geocode_alerta && !localOk ? demanda.geocode_alerta : null) ||
+                (localNecessario && !localOk ? 'Pendente — confirme o local ou informe CEP' : null),
             pendente: localNecessario && !localOk,
             opcional: !localNecessario
         },

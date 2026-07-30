@@ -20,7 +20,12 @@ from .views import (
     ChatMarcarDemandaRascunhoAPIView,
     ChatAtualizarIndicacaoCopilotoAPIView,
 )
-from .views_geocoding import GeocodingCepAPIView, GeocodingLogradourosAPIView, GeocodingResolverAPIView
+from .views_geocoding import (
+    GeocodingCepAPIView,
+    GeocodingLogradourosAPIView,
+    GeocodingResolverAPIView,
+    GeocodingReverseAPIView,
+)
 from .views_cluster import ClusterExecucaoViewSet
 from .views_fluxo_protocolo import ServicoFluxoProtocoloViewSet
 from .views_unidade_administrativa import UnidadeAdministrativaViewSet
@@ -221,6 +226,7 @@ urlpatterns = [
     ),
     path('v1/geocoding/logradouros/', GeocodingLogradourosAPIView.as_view(), name='geocoding-logradouros'),
     path('v1/geocoding/resolver/', GeocodingResolverAPIView.as_view(), name='geocoding-resolver'),
+    path('v1/geocoding/reverse/', GeocodingReverseAPIView.as_view(), name='geocoding-reverse'),
     path(
         'v1/copiloto-faq/sugestoes-llm/',
         CopilotoFaqSugestoesLlmAPIView.as_view(),

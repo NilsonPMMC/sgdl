@@ -406,6 +406,10 @@ export default {
         return apiClient.post('v1/geocoding/resolver/', payload);
     },
 
+    reverseGeocodingEndereco({ latitude, longitude }) {
+        return apiClient.post('v1/geocoding/reverse/', { latitude, longitude });
+    },
+
     getSinapseSyncHealth() {
         return apiClient.get('integrations/sinapse/sync-health/');
     },
@@ -439,13 +443,23 @@ export default {
         return apiClient.post('v1/chat/ignorar-servico/', { session_id, indice_demanda });
     },
 
-    atualizarLocalizacaoCopiloto({ session_id, indice_demanda, latitude, longitude }) {
-        return apiClient.post('v1/chat/atualizar-localizacao/', {
+    atualizarLocalizacaoCopiloto({
+        session_id,
+        indice_demanda,
+        latitude,
+        longitude,
+        fonte,
+        confirmar_local
+    }) {
+        const payload = {
             session_id,
             indice_demanda,
             latitude,
             longitude
-        });
+        };
+        if (fonte != null) payload.fonte = fonte;
+        if (confirmar_local != null) payload.confirmar_local = confirmar_local;
+        return apiClient.post('v1/chat/atualizar-localizacao/', payload);
     },
 
     marcarDemandaCopiloto({ session_id, indice_demanda, aprovado_final, descartada }) {

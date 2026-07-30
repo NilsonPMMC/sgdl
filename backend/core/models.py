@@ -667,5 +667,4 @@ from core.models_estudo_viabilidade import RegistroEstudoViabilidade  # noqa: E4
 from core.models_acompanhamento import DemandaAcompanhamento  # noqa: E402,F401
 from core.models_perna_operacional import PernaOperacional  # noqa: E402,F401
 from core.models_no_operacional import NoOperacional  # noqa: E402,F401
-from core.models_perna_operacional import PernaOperacional  # noqa: E402,F401
-from core.models_no_operacional import NoOperacional  # noqa: E402,F401
+from core.models_via_referencia import ViaReferenciaMogi  # noqa: E402,F401

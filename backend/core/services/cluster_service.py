@@ -976,6 +976,8 @@ class ClusterService:
             for outra in dems_geo:
                 if outra.pk == demanda.pk:
                     continue
+                if self._mesmo_endereco_canonico(demanda, outra):
+                    return True
                 dist = haversine_metros(
                     lat_f,
                     lon_f,
@@ -1001,6 +1003,8 @@ class ClusterService:
             and b.latitude is not None
             and b.longitude is not None
         ):
+            if self._mesmo_endereco_canonico(a, b):
+                return True
             dist = haversine_metros(
                 float(a.latitude),
                 float(a.longitude),
@@ -1011,10 +1015,42 @@ class ClusterService:
         return self._mesmo_bairro(a.bairro, b.bairro)
 
     @staticmethod
+    def _mesmo_endereco_canonico(
+        a: Demanda | ClusterExecucao,
+        b: Demanda | ClusterExecucao,
+    ) -> bool:
+        from core.services.endereco_normalizacao import (
+            chave_endereco_canonica,
+            endereco_minimo_para_geocode,
+        )
+
+        logr_a = getattr(a, "logradouro", None)
+        bai_a = getattr(a, "bairro", None)
+        cep_a = getattr(a, "cep", None)
+        logr_b = getattr(b, "logradouro", None)
+        bai_b = getattr(b, "bairro", None)
+        cep_b = getattr(b, "cep", None)
+
+        if isinstance(a, ClusterExecucao) and not logr_a:
+            logr_a = None
+            bai_a = a.bairro_referencia or bai_a
+        if isinstance(b, ClusterExecucao) and not logr_b:
+            logr_b = None
+            bai_b = b.bairro_referencia or bai_b
+
+        if not endereco_minimo_para_geocode(logr_a, bai_a):
+            return False
+        if not endereco_minimo_para_geocode(logr_b, bai_b):
+            return False
+        return chave_endereco_canonica(logr_a, bai_a, cep_a) == chave_endereco_canonica(
+            logr_b, bai_b, cep_b
+        )
+
+    @staticmethod
     def _mesmo_bairro(bairro_a: str | None, bairro_b: str | None) -> bool:
-        a = (bairro_a or "").strip().lower()
-        b = (bairro_b or "").strip().lower()
-        return bool(a and b and a == b)
+        from core.services.endereco_normalizacao import bairros_equivalentes
+
+        return bairros_equivalentes(bairro_a, bairro_b)
 
     def _criar_cluster(self, demanda: Demanda, vetor: list[float]) -> ClusterExecucao:
         titulo = (demanda.titulo or "Agrupamento de demandas")[:200]

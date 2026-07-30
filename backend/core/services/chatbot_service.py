@@ -363,7 +363,7 @@ _LIMPEZA_PREFIXO_LOGRADOURO_RE = re.compile(
     re.IGNORECASE,
 )
 _EXTRAI_VIA_RE = re.compile(
-    r"(?:na\s+)?((?:rua|r\.|av\.?|avenida)\s+[^,]+?)(?=\s*,\s*|\s+\d{5}\s*-?\s*\d{3}|\s+\d{8}\s*$|$)",
+    r"(?:na\s+)?((?:rua|r\.?\s+|av\.?\s+|avenida|trav\.?\s+|travessa|al\.?\s+|alameda)\s+[^,]+?)(?=\s*,\s*|\s+\d{5}\s*-?\s*\d{3}|\s+\d{8}\s*$|$)",
     re.IGNORECASE,
 )
 _PALAVRAS_PEDIDO_NO_LOGRADOURO_RE = re.compile(
@@ -975,7 +975,17 @@ class ChatbotService:
         if estado_antes == ChatSession.ESTADO_COLETA_ENDERECO and texto_limpo:
             if self._processar_coleta_endereco_usuario(rascunho, texto_limpo):
                 session.demandas_rascunho = rascunho
-                plano = self._planejar_passo_fluxo(session, rascunho)
+                if self._rascunho_tem_endereco_suficiente(rascunho):
+                    plano = self._planejar_passo_fluxo(session, rascunho)
+                else:
+                    plano = {
+                        "usuario_forneceu_endereco_real": True,
+                        "resposta_agente": self._mensagem_revisar_local_inferido(rascunho),
+                        "estado_atual": ChatSession.ESTADO_COLETA_ENDERECO,
+                        "demandas_extraidas": rascunho,
+                        "acionar_triagem_sinapse": False,
+                        "confirmar_criacao_demandas": False,
+                    }
                 session.estado_atual = plano["estado_atual"]
                 session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
                 return plano
@@ -1005,7 +1015,17 @@ class ChatbotService:
                     item["requer_localizacao"] = True
             if self._processar_coleta_endereco_usuario(rascunho, texto_limpo):
                 session.demandas_rascunho = rascunho
-                plano = self._planejar_passo_fluxo(session, rascunho)
+                if self._rascunho_tem_endereco_suficiente(rascunho):
+                    plano = self._planejar_passo_fluxo(session, rascunho)
+                else:
+                    plano = {
+                        "usuario_forneceu_endereco_real": True,
+                        "resposta_agente": self._mensagem_revisar_local_inferido(rascunho),
+                        "estado_atual": ChatSession.ESTADO_COLETA_ENDERECO,
+                        "demandas_extraidas": rascunho,
+                        "acionar_triagem_sinapse": False,
+                        "confirmar_criacao_demandas": False,
+                    }
                 session.estado_atual = plano["estado_atual"]
                 session.save(update_fields=["estado_atual", "demandas_rascunho", "atualizado_em"])
                 return plano
@@ -1350,18 +1370,18 @@ class ChatbotService:
         )
         if requer:
             detalhe = (
-                "Para este tipo de serviço, o local costuma ser necessário "
-                "(rua e bairro, CEP ou nome do parque/área)."
+                "Informe logradouro, bairro e, se possível, o CEP — ajuda na localização no mapa. "
+                "Também vale nome de parque/área ou só o bairro (ex.: «bairro Centro»)."
             )
         else:
             detalhe = (
-                "Se quiser, informe rua e bairro, CEP ou o nome do parque/local "
-                "(ex.: Parque Centenário)."
+                "Se quiser, informe logradouro, bairro e CEP (recomendado), "
+                "ou o nome do parque/local (ex.: Parque Centenário)."
             )
         return (
             f"Serviço da carta confirmado para «{titulo}». {detalhe} "
-            "Você também pode responder «continuar sem local» para seguir sem endereço. "
-            "Depois seguimos com anexos opcionais e a geração do rascunho."
+            "Use «Usar minha localização», confirme o endereço inferido ou "
+            "«continuar sem local» para seguir sem endereço."
         )
 
     @staticmethod
@@ -1373,8 +1393,8 @@ class ChatbotService:
             if t:
                 titulo = t
         return (
-            f"Indicação «{titulo}» registrada. O local é opcional: informe CEP, rua e bairro "
-            "ou o nome do parque/área, ou responda «continuar sem local» para seguir sem endereço. "
+            f"Indicação «{titulo}» registrada. O local é opcional: informe logradouro, bairro "
+            "e CEP (recomendado), use «Usar minha localização» ou «continuar sem local». "
             "Depois anexaremos o PDF assinado e os dados da Câmara (vereadores e número)."
         )
 
@@ -1420,8 +1440,6 @@ class ChatbotService:
         if item.get("endereco_opcional_dispensado"):
             return True
         if item.get("local_confirmado_usuario"):
-            return True
-        if item.get("endereco_informado_usuario") and cls._endereco_real_do_usuario(item):
             return True
         return False
 
@@ -1489,18 +1507,81 @@ class ChatbotService:
         parque = self._extrair_nome_parque(t)
         if parque and not ext.get("logradouro"):
             ext["logradouro"] = parque
-        if not any(ext.get(k) for k in ("cep", "logradouro", "bairro", "numero")):
+        from core.services.endereco_normalizacao import endereco_minimo_para_geocode
+
+        if not endereco_minimo_para_geocode(
+            ext.get("logradouro"), ext.get("bairro")
+        ) and not any(ext.get(k) for k in ("cep", "numero")):
             return False
         alvos = self._itens_alvo_coleta_endereco(rascunho)
         if not alvos:
             return False
+        geocoder = GeocodingService()
         for item in alvos:
             cur = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
             item["endereco"] = self._merge_endereco_dicts(cur, ext)
-            item["endereco_informado_usuario"] = True
-            item["local_confirmado_usuario"] = True
+            item.pop("local_confirmado_usuario", None)
+            item.pop("endereco_informado_usuario", None)
             self._sanitizar_endereco_demanda(item)
+            end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+            lat, lng, fonte = self._resolver_coordenadas_item(
+                item,
+                geocoder,
+                logradouro=end.get("logradouro"),
+                bairro=end.get("bairro"),
+                cep=end.get("cep"),
+            )
+            if lat is not None and lng is not None:
+                item["latitude"] = round(lat, 6)
+                item["longitude"] = round(lng, 6)
+                item["coordenadas_fonte"] = fonte
+                item["_geo_chave"] = GeocodingService.chave_endereco(
+                    end.get("logradouro"), end.get("bairro"), end.get("cep")
+                )
+            else:
+                item.pop("latitude", None)
+                item.pop("longitude", None)
+                item.pop("coordenadas_fonte", None)
         return True
+
+    def _mensagem_revisar_local_inferido(self, rascunho: list[Any]) -> str:
+        from core.services.endereco_normalizacao import (
+            endereco_resumo_humano,
+            montar_alerta_geocode,
+        )
+
+        partes_msg: list[str] = []
+        for item in rascunho or []:
+            if not isinstance(item, dict) or item.get("endereco_opcional_dispensado"):
+                continue
+            if not self._item_requer_localizacao_vinculada(item):
+                continue
+            if self._item_local_confirmado_usuario(item):
+                continue
+            end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+            resumo = endereco_resumo_humano(end)
+            if resumo:
+                partes_msg.append(f"Identifiquei: {resumo}.")
+            alerta = montar_alerta_geocode(
+                logradouro=end.get("logradouro"),
+                bairro=end.get("bairro"),
+                cep=end.get("cep"),
+                latitude=item.get("latitude"),
+                longitude=item.get("longitude"),
+                endereco_informado=True,
+            )
+            if alerta:
+                partes_msg.append(alerta)
+        intro = " ".join(partes_msg).strip()
+        if intro:
+            return (
+                f"{intro} Confira no mapa e clique em «Confirmar local», "
+                "complete o endereço (CEP recomendado) ou use «continuar sem local»."
+            )
+        return (
+            "Informe logradouro e bairro (ou CEP), confira no mapa e clique em "
+            "«Confirmar local», ou use «continuar sem local»."
+        )
 
     @staticmethod
     def _extrair_nome_parque(texto: str) -> str | None:
@@ -1623,10 +1704,13 @@ class ChatbotService:
     @staticmethod
     def _sanitizar_endereco_demanda(item: dict[str, Any]) -> None:
         """Remove logradouro/bairro inválidos (ex.: frase inteira do pedido colada pelo LLM)."""
-        if item.get("endereco_informado_usuario") is not True:
+        end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+        if not any(
+            (end.get(k) or "").strip()
+            for k in ("cep", "logradouro", "bairro", "numero", "complemento")
+        ):
             item["endereco"] = dict(_ENDERECO_VAZIO)
             return
-        end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
         logr = ChatbotService._limpar_logradouro(
             (end.get("logradouro") or "").strip() or None,
             texto_contexto=None,
@@ -1770,7 +1854,7 @@ class ChatbotService:
             )
         else:
             msg = (
-                "Local registrado. Deseja anexar fotos ou PDFs? Use o bloco abaixo "
+                "Local confirmado. Deseja anexar fotos ou PDFs? Use o bloco abaixo "
                 "ou digite «continuar sem anexos». Em seguida confirme para gerar os rascunhos."
             )
         return {
@@ -3615,7 +3699,7 @@ class ChatbotService:
                 return False
             low = v.lower()
             if re.match(
-                r"^(rua|r\.|av\.?|avenida|praça|praca|travessa|alameda|estrada|rodovia)\s+",
+                r"^(?:rua|r\.?\s+|av\.?\s+|avenida|trav\.?\s+|travessa|al\.?\s+|alameda|praça|praca)\s+",
                 low,
             ):
                 return True
@@ -4072,7 +4156,11 @@ class ChatbotService:
         parts = [p.strip() for p in t.split(",") if p.strip()]
         for p in parts:
             pl = p.lower()
-            if re.match(r"^(rua|r\.|av\.?|avenida)\s", pl, re.IGNORECASE) or " rua " in pl:
+            if re.match(
+                r"^(?:rua|r\.?\s+|av\.?\s+|avenida\s+|trav\.?\s+|travessa\s+|al\.?\s+|alameda\s+)",
+                pl,
+                re.IGNORECASE,
+            ) or " rua " in pl:
                 out["logradouro"] = re.sub(
                     r"\s*na\s+altura\s+do\s*",
                     " ",
@@ -4086,12 +4174,18 @@ class ChatbotService:
                 out["logradouro"] = parque
         if not (out.get("logradouro") or "").strip() and parts:
             first = parts[0]
+            from core.services.endereco_normalizacao import normalizar_logradouro
+
+            first_norm = normalizar_logradouro(first)
+            candidato = first_norm if ChatbotService._valor_campo_endereco_valido(
+                "logradouro", first_norm
+            ) else first
             if (
-                not re.fullmatch(r"\d+", first)
-                and "cep" not in first.lower()
-                and ChatbotService._valor_campo_endereco_valido("logradouro", first)
+                not re.fullmatch(r"\d+", candidato)
+                and "cep" not in candidato.lower()
+                and ChatbotService._valor_campo_endereco_valido("logradouro", candidato)
             ):
-                out["logradouro"] = first[:240]
+                out["logradouro"] = candidato[:240]
         if not ChatbotService._campo_endereco_str(out.get("numero")):
             for i, p in enumerate(parts):
                 ps = p.strip()
@@ -4107,6 +4201,24 @@ class ChatbotService:
         if not out.get("bairro"):
             for p in parts[1:]:
                 seg = p.strip()
+                if not seg:
+                    continue
+                if re.search(r"\b\d{5}-?\d{3}\b", seg):
+                    continue
+                if re.fullmatch(r"\d{1,5}", seg):
+                    continue
+                if re.match(
+                    r"^(?:rua|r\.?\s+|av\.?\s+|avenida\s+|trav\.?\s+|travessa\s+|al\.?\s+|alameda\s+)",
+                    seg,
+                    re.IGNORECASE,
+                ):
+                    continue
+                if ChatbotService._valor_campo_endereco_valido("bairro", seg):
+                    out["bairro"] = seg[:120]
+                    break
+        if not out.get("bairro"):
+            for p in parts[1:]:
+                seg = p.strip()
                 if re.search(r"\b\d{5}-?\d{3}\b", seg):
                     continue
                 m_bairro = re.search(r"[-–]\s*([^-–]+?)(?:\s*-\s*[A-Z]{2}\b|$)", seg)
@@ -4115,7 +4227,17 @@ class ChatbotService:
                     if ChatbotService._valor_campo_endereco_valido("bairro", cand):
                         out["bairro"] = cand[:120]
                         break
-        return out
+        if out.get("logradouro"):
+            from core.services.endereco_normalizacao import normalizar_logradouro
+
+            out["logradouro"] = normalizar_logradouro(out["logradouro"])[:240]
+        if out.get("bairro"):
+            from core.services.endereco_normalizacao import normalizar_bairro
+
+            out["bairro"] = normalizar_bairro(out["bairro"])[:120]
+        from core.services.endereco_parsing_service import EnderecoParsingService
+
+        return EnderecoParsingService().enriquecer_com_llm(out, t)
 
     @staticmethod
     def _texto_resumo_confirmacao(item: dict[str, Any]) -> str:
@@ -5463,9 +5585,9 @@ class ChatbotService:
             if k in end_in and end_in[k] not in (None, ""):
                 merged[k] = end_in[k]
         item["endereco"] = merged
-        item["endereco_informado_usuario"] = True
-        item["local_confirmado_usuario"] = True
         item.pop("endereco_opcional_dispensado", None)
+        item.pop("local_confirmado_usuario", None)
+        item.pop("endereco_informado_usuario", None)
 
         texto_sessao = self._texto_usuario_da_sessao(session)
         texto_item = self._texto_contexto_demanda(item, texto_sessao)
@@ -5500,7 +5622,10 @@ class ChatbotService:
         session.demandas_rascunho = rascunho
         session.save(update_fields=["demandas_rascunho", "atualizado_em"])
         parsed = {
-            "resposta_agente": "Local atualizado para esta solicitação.",
+            "resposta_agente": (
+                "Endereço aplicado. Confira logradouro, bairro e mapa; "
+                "clique em «Confirmar local» para seguir."
+            ),
             "estado_atual": session.estado_atual,
             "demandas_extraidas": rascunho,
         }
@@ -5597,6 +5722,8 @@ class ChatbotService:
         indice_demanda: int,
         latitude: float,
         longitude: float,
+        fonte: str = "gps_dispositivo",
+        confirmar_local: bool | None = None,
     ) -> dict[str, Any]:
         session = self._obter_sessao(usuario, session_id)
         rascunho = list(session.demandas_rascunho or [])
@@ -5608,21 +5735,42 @@ class ChatbotService:
             rascunho[indice_demanda] = item
         lat = round(float(latitude), 6)
         lng = round(float(longitude), 6)
+        fonte_norm = (fonte or "gps_dispositivo").strip().lower()
+        if confirmar_local is None:
+            confirmar_local = fonte_norm == "gps_dispositivo"
         item["latitude"] = lat
         item["longitude"] = lng
-        item["coordenadas_fonte"] = "gps_dispositivo"
+        item["coordenadas_fonte"] = fonte_norm
         item["_geo_chave"] = f"gps:{lat},{lng}"
-        item["endereco_informado_usuario"] = True
-        item["local_confirmado_usuario"] = True
-        msg_gps = self._preencher_endereco_reverso_gps(item, GeocodingService())
+        if confirmar_local:
+            item["endereco_informado_usuario"] = True
+            item["local_confirmado_usuario"] = True
+        else:
+            item.pop("local_confirmado_usuario", None)
+        if fonte_norm == "gps_dispositivo":
+            msg_resposta = self._preencher_endereco_reverso_gps(item, GeocodingService())
+        elif fonte_norm == "ajuste_mapa":
+            geocoder = GeocodingService()
+            rev = geocoder.buscar_endereco_por_coordenadas(lat, lng)
+            if rev:
+                end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+                for chave in ("logradouro", "bairro", "cep"):
+                    val = rev.get(chave)
+                    if val:
+                        end[chave] = val
+                item["endereco"] = end
+            msg_resposta = (
+                "Ponto ajustado no mapa. Confirme o local quando estiver no lugar correto."
+            )
+        else:
+            msg_resposta = "Localização atualizada."
         session.demandas_rascunho = rascunho
         session.save(update_fields=["demandas_rascunho", "atualizado_em"])
         parsed = {
-            "resposta_agente": msg_gps,
+            "resposta_agente": msg_resposta,
             "estado_atual": session.estado_atual,
             "demandas_extraidas": rascunho,
         }
-        self._sincronizar_estado_pos_vinculo_catalogo(session, parsed)
         return self._montar_resposta_http(session, parsed, criadas=[])
 
     def marcar_demanda_rascunho(
@@ -6309,28 +6457,33 @@ class ChatbotService:
                 bairro = campos_end.get("bairro")
                 cep = campos_end.get("cep")
                 logr_final = logradouro
-                latitude = item.get("latitude")
-                longitude = item.get("longitude")
-                fonte_coord = item.get("coordenadas_fonte") or ""
-                if latitude is None or longitude is None:
-                    latitude, longitude, fonte_coord = self._resolver_coordenadas_item(
-                        item,
-                        geocoder,
-                        logradouro=logradouro,
-                        bairro=bairro,
-                        cep=cep,
-                    )
-                    if latitude is not None and longitude is not None:
-                        item["latitude"] = round(latitude, 6)
-                        item["longitude"] = round(longitude, 6)
-                        item["coordenadas_fonte"] = fonte_coord
-                        item["_geo_chave"] = GeocodingService.chave_endereco(
-                            logradouro, bairro, cep
+                coords_manuais = self._coords_manuais_persistidas_item(item)
+                if coords_manuais is not None:
+                    latitude, longitude, fonte_coord = coords_manuais
+                    geo_chave = item.get("_geo_chave") or f"gps:{latitude},{longitude}"
+                else:
+                    latitude = item.get("latitude")
+                    longitude = item.get("longitude")
+                    fonte_coord = item.get("coordenadas_fonte") or ""
+                    if latitude is None or longitude is None:
+                        latitude, longitude, fonte_coord = self._resolver_coordenadas_item(
+                            item,
+                            geocoder,
+                            logradouro=logradouro,
+                            bairro=bairro,
+                            cep=cep,
                         )
-                        geo_persistido_no_rascunho = True
-                geo_chave = item.get("_geo_chave") or GeocodingService.chave_endereco(
-                    logradouro, bairro, cep
-                )
+                        if latitude is not None and longitude is not None:
+                            item["latitude"] = round(latitude, 6)
+                            item["longitude"] = round(longitude, 6)
+                            item["coordenadas_fonte"] = fonte_coord
+                            item["_geo_chave"] = GeocodingService.chave_endereco(
+                                logradouro, bairro, cep
+                            )
+                            geo_persistido_no_rascunho = True
+                    geo_chave = item.get("_geo_chave") or GeocodingService.chave_endereco(
+                        logradouro, bairro, cep
+                    )
             else:
                 self._aplicar_endereco_canonico(item_geo, texto_item, preservar_existente=True)
                 end_geo = item_geo.get("endereco") if isinstance(item_geo.get("endereco"), dict) else {}
@@ -6365,22 +6518,27 @@ class ChatbotService:
                     cep = None
                     logr_final = None
                 geo_chave = GeocodingService.chave_endereco(logradouro, bairro, cep)
-                latitude, longitude, fonte_coord = self._resolver_coordenadas_item(
-                    item,
-                    geocoder,
-                    logradouro=logradouro,
-                    bairro=bairro,
-                    cep=cep,
-                )
-                if latitude is not None and longitude is not None:
-                    item["latitude"] = round(latitude, 6)
-                    item["longitude"] = round(longitude, 6)
-                    item["coordenadas_fonte"] = fonte_coord
-                    if fonte_coord == "gps_dispositivo":
-                        item["_geo_chave"] = f"gps:{item['latitude']},{item['longitude']}"
-                    else:
-                        item["_geo_chave"] = geo_chave
-                    geo_persistido_no_rascunho = True
+                coords_manuais = self._coords_manuais_persistidas_item(item)
+                if coords_manuais is not None:
+                    latitude, longitude, fonte_coord = coords_manuais
+                    geo_chave = item.get("_geo_chave") or f"gps:{latitude},{longitude}"
+                else:
+                    latitude, longitude, fonte_coord = self._resolver_coordenadas_item(
+                        item,
+                        geocoder,
+                        logradouro=logradouro,
+                        bairro=bairro,
+                        cep=cep,
+                    )
+                    if latitude is not None and longitude is not None:
+                        item["latitude"] = round(latitude, 6)
+                        item["longitude"] = round(longitude, 6)
+                        item["coordenadas_fonte"] = fonte_coord
+                        if fonte_coord == "gps_dispositivo":
+                            item["_geo_chave"] = f"gps:{item['latitude']},{item['longitude']}"
+                        else:
+                            item["_geo_chave"] = geo_chave
+                        geo_persistido_no_rascunho = True
             row["latitude"] = round(latitude, 6) if latitude is not None else None
             row["longitude"] = round(longitude, 6) if longitude is not None else None
             row["coordenadas_fonte"] = fonte_coord
@@ -6392,9 +6550,29 @@ class ChatbotService:
                 "bairro_cep": "Ponto aproximado por bairro + CEP.",
                 "logradouro": "Geocodificado pela via pública informada.",
                 "viacep_logradouro": "Via pública confirmada pelos Correios (ViaCEP) e localizada no mapa.",
+                "via_referencia_local": "Coordenadas da base local de vias de Mogi das Cruzes.",
+                "ajuste_mapa": "Ponto ajustado manualmente no mapa.",
                 "aproximada": "Ponto aproximado no município.",
             }
             row["coordenadas_observacao"] = _obs_coord.get(fonte_coord, "")
+            from core.services.endereco_normalizacao import (
+                endereco_resumo_humano,
+                montar_alerta_geocode,
+            )
+
+            end_row = row.get("endereco") if isinstance(row.get("endereco"), dict) else {}
+            row["endereco_resumo"] = endereco_resumo_humano(end_row)
+            row["geocode_alerta"] = montar_alerta_geocode(
+                logradouro=end_row.get("logradouro") or logr_final,
+                bairro=end_row.get("bairro") or bairro,
+                cep=end_row.get("cep") or cep,
+                latitude=row.get("latitude"),
+                longitude=row.get("longitude"),
+                endereco_informado=bool(
+                    item.get("endereco_informado_usuario")
+                    or item.get("local_confirmado_usuario")
+                ),
+            )
 
             vinculados: list[dict[str, Any]] = []
             for ai in sorted(mapa_anexos.get(dem_idx, set())):
@@ -6832,6 +7010,48 @@ class ChatbotService:
             )
         return "Localização do dispositivo registrada."
 
+    @staticmethod
+    def _coords_manuais_persistidas_item(
+        item: dict[str, Any],
+    ) -> tuple[float, float, str] | None:
+        """Coordenadas definidas pelo usuário (pin/GPS) — não re-geocodificar pelo endereço."""
+        fonte = (item.get("coordenadas_fonte") or "").strip()
+        if fonte not in ("ajuste_mapa", "gps_dispositivo"):
+            return None
+        lat = item.get("latitude")
+        lng = item.get("longitude")
+        if lat is None or lng is None:
+            return None
+        return float(lat), float(lng), fonte
+
+    def _coordenadas_endereco_materializacao(
+        self,
+        item: dict[str, Any],
+        geocoder: GeocodingService,
+        *,
+        logradouro: str | None,
+        bairro: str | None,
+        cep: str | None,
+    ) -> tuple[float | None, float | None, str, str | None, str | None, str | None]:
+        """
+        Resolve lat/lng para criar Demanda, priorizando pin/GPS do rascunho.
+        Retorna (latitude, longitude, fonte, logradouro, bairro, cep).
+        """
+        coords_manuais = self._coords_manuais_persistidas_item(item)
+        if coords_manuais is not None:
+            lat, lng, fonte = coords_manuais
+            return lat, lng, fonte, logradouro, bairro, cep
+
+        res_geo = geocoder.resolver_endereco_geocode(logradouro, bairro, cep)
+        return (
+            res_geo.get("latitude"),
+            res_geo.get("longitude"),
+            res_geo.get("fonte") or "indisponivel",
+            res_geo.get("logradouro") or logradouro,
+            res_geo.get("bairro") or bairro,
+            res_geo.get("cep") or cep,
+        )
+
     def _resolver_coordenadas_item(
         self,
         item: dict[str, Any],
@@ -6841,14 +7061,41 @@ class ChatbotService:
         bairro: str | None,
         cep: str | None,
     ) -> tuple[float | None, float | None, str]:
-        """Prioriza GPS do dispositivo; senão reutiliza cache; senão geocodifica endereço."""
+        """Prioriza GPS; normaliza endereço; geocodifica com gate para cluster."""
         raw_lat = item.get("latitude")
         raw_lng = item.get("longitude")
         fonte_item = (item.get("coordenadas_fonte") or "").strip()
+
+        end = item.get("endereco") if isinstance(item.get("endereco"), dict) else {}
+        logr = logradouro or end.get("logradouro")
+        bai = bairro or end.get("bairro")
+        cep_val = cep or end.get("cep")
+
+        if raw_lat is not None and raw_lng is not None and fonte_item == "ajuste_mapa":
+            return float(raw_lat), float(raw_lng), "ajuste_mapa"
+
         if raw_lat is not None and raw_lng is not None and fonte_item == "gps_dispositivo":
+            res = geocoder.resolver_endereco_geocode(logr, bai, cep_val)
+            for chave in ("logradouro", "bairro", "cep"):
+                val = res.get(chave)
+                if val:
+                    if not isinstance(item.get("endereco"), dict):
+                        item["endereco"] = {}
+                    item["endereco"][chave] = val
+            from core.services.endereco_normalizacao import filtrar_coordenadas_para_persistencia
+
+            lat_p, lng_p, fonte_p = filtrar_coordenadas_para_persistencia(
+                float(raw_lat),
+                float(raw_lng),
+                "gps_dispositivo",
+                res.get("logradouro") or logr,
+                res.get("bairro") or bai,
+            )
+            if lat_p is not None:
+                return lat_p, lng_p, fonte_p
             return float(raw_lat), float(raw_lng), "gps_dispositivo"
 
-        geo_chave = GeocodingService.chave_endereco(logradouro, bairro, cep)
+        geo_chave = GeocodingService.chave_endereco(logr, bai, cep_val)
         if (
             raw_lat is not None
             and raw_lng is not None
@@ -6857,7 +7104,15 @@ class ChatbotService:
         ):
             return float(raw_lat), float(raw_lng), fonte_item or "logradouro"
 
-        return geocoder.buscar_coordenadas_com_fonte(logradouro, bairro, cep)
+        res = geocoder.resolver_endereco_geocode(logr, bai, cep_val)
+        if not isinstance(item.get("endereco"), dict):
+            item["endereco"] = {}
+        for chave in ("logradouro", "bairro", "cep"):
+            val = res.get(chave)
+            if val:
+                item["endereco"][chave] = val
+
+        return res.get("latitude"), res.get("longitude"), res.get("fonte") or "indisponivel"
 
     @staticmethod
     def _aplicar_endereco_canonico(
@@ -7133,12 +7388,14 @@ class ChatbotService:
         numero_end = ChatbotService._campo_endereco_str(end.get("numero")) or None
         complemento = (end.get("complemento") or "").strip() or None
 
-        latitude, longitude, _fonte_geo = self._resolver_coordenadas_item(
-            item,
-            geocoder,
-            logradouro=logradouro,
-            bairro=bairro,
-            cep=cep,
+        latitude, longitude, _fonte_geo, logradouro, bairro, cep = (
+            self._coordenadas_endereco_materializacao(
+                item,
+                geocoder,
+                logradouro=logradouro,
+                bairro=bairro,
+                cep=cep,
+            )
         )
         campos_demanda: dict[str, Any] = {
             "titulo": titulo,
@@ -7288,6 +7545,16 @@ class ChatbotService:
                 numero = ChatbotService._campo_endereco_str(end.get("numero")) or None
                 complemento = (end.get("complemento") or "").strip() or None
 
+                latitude, longitude, _fonte_geo, logradouro, bairro, cep = (
+                    self._coordenadas_endereco_materializacao(
+                        item,
+                        geocoder,
+                        logradouro=logradouro,
+                        bairro=bairro,
+                        cep=cep,
+                    )
+                )
+
                 partes_end: list[str] = []
                 if logradouro:
                     trecho = logradouro
@@ -7315,13 +7582,6 @@ class ChatbotService:
                 else:
                     descricao = relato_usuario
 
-                latitude, longitude, _fonte_geo = self._resolver_coordenadas_item(
-                    item,
-                    geocoder,
-                    logradouro=logradouro,
-                    bairro=bairro,
-                    cep=cep,
-                )
                 campos_demanda: dict[str, Any] = {
                     "titulo": titulo,
                     "descricao": descricao,
