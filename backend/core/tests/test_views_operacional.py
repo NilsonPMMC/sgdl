@@ -174,6 +174,9 @@ class OperacionalEstadoAPITests(SinapseCatalogTestMixin, APITestCase):
         self.assertTrue(resp.data.get("aguardando_validacao_gestor"))
         self.demanda.refresh_from_db()
         self.assertEqual(self.demanda.status, "AGUARDANDO_DEVOLUTIVA_PROTOCOLO")
+        tram_pendente = self.demanda.tramitacoes.filter(tipo="CONCLUSAO_FINAL").first()
+        self.assertIsNotNone(tram_pendente)
+        self.assertTrue((tram_pendente.metadata or {}).get("aguardando_validacao_gestor"))
 
         validacao = AssinaturaValidacaoGestor.objects.get(demanda=self.demanda)
         self.client.force_authenticate(user=self.gestor_proto)
@@ -188,6 +191,10 @@ class OperacionalEstadoAPITests(SinapseCatalogTestMixin, APITestCase):
         self.assertEqual(validar.status_code, status.HTTP_200_OK)
         self.demanda.refresh_from_db()
         self.assertEqual(self.demanda.status, "FINALIZADO")
+        tram_final = Tramitacao.objects.filter(demanda=self.demanda, tipo="CONCLUSAO_FINAL").first()
+        self.assertIsNotNone(tram_final)
+        self.assertFalse((tram_final.metadata or {}).get("aguardando_validacao_gestor"))
+        self.assertIsNotNone(tram_final.editavel_ate)
         self.assertTrue(
             Tramitacao.objects.filter(demanda=self.demanda, tipo="CONCLUSAO_FINAL").exists()
         )

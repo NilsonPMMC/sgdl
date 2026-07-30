@@ -1154,20 +1154,34 @@ class OperacionalEstadoService:
         *,
         parecer: str,
         historico_compilado: dict[str, Any] | None = None,
+        tramitacao_existente: Tramitacao | None = None,
     ) -> Demanda:
         texto = self.validar_conclusao_final(demanda, usuario, parecer=parecer)
         historico = historico_compilado or self.compilar_historico_tecnico(demanda)
+        descricao = f"Conclusão final do Protocolo.\nParecer:\n{texto}"
+        metadata = {
+            "parecer": texto,
+            "historico_tecnico": historico,
+        }
 
-        self.registrar_evento(
-            demanda,
-            tipo=EventoOperacional.CONCLUSAO_FINAL,
-            usuario=usuario,
-            descricao=f"Conclusão final do Protocolo.\nParecer:\n{texto}",
-            metadata={
-                "parecer": texto,
-                "historico_tecnico": historico,
-            },
-        )
+        if tramitacao_existente is not None:
+            tram = tramitacao_existente
+            meta = dict(tram.metadata if isinstance(tram.metadata, dict) else {})
+            meta.update(metadata)
+            meta.setdefault("evento", EventoOperacional.CONCLUSAO_FINAL)
+            meta.setdefault("fluxo_roteamento", demanda.fluxo_roteamento or None)
+            meta.pop("aguardando_validacao_gestor", None)
+            tram.descricao = descricao
+            tram.metadata = meta
+            tram.save(update_fields=["descricao", "metadata"])
+        else:
+            self.registrar_evento(
+                demanda,
+                tipo=EventoOperacional.CONCLUSAO_FINAL,
+                usuario=usuario,
+                descricao=descricao,
+                metadata=metadata,
+            )
 
         from core.services.devolutiva_protocolo_service import DevolutivaProtocoloService
 
@@ -1372,7 +1386,8 @@ class OperacionalEstadoService:
             ):
                 continue
             if tram.tipo == EventoOperacional.DESPACHO and tram.demanda_id != lider.pk:
-                continue
+                if perfil_usuario(usuario) not in ("PROTOCOLO", "GESTOR", "ADMIN"):
+                    continue
             if tram.tipo == EventoOperacional.CONCLUSAO_FINAL:
                 if conclusao_final_incluida:
                     continue
@@ -1403,47 +1418,62 @@ class OperacionalEstadoService:
                     anexos_payload = self._payload_anexos_tramitacao(tram)
             else:
                 anexos_payload = self._payload_anexos_tramitacao(tram)
-            timeline.append(
-                {
-                    "id": tram.pk,
-                    "demanda_id": tram.demanda_id,
-                    "tipo": tipo_exibicao,
-                    "descricao": tram.descricao,
-                    "metadata": meta,
-                    "fluxo_roteamento": meta.get("fluxo_roteamento")
-                    or tram.demanda.fluxo_roteamento
-                    or None,
-                    "orgao_id": orgao_id,
-                    "orgao_nome": orgao_nome,
-                    "setor_nome": setor_nome,
-                    "unidade_nome": setor_nome,
-                    "rotulo_institucional": rotulo_institucional_tramitacao(
-                        tipo_rotulo,
-                        demanda=tram.demanda,
-                        tramitacao=tram,
-                    ),
-                    "anexos": anexos_payload,
-                    "no_id": meta.get("no_id"),
-                    "no_pai_id": meta.get("no_pai_id"),
-                    "no_filho_id": meta.get("no_filho_id"),
-                    "nos_ativos": meta.get("nos_ativos"),
-                    "responsavel": (
-                        tram.responsavel.get_full_name() or tram.responsavel.username
-                        if tram.responsavel
-                        else None
-                    ),
-                    "timestamp": tram.timestamp.isoformat(),
-                    "ramificacao": (
-                        "TRANSVERSAL"
-                        if tram.demanda.fluxo_roteamento
-                        == FluxoRoteamento.FLUXO_TRANSVERSAL
-                        else "DIRETO"
-                        if tram.demanda.fluxo_roteamento
-                        == FluxoRoteamento.FLUXO_DIRETO
-                        else None
-                    ),
-                }
-            )
+            item_timeline = {
+                "id": tram.pk,
+                "demanda_id": tram.demanda_id,
+                "tipo": tipo_exibicao,
+                "descricao": tram.descricao,
+                "metadata": meta,
+                "fluxo_roteamento": meta.get("fluxo_roteamento")
+                or tram.demanda.fluxo_roteamento
+                or None,
+                "orgao_id": orgao_id,
+                "orgao_nome": orgao_nome,
+                "setor_nome": setor_nome,
+                "unidade_nome": setor_nome,
+                "rotulo_institucional": rotulo_institucional_tramitacao(
+                    tipo_rotulo,
+                    demanda=tram.demanda,
+                    tramitacao=tram,
+                ),
+                "anexos": anexos_payload,
+                "no_id": meta.get("no_id"),
+                "no_pai_id": meta.get("no_pai_id"),
+                "no_filho_id": meta.get("no_filho_id"),
+                "nos_ativos": meta.get("nos_ativos"),
+                "responsavel": (
+                    tram.responsavel.get_full_name() or tram.responsavel.username
+                    if tram.responsavel
+                    else None
+                ),
+                "timestamp": tram.timestamp.isoformat(),
+                "ramificacao": (
+                    "TRANSVERSAL"
+                    if tram.demanda.fluxo_roteamento
+                    == FluxoRoteamento.FLUXO_TRANSVERSAL
+                    else "DIRETO"
+                    if tram.demanda.fluxo_roteamento
+                    == FluxoRoteamento.FLUXO_DIRETO
+                    else None
+                ),
+            }
+            if usuario is not None and not eh_vereador:
+                from core.services.tramitacao_janela_edicao_service import (
+                    TramitacaoJanelaEdicaoService,
+                )
+
+                item_timeline["pode_editar"] = TramitacaoJanelaEdicaoService.usuario_pode_corrigir(
+                    usuario, tram
+                )
+                item_timeline["segundos_restantes_edicao"] = (
+                    TramitacaoJanelaEdicaoService.segundos_restantes(tram)
+                )
+                item_timeline["aguardando_validacao_gestor"] = bool(
+                    meta.get("aguardando_validacao_gestor")
+                )
+                if tram.editavel_ate:
+                    item_timeline["editavel_ate"] = tram.editavel_ate.isoformat()
+            timeline.append(item_timeline)
         return timeline
 
     def acoes_disponiveis(self, demanda: Demanda, usuario) -> list[str]:

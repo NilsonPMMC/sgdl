@@ -17,6 +17,7 @@ from core.services.assinatura_eletronica_service import (
     DECLARACAO_GESTOR_PROTOCOLO,
     AssinaturaEletronicaService,
 )
+from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
 from core.services.usuario_vinculo_service import PROTOCOLO_UNIDADE_PK
 
 _spec = importlib.util.spec_from_file_location("core_tests_legacy", "core/tests.py")
@@ -86,6 +87,17 @@ class AssinaturaValidacaoGestorServiceTests(SinapseCatalogTestMixin, TestCase):
                 status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
             ).exists()
         )
+        tram = self.demanda.tramitacoes.filter(tipo="DESPACHO").first()
+        self.assertIsNotNone(tram)
+        self.assertTrue(
+            (tram.metadata or {}).get("aguardando_validacao_gestor"),
+            "Despacho deve aparecer na timeline enquanto aguarda gestor",
+        )
+        self.assertIsNotNone(tram.editavel_ate)
+        self.assertGreater(
+            TramitacaoJanelaEdicaoService.segundos_restantes(tram),
+            0,
+        )
 
     def test_gestor_valida_despacho_inicial(self):
         svc = AssinaturaEletronicaService()
@@ -118,6 +130,10 @@ class AssinaturaValidacaoGestorServiceTests(SinapseCatalogTestMixin, TestCase):
         )
         self.demanda.refresh_from_db()
         self.assertNotEqual(self.demanda.status, "AGUARDANDO_PROTOCOLO")
+        tram = self.demanda.tramitacoes.filter(tipo="DESPACHO").order_by("-timestamp").first()
+        self.assertIsNotNone(tram)
+        self.assertFalse((tram.metadata or {}).get("aguardando_validacao_gestor"))
+        self.assertIsNotNone(tram.editavel_ate)
         resumo = svc.resumo_assinaturas_demanda(self.demanda)
         self.assertTrue(resumo["despacho_inicial_assinado"])
         self.assertFalse(resumo["despacho_inicial_pendente_gestor"])

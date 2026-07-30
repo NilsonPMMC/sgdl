@@ -114,6 +114,7 @@ class DemandaDespachoService:
         arquivos_anexos: list | None = None,
         orquestrador_conclusao: str | None = None,
         texto_despacho: str | None = None,
+        tramitacao_existente: Tramitacao | None = None,
     ) -> dict[str, Any]:
         """P3 — uma demanda, N pernas operacionais (órgão × setor)."""
         del orquestrador_conclusao  # legado
@@ -148,8 +149,9 @@ class DemandaDespachoService:
                 orgaos_integrados_ids=orgaos_integrados_ids or None,
                 pernas_resumo=pernas,
                 texto_despacho=texto_despacho,
+                tramitacao_existente=tramitacao_existente,
             )
-            tram_despacho = (
+            tram_despacho = tramitacao_existente or (
                 principal.tramitacoes.filter(tipo="DESPACHO").order_by("-timestamp").first()
             )
 
@@ -161,7 +163,7 @@ class DemandaDespachoService:
                 despacho_tramitacao=tram_despacho,
             )
 
-            if arquivos_anexos and tram_despacho:
+            if arquivos_anexos and tram_despacho and not tramitacao_existente:
                 from core.services.tramitacao_anexo_service import anexar_arquivos_tramitacao
 
                 anexar_arquivos_tramitacao(tram_despacho, arquivos_anexos, copiar=False)
@@ -201,6 +203,7 @@ class DemandaDespachoService:
         principal.refresh_from_db()
         return {
             "demanda": principal,
+            "tramitacao_despacho_id": tram_despacho.pk if tram_despacho else None,
             "demandas_desdobradas": [],
             "pernas_operacionais": [
                 {
@@ -303,6 +306,7 @@ class DemandaDespachoService:
         orgaos_integrados_ids: list[int] | None = None,
         pernas_resumo: list[dict[str, Any]] | None = None,
         texto_despacho: str | None = None,
+        tramitacao_existente: Tramitacao | None = None,
     ) -> Demanda:
         if demanda.status != "AGUARDANDO_PROTOCOLO":
             raise ValueError("Apenas demandas aguardando protocolo podem ser despachadas.")
@@ -389,22 +393,33 @@ class DemandaDespachoService:
         if usuario:
             unidade_origem = UnidadeAdministrativaService().unidade_principal_usuario(usuario)
 
-        tram = Tramitacao.objects.create(
-            demanda=demanda,
-            responsavel=usuario,
-            tipo="DESPACHO",
-            descricao=descricao,
-            unidade_origem=unidade_origem,
-            unidade_destino=unidade,
-            metadata={
-                "etapa": "DESPACHO_PROTOCOLO",
-                "protocolo_executivo": protocolo_exec,
-                "total_pernas": len(pernas_resumo or []),
-                "pernas": pernas_resumo or [],
-                "multi_total": multi_total,
-                "multi_indice": multi_indice,
-            },
-        )
+        tram = tramitacao_existente
+        meta_tram = {
+            "etapa": "DESPACHO_PROTOCOLO",
+            "protocolo_executivo": protocolo_exec,
+            "total_pernas": len(pernas_resumo or []),
+            "pernas": pernas_resumo or [],
+            "multi_total": multi_total,
+            "multi_indice": multi_indice,
+        }
+        if tram is not None:
+            meta_atual = dict(tram.metadata if isinstance(tram.metadata, dict) else {})
+            meta_atual.update(meta_tram)
+            meta_atual.pop("aguardando_validacao_gestor", None)
+            tram.descricao = descricao
+            tram.unidade_destino = unidade
+            tram.metadata = meta_atual
+            tram.save(update_fields=["descricao", "unidade_destino", "metadata"])
+        else:
+            tram = Tramitacao.objects.create(
+                demanda=demanda,
+                responsavel=usuario,
+                tipo="DESPACHO",
+                descricao=descricao,
+                unidade_origem=unidade_origem,
+                unidade_destino=unidade,
+                metadata=meta_tram,
+            )
 
         if automatico:
             from core.services.assinatura_eletronica_service import AssinaturaEletronicaService

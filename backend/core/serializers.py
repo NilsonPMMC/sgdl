@@ -162,6 +162,10 @@ class TramitacaoSerializer(serializers.ModelSerializer):
     setor_nome = serializers.SerializerMethodField()
     no_id = serializers.SerializerMethodField()
     destinos = serializers.SerializerMethodField()
+    editavel_ate = serializers.DateTimeField(read_only=True)
+    pode_editar = serializers.SerializerMethodField()
+    segundos_restantes_edicao = serializers.SerializerMethodField()
+    aguardando_validacao_gestor = serializers.SerializerMethodField()
 
     class Meta:
         model = Tramitacao
@@ -173,6 +177,10 @@ class TramitacaoSerializer(serializers.ModelSerializer):
             'tipo_display',
             'descricao',
             'timestamp',
+            'editavel_ate',
+            'pode_editar',
+            'segundos_restantes_edicao',
+            'aguardando_validacao_gestor',
             'anexos',
             'arquivos_anexos',
             'unidade_destino_id',
@@ -227,6 +235,24 @@ class TramitacaoSerializer(serializers.ModelSerializer):
         if not isinstance(destinos, list) or not destinos:
             return []
         return _enriquecer_destinos_scatter(destinos)
+
+    def get_pode_editar(self, obj: Tramitacao):
+        request = self.context.get("request")
+        if not request or not getattr(request, "user", None) or not request.user.is_authenticated:
+            return False
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+        return TramitacaoJanelaEdicaoService.usuario_pode_corrigir(request.user, obj)
+
+    def get_segundos_restantes_edicao(self, obj: Tramitacao):
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+        return TramitacaoJanelaEdicaoService.segundos_restantes(obj)
+
+    def get_aguardando_validacao_gestor(self, obj: Tramitacao):
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+        return TramitacaoJanelaEdicaoService.tramitacao_aguardando_gestor(obj)
 
     def get_unidade_destino(self, obj: Tramitacao):
         unidade = obj.unidade_destino
@@ -678,7 +704,7 @@ class DemandaSerializer(serializers.ModelSerializer):
         )
         from core.services.scatter_gather_visibilidade import queryset_excluir_scatter_sistema
 
-        qs = queryset_excluir_scatter_sistema(qs)
+        qs = queryset_excluir_scatter_sistema(qs).exclude(tipo="STAGING_ASSINATURA")
         qs = filtrar_tramitacoes_para_usuario(qs, usuario, demanda=obj)
         tram_list = list(qs)
         data = TramitacaoSerializer(tram_list, many=True, context=self.context).data

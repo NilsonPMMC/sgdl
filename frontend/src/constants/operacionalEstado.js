@@ -241,7 +241,8 @@ export function tramitacoesParaTimelineOperacional(tramitacoes, demandaId) {
                 setor_nome: t.setor_nome,
                 no_id: t.no_id,
                 destinos: t.destinos,
-                scatter_gather: scatter
+                scatter_gather: scatter,
+                aguardando_validacao_gestor: Boolean(t.aguardando_validacao_gestor)
             },
             orgao_id: t.orgao_id,
             orgao_nome: t.orgao_nome,
@@ -251,9 +252,91 @@ export function tramitacoesParaTimelineOperacional(tramitacoes, demandaId) {
             responsavel: responsavelNome,
             timestamp: t.timestamp,
             anexos: Array.isArray(t.anexos) ? t.anexos : [],
+            pode_editar: Boolean(t.pode_editar),
+            segundos_restantes_edicao: Number(t.segundos_restantes_edicao) || 0,
+            aguardando_validacao_gestor: Boolean(t.aguardando_validacao_gestor),
+            editavel_ate: t.editavel_ate || null,
             ramificacao: null
         };
     });
+}
+
+const TIPOS_TRAMITACAO_PROTOCOLO_TIMELINE = new Set([
+    'DESPACHO',
+    'CONCLUSAO_FINAL',
+    'DEVOLUTIVA_PROTOCOLO',
+    'TRIAGEM_PROTOCOLO'
+]);
+
+/** Inclui despachos do Protocolo ausentes na timeline operacional (ex.: filtro por líder). */
+export function mesclarTramitacoesProtocoloEditaveis(timeline, demandaId, tramitacoes) {
+    const base = Array.isArray(timeline) ? [...timeline] : [];
+    if (!Array.isArray(tramitacoes) || !tramitacoes.length) return base;
+    const ids = new Set(base.map((i) => String(i?.id ?? '')));
+    const extras = tramitacoesParaTimelineOperacional(tramitacoes, demandaId).filter((t) => {
+        const tipo = String(t?.tipo || '').toUpperCase();
+        return TIPOS_TRAMITACAO_PROTOCOLO_TIMELINE.has(tipo) && !ids.has(String(t.id));
+    });
+    return extras.length ? [...base, ...extras] : base;
+}
+
+/** Atualiza campos editáveis/descrição dos itens já presentes na timeline. */
+export function sincronizarTramitacoesNaTimeline(timeline, tramitacoes) {
+    if (!Array.isArray(timeline) || !timeline.length || !Array.isArray(tramitacoes) || !tramitacoes.length) {
+        return Array.isArray(timeline) ? timeline : [];
+    }
+    const porId = new Map(tramitacoes.map((t) => [String(t.id), t]));
+    return timeline.map((item) => {
+        const tram = porId.get(String(item?.id));
+        if (!tram) return item;
+        const metaTram = tram.metadata && typeof tram.metadata === 'object' ? tram.metadata : {};
+        return {
+            ...item,
+            descricao: tram.descricao ?? item.descricao,
+            pode_editar: tram.pode_editar ?? item.pode_editar,
+            segundos_restantes_edicao:
+                tram.segundos_restantes_edicao ?? item.segundos_restantes_edicao,
+            aguardando_validacao_gestor:
+                tram.aguardando_validacao_gestor ?? item.aguardando_validacao_gestor,
+            editavel_ate: tram.editavel_ate ?? item.editavel_ate,
+            metadata: {
+                ...(item.metadata || {}),
+                ...metaTram,
+                parecer: metaTram.parecer ?? item.metadata?.parecer,
+                aguardando_validacao_gestor:
+                    tram.aguardando_validacao_gestor ?? item.metadata?.aguardando_validacao_gestor
+            }
+        };
+    });
+}
+
+/** Aplica payload PATCH de tramitação na demanda e na timeline operacional (refresh imediato). */
+export function aplicarAtualizacaoTramitacaoLocal({ demanda, estadoOperacional, payload }) {
+    if (!payload?.id) return { demanda, estadoOperacional };
+    const id = String(payload.id);
+    let demandaOut = demanda;
+    let estadoOut = estadoOperacional;
+
+    if (demanda?.tramitacoes?.length) {
+        demandaOut = {
+            ...demanda,
+            tramitacoes: demanda.tramitacoes.map((t) =>
+                String(t.id) === id ? { ...t, ...payload } : t
+            )
+        };
+    }
+
+    if (estadoOperacional?.timeline?.length) {
+        estadoOut = {
+            ...estadoOperacional,
+            timeline: sincronizarTramitacoesNaTimeline(
+                estadoOperacional.timeline,
+                demandaOut?.tramitacoes || [{ ...payload }]
+            )
+        };
+    }
+
+    return { demanda: demandaOut, estadoOperacional: estadoOut };
 }
 
 export function timelineOperacionalOrdenada(timeline, opts = {}) {

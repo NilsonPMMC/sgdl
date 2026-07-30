@@ -418,6 +418,12 @@ class Tramitacao(models.Model):
         related_name="tramitacoes_entrada",
     )
     timestamp = models.DateTimeField(auto_now_add=True)
+    editavel_ate = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="Até este instante a tramitação pode ser corrigida ou desfeita pelo operador.",
+    )
 
     class Meta:
         ordering = ['-timestamp']

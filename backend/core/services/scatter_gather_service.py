@@ -546,6 +546,7 @@ class NoOperacionalService:
                 "origem_acao": AcaoNoOperacional.DESPACHAR,
                 "no_pai_id": parent.pk,
                 "orgao_abridor_id": perm.orgao_usuario(usuario),
+                "tramitacao_despacho_id": tramitacao.pk,
             },
         )
 

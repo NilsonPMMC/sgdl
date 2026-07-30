@@ -725,6 +725,10 @@ class ClusterService:
                 descricao=descricao,
                 unidade_origem=tramitacao.unidade_origem,
                 unidade_destino=tramitacao.unidade_destino,
+                metadata={
+                    "propagacao_cluster": True,
+                    "tramitacao_origem_id": tramitacao.pk,
+                },
             )
             copia._propagando_cluster_tramitacao = True  # noqa: SLF001
             copia.save()

@@ -44,6 +44,9 @@ import {
 } from '@/constants/assinaturaEletronica';
 import {
     FLUXO_TRANSVERSAL,
+    aplicarAtualizacaoTramitacaoLocal,
+    mesclarTramitacoesProtocoloEditaveis,
+    sincronizarTramitacoesNaTimeline,
     tramitacoesParaTimelineOperacional
 } from '@/constants/operacionalEstado';
 import OperacionalTimeline from '@/components/demanda/OperacionalTimeline.vue';
@@ -55,6 +58,7 @@ import {
     payloadResultadoOperacional
 } from '@/constants/estudoViabilidade';
 import FormularioTramitacao from '@/components/tramitacao/FormularioTramitacao.vue';
+import TramitacaoJanelaCorrecao from '@/components/tramitacao/TramitacaoJanelaCorrecao.vue';
 import DialogAssinaturaEletronica from '@/components/tramitacao/DialogAssinaturaEletronica.vue';
 import DialogConfirmacaoTramitacao from '@/components/tramitacao/DialogConfirmacaoTramitacao.vue';
 import ValidacaoGestorDemandaBanner from '@/components/tramitacao/ValidacaoGestorDemandaBanner.vue';
@@ -474,29 +478,57 @@ const usaTimelineOperacional = computed(() => {
 /** Timeline operacional — estado API (cluster unificado) ou tramitações locais / fallback vereador. */
 const timelineOperacionalExibicao = computed(() => {
     const estado = estadoOperacional.value?.timeline;
+    let base = [];
     if (!isVereador.value && Array.isArray(estado) && estado.length) {
-        return estado;
-    }
-    if (!isVereador.value && demanda.value?.tramitacoes?.length) {
-        return tramitacoesParaTimelineOperacional(
+        base = estado;
+    } else if (!isVereador.value && demanda.value?.tramitacoes?.length) {
+        base = tramitacoesParaTimelineOperacional(
             demanda.value.tramitacoes,
             demanda.value.id
         );
+    } else if (Array.isArray(estado) && estado.length) {
+        base = estado;
+    } else if (!demanda.value?.tramitacoes?.length) {
+        return [];
+    } else {
+        return filtrarTramitacoesVereador(demanda.value.tramitacoes, demanda.value.status).map((t) => ({
+            id: t.id,
+            demanda_id: demanda.value.id,
+            tipo: t.tipo,
+            descricao: t.descricao,
+            metadata: {},
+            orgao_nome: t.orgao_nome,
+            orgao_id: null,
+            responsavel: null,
+            timestamp: t.timestamp,
+            ramificacao: null
+        }));
     }
-    if (Array.isArray(estado) && estado.length) return estado;
-    if (!demanda.value?.tramitacoes?.length) return [];
-    return filtrarTramitacoesVereador(demanda.value.tramitacoes, demanda.value.status).map((t) => ({
-        id: t.id,
-        demanda_id: demanda.value.id,
-        tipo: t.tipo,
-        descricao: t.descricao,
-        metadata: {},
-        orgao_nome: t.orgao_nome,
-        orgao_id: null,
-        responsavel: null,
-        timestamp: t.timestamp,
-        ramificacao: null
-    }));
+
+    if (isProtocoloPerfil.value && demanda.value?.tramitacoes?.length) {
+        base = mesclarTramitacoesProtocoloEditaveis(
+            base,
+            demanda.value.id,
+            demanda.value.tramitacoes
+        );
+    }
+    if (!isVereador.value && demanda.value?.tramitacoes?.length && base.length) {
+        base = sincronizarTramitacoesNaTimeline(base, demanda.value.tramitacoes);
+    }
+    return base;
+});
+
+/** Despachos do Protocolo editáveis que ainda não entraram na timeline exibida. */
+const tramitacoesCorrecaoProtocoloForaTimeline = computed(() => {
+    if (!isProtocoloPerfil.value || !demanda.value?.tramitacoes?.length) return [];
+    const idsTimeline = new Set(timelineOperacionalExibicao.value.map((i) => String(i.id)));
+    const tipos = new Set(['DESPACHO', 'CONCLUSAO_FINAL', 'DEVOLUTIVA_PROTOCOLO', 'TRIAGEM_PROTOCOLO']);
+    return demanda.value.tramitacoes.filter(
+        (t) =>
+            (t.pode_editar || t.aguardando_validacao_gestor) &&
+            tipos.has(String(t.tipo || '').toUpperCase()) &&
+            !idsTimeline.has(String(t.id))
+    );
 });
 
 const timelineVereadorVisivel = computed(() =>
@@ -788,6 +820,20 @@ const recarregarDemandaCompleta = async () => {
     ]);
 };
 
+/** Refresh imediato da timeline após correção + recarga completa em background. */
+const onTramitacaoCorrigida = async (payload) => {
+    if (payload?.id) {
+        const atualizado = aplicarAtualizacaoTramitacaoLocal({
+            demanda: demanda.value,
+            estadoOperacional: estadoOperacional.value,
+            payload
+        });
+        demanda.value = atualizado.demanda;
+        estadoOperacional.value = atualizado.estadoOperacional;
+    }
+    await recarregarDemandaCompleta();
+};
+
 const carregarDemanda = async (demandaId) => {
     if (!demandaId) {
         loading.value = false;
@@ -1055,7 +1101,7 @@ const executarDespachoComAssinatura = async (payloadAssinatura) => {
             data.mensagem ||
             (data.aguardando_validacao_gestor
                 ? 'Assinatura registrada. O despacho só será executado após validação do gestor em Assinaturas pendentes.'
-                : 'Demanda despachada com assinatura eletrônica.');
+                : 'Demanda despachada com assinatura eletrônica. Você tem cerca de 60 segundos para corrigir ou desfazer na timeline.');
         if (data.demandas_desdobradas?.length) {
             const extras = data.demandas_desdobradas.map((d) => d.protocolo_executivo).join(', ');
             detail += ` Desdobramentos: ${extras}.`;
@@ -1142,6 +1188,14 @@ const formatarData = (timestamp) => {
     const data = new Date(timestamp);
     return data.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 };
+
+function contextoCorrecaoTramitacaoItem(item) {
+    const tipo = String(item?.tipo || '').toUpperCase();
+    if (tipo === 'DESPACHO' || tipo === 'TRIAGEM_PROTOCOLO') return 'despacho';
+    if (tipo === 'CONCLUSAO_FINAL' || tipo === 'DEVOLUTIVA_PROTOCOLO') return 'conclusao';
+    if (tipo === 'OPERACAO_NO') return 'scatter';
+    return 'andamento';
+}
 
 const limparFormularioTramitacao = () => {
     formAndamento.value = estadoFormularioTramitacao({
@@ -1754,8 +1808,8 @@ const executarDevolutivaComAssinatura = async (payloadAssinatura) => {
             severity: 'success',
             summary: usaEndpointConclusaoFinal.value ? 'Conclusão final registrada' : 'Devolutiva enviada',
             detail: usaEndpointConclusaoFinal.value
-                ? 'Assinatura registrada. A conclusão final só será enviada ao vereador após validação do gestor em Assinaturas pendentes.'
-                : 'Demanda finalizada e vereador notificado.',
+                ? 'Assinatura registrada. Após validação do gestor, você terá cerca de 60 segundos para corrigir ou desfazer na timeline.'
+                : 'Demanda finalizada e vereador notificado. Você tem cerca de 60 segundos para corrigir ou desfazer na timeline.',
             life: 5000
         });
         assinaturaDevolutivaDialogVisible.value = false;
@@ -2357,6 +2411,36 @@ const devolverAoProtocolo = async () => {
             A secretaria está executando o serviço. Você será notificado quando houver conclusão ou devolutiva.
         </Message>
 
+        <div
+            v-if="tramitacoesCorrecaoProtocoloForaTimeline.length"
+            class="flex flex-col gap-3 mb-4"
+        >
+            <Message severity="info" :closable="false" class="m-0">
+                Despacho do Protocolo registrado — use a janela abaixo para corrigir ou desfazer antes do prazo.
+            </Message>
+            <div
+                v-for="t in tramitacoesCorrecaoProtocoloForaTimeline"
+                :key="`corr-prot-${t.id}`"
+                class="card"
+            >
+                <div class="flex justify-between items-center mb-2 flex-wrap gap-2">
+                    <span class="font-semibold">{{ t.tipo_display || t.tipo }}</span>
+                    <small class="text-muted-color">{{ formatarData(t.timestamp) }}</small>
+                </div>
+                <TramitacaoJanelaCorrecao
+                    :tramitacao-id="t.id"
+                    :descricao-atual="t.descricao || ''"
+                    :pode-editar="t.pode_editar"
+                    :segundos-restantes="t.segundos_restantes_edicao"
+                    :aguardando-validacao-gestor="
+                        Boolean(t.aguardando_validacao_gestor || t.metadata?.aguardando_validacao_gestor)
+                    "
+                    :contexto="contextoCorrecaoTramitacaoItem(t)"
+                    @atualizado="onTramitacaoCorrigida"
+                />
+            </div>
+        </div>
+
         <OperacionalTimeline
             v-if="mostrarOperacionalTimeline"
             :timeline="timelineOperacionalExibicao"
@@ -2372,6 +2456,7 @@ const devolverAoProtocolo = async () => {
             :historico-tecnico="historicoTecnicoOperacional || pacoteDevolutiva?.historico_tecnico || null"
             :demanda-atual-id="demanda.id"
             class="mb-4"
+            @atualizado="onTramitacaoCorrigida"
         />
 
         <div v-else-if="timelineOrdenada.length > 0 && !isVereador" class="pt-6 pb-6 timeline-container">
@@ -2433,6 +2518,16 @@ const devolverAoProtocolo = async () => {
                                 </a>
                             </div>
                         </div>
+                        <TramitacaoJanelaCorrecao
+                            v-if="item.pode_editar"
+                            :tramitacao-id="item.id"
+                            :descricao-atual="item.descricao || ''"
+                            :pode-editar="item.pode_editar"
+                            :segundos-restantes="item.segundos_restantes_edicao"
+                            :aguardando-validacao-gestor="Boolean(item.aguardando_validacao_gestor)"
+                            :contexto="contextoCorrecaoTramitacaoItem(item)"
+                            @atualizado="onTramitacaoCorrigida"
+                        />
                     </div>
                 </div>
             </div>
@@ -2703,7 +2798,7 @@ const devolverAoProtocolo = async () => {
         <DialogConfirmacaoTramitacao
             v-model:visible="confirmTramitacaoVisible"
             titulo="Confirmar andamento"
-            mensagem="Após registrar, este andamento não poderá ser editado. Deseja enviar para a timeline da demanda?"
+            mensagem="Após registrar, você terá cerca de 60 segundos para corrigir o texto ou desfazer o andamento. Deseja enviar para a timeline da demanda?"
             :resumo-destinos="resumoDestinosAndamento"
             :modo="MODO_ANDAMENTO"
             :assinar-no-formulario="formAndamento.assinar_eletronicamente"
@@ -2720,7 +2815,7 @@ const devolverAoProtocolo = async () => {
             label-confirmar="Assinar e despachar"
             :loading="executandoAssinatura"
             :loading-preview="carregandoDespachoPreview"
-            mensagem-intro="Assine como operador do protocolo. O gestor validará a assinatura em seguida."
+            mensagem-intro="Assine como operador do protocolo. O gestor validará a assinatura em seguida. Após a execução do despacho, você terá cerca de 60 segundos para corrigir o texto ou desfazer na timeline."
             @confirmar="executarDespachoComAssinatura"
             @gerar-preview="gerarPreviewDespacho"
         />
@@ -2760,8 +2855,8 @@ const devolverAoProtocolo = async () => {
             :loading-preview="carregandoDevolutivaPreview"
             :mensagem-intro="
                 usaEndpointConclusaoFinal
-                    ? 'Assine como operador. O gestor do protocolo validará em seguida.'
-                    : 'Revise a devolutiva e confirme a assinatura eletrônica.'
+                    ? 'Assine como operador. O gestor do protocolo validará em seguida. Após a execução, você terá cerca de 60 segundos para corrigir ou desfazer na timeline.'
+                    : 'Revise a devolutiva e confirme a assinatura eletrônica. Após o envio, você terá cerca de 60 segundos para corrigir ou desfazer na timeline.'
             "
             @confirmar="executarDevolutivaComAssinatura"
             @gerar-preview="gerarPreviewDevolutivaDialog"

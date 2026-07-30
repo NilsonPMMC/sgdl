@@ -288,8 +288,11 @@ export default {
     createTramitacao(data) {
         return apiClient.post('tramitacoes/', data);
     },
-    otimizarTextoTramitacao(payload) {
-        return apiClient.post('v1/tramitacao/otimizar-texto/', payload, { timeout: 60000 });
+    atualizarTramitacao(id, data) {
+        return apiClient.patch(`tramitacoes/${id}/`, data);
+    },
+    excluirTramitacao(id) {
+        return apiClient.delete(`tramitacoes/${id}/`);
     },
     otimizarTextoTramitacao(payload) {
         return apiClient.post('v1/tramitacao/otimizar-texto/', payload, { timeout: 60000 });

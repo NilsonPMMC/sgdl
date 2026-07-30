@@ -1798,8 +1798,83 @@ class SecretariaViewSet(viewsets.ViewSet):
 class TramitacaoViewSet(viewsets.ModelViewSet):
     queryset = Tramitacao.objects.all().order_by('-timestamp')
     serializer_class = TramitacaoSerializer
-    parser_classes = (MultiPartParser, FormParser)
-    http_method_names = ['post']
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+    http_method_names = ['post', 'patch', 'delete']
+
+    def _tramitacao_com_escopo(self, pk):
+        from core.services.demanda_visibilidade import usuario_pode_acessar_demanda
+
+        tramitacao = Tramitacao.objects.select_related("demanda").filter(pk=pk).first()
+        if tramitacao is None:
+            return None
+        if not usuario_pode_acessar_demanda(self.request.user, tramitacao.demanda):
+            return None
+        return tramitacao
+
+    def partial_update(self, request, pk=None):
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+        tramitacao = self._tramitacao_com_escopo(pk)
+        if tramitacao is None:
+            return Response({"detail": "Tramitação não encontrada."}, status=status.HTTP_404_NOT_FOUND)
+        if not TramitacaoJanelaEdicaoService.usuario_pode_corrigir(request.user, tramitacao):
+            return Response(
+                {"detail": "Prazo para correção expirado ou sem permissão."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        descricao = request.data.get("descricao")
+        if descricao is None or not str(descricao).strip():
+            return Response(
+                {"detail": "Informe a descrição corrigida."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        tramitacao = TramitacaoJanelaEdicaoService.atualizar_descricao(
+            tramitacao, str(descricao)
+        )
+        tramitacao.refresh_from_db()
+        editavel_ate = tramitacao.editavel_ate
+        return Response(
+            {
+                "id": tramitacao.pk,
+                "descricao": tramitacao.descricao,
+                "editavel_ate": editavel_ate.isoformat() if editavel_ate else None,
+                "pode_editar": TramitacaoJanelaEdicaoService.usuario_pode_corrigir(
+                    request.user, tramitacao
+                ),
+                "segundos_restantes_edicao": TramitacaoJanelaEdicaoService.segundos_restantes(
+                    tramitacao
+                ),
+                "aguardando_validacao_gestor": TramitacaoJanelaEdicaoService.tramitacao_aguardando_gestor(
+                    tramitacao
+                ),
+            }
+        )
+
+    def destroy(self, request, pk=None):
+        import logging
+
+        from django.db import IntegrityError
+
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+        logger = logging.getLogger(__name__)
+        tramitacao = self._tramitacao_com_escopo(pk)
+        if tramitacao is None:
+            return Response({"detail": "Tramitação não encontrada."}, status=status.HTTP_404_NOT_FOUND)
+        if not TramitacaoJanelaEdicaoService.usuario_pode_corrigir(request.user, tramitacao):
+            return Response(
+                {"detail": "Prazo para desfazer expirado ou sem permissão."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        try:
+            TramitacaoJanelaEdicaoService.excluir_tramitacao(tramitacao)
+        except IntegrityError:
+            logger.exception("Falha ao desfazer tramitação pk=%s", pk)
+            return Response(
+                {"detail": "Não foi possível desfazer o andamento. Tente novamente ou contate o suporte."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -1901,7 +1976,7 @@ class TramitacaoViewSet(viewsets.ModelViewSet):
         tramitacao.refresh_from_db()
         headers = self.get_success_headers(serializer.data)
         return Response(
-            TramitacaoSerializer(tramitacao).data,
+            TramitacaoSerializer(tramitacao, context={"request": request}).data,
             status=status.HTTP_201_CREATED,
             headers=headers,
         )

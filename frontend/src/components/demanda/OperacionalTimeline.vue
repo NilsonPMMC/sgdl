@@ -30,8 +30,11 @@ import {
 import { descricaoTramitacaoParaExibicao } from '@/utils/tramitacaoTexto';
 import { rotuloDestinoOcupado, contarNosArvore } from '@/constants/scatterGather';
 import ArvoreNosOperacionais from '@/components/demanda/ArvoreNosOperacionais.vue';
+import TramitacaoJanelaCorrecao from '@/components/tramitacao/TramitacaoJanelaCorrecao.vue';
 import ApiService from '@/service/ApiService.js';
 import Panel from 'primevue/panel';
+
+const emit = defineEmits(['atualizado']);
 
 const props = defineProps({
     timeline: { type: Array, default: () => [] },
@@ -249,6 +252,17 @@ function conteudoItem(item) {
     }
 
     const meta = item?.metadata || {};
+    const tipo = String(item?.tipo || '').toUpperCase();
+
+    if (['DESPACHO', 'CONCLUSAO_FINAL', 'DEVOLUTIVA_PROTOCOLO', 'TRIAGEM_PROTOCOLO'].includes(tipo)) {
+        const texto = String(item?.descricao || '').trim();
+        if (texto) {
+            return {
+                tipo: 'descricao',
+                descricao: descricaoTramitacaoParaExibicao(texto)
+            };
+        }
+    }
 
     if (meta.parecer) {
         return {
@@ -294,6 +308,14 @@ function nomeAnexo(anexo) {
     if (anexo?.nome) return anexo.nome;
     const url = anexo?.arquivo || '';
     return url.split('/').pop() || 'Anexo';
+}
+
+function contextoCorrecaoTramitacao(item) {
+    const tipo = String(item?.tipo || '').toUpperCase();
+    if (tipo === 'DESPACHO' || tipo === 'TRIAGEM_PROTOCOLO') return 'despacho';
+    if (tipo === 'CONCLUSAO_FINAL' || tipo === 'DEVOLUTIVA_PROTOCOLO') return 'conclusao';
+    if (tipo === 'OPERACAO_NO') return 'scatter';
+    return 'andamento';
 }
 
 function funcaoAssinatura(ass) {
@@ -410,7 +432,7 @@ function fecharDetalheAssinatura() {
             <div class="flex flex-col gap-6">
                 <div
                     v-for="{ item, conteudo, anexos, assinaturas: assinaturasItem } in itemsComConteudo"
-                    :key="`${item.id}-${item.timestamp}`"
+                    :key="`${item.id}-${(item.descricao || '').length}-${item.segundos_restantes_edicao || 0}`"
                     class="flex gap-3"
                 >
                     <div class="flex flex-col items-center timeline-icon-container">
@@ -572,6 +594,22 @@ function fecharDetalheAssinatura() {
                                 Sem descrição registrada.
                             </p>
                         </section>
+
+                        <TramitacaoJanelaCorrecao
+                            v-if="!modoVereador && item.pode_editar"
+                            :tramitacao-id="item.id"
+                            :descricao-atual="item.descricao || ''"
+                            :pode-editar="item.pode_editar"
+                            :segundos-restantes="item.segundos_restantes_edicao"
+                            :aguardando-validacao-gestor="
+                                Boolean(
+                                    item.aguardando_validacao_gestor ||
+                                        item.metadata?.aguardando_validacao_gestor
+                                )
+                            "
+                            :contexto="contextoCorrecaoTramitacao(item)"
+                            @atualizado="(payload) => emit('atualizado', payload)"
+                        />
 
                         <!-- Footer -->
                         <footer

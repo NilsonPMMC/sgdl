@@ -544,6 +544,57 @@ class AssinaturaEletronicaService:
         except OSError:
             logger.warning("Não foi possível remover preview demanda %s", demanda_id)
 
+    def _vincular_staging_a_tramitacao(
+        self,
+        staging_id: int | None,
+        tramitacao: Tramitacao,
+    ) -> None:
+        if not staging_id:
+            return
+        from core.models import AnexoTramitacao
+
+        staging = Tramitacao.objects.filter(pk=int(staging_id)).first()
+        if not staging:
+            return
+        AnexoTramitacao.objects.filter(tramitacao=staging).update(tramitacao=tramitacao)
+        staging.delete()
+
+    def _criar_tramitacao_pendente_gestor(
+        self,
+        demanda: Demanda,
+        operador,
+        *,
+        tipo: str,
+        descricao: str,
+        etapa: str,
+        metadata_extra: dict[str, Any] | None = None,
+        staging_id: int | None = None,
+        unidade_destino_id: int | None = None,
+    ) -> Tramitacao:
+        from core.services.tramitacao_setor_service import UnidadeAdministrativaService
+
+        meta = {
+            "etapa": etapa,
+            "aguardando_validacao_gestor": True,
+            **(metadata_extra or {}),
+        }
+        unidade_origem = UnidadeAdministrativaService().unidade_principal_usuario(operador)
+        tram = Tramitacao.objects.create(
+            demanda=demanda,
+            responsavel=operador,
+            tipo=tipo,
+            descricao=(descricao or "").strip(),
+            unidade_origem=unidade_origem,
+            unidade_destino_id=unidade_destino_id,
+            metadata=meta,
+        )
+        self._vincular_staging_a_tramitacao(staging_id, tram)
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+        tram.refresh_from_db()
+        TramitacaoJanelaEdicaoService.abrir_janela(tram)
+        return tram
+
     def _criar_tramitacao_staging_anexos(
         self,
         demanda: Demanda,
@@ -633,6 +684,27 @@ class AssinaturaEletronicaService:
         if count:
             logger.info(
                 "Assinaturas DESPACHO_INICIAL liberadas demanda=%s count=%s",
+                demanda.pk,
+                count,
+            )
+        return count
+
+    def liberar_assinaturas_conclusao_final(self, demanda: Demanda) -> int:
+        """Remove assinaturas de conclusão final para permitir novo ciclo."""
+        count, _ = AssinaturaEletronica.objects.filter(
+            demanda=demanda,
+            etapa=AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
+        ).delete()
+        self._remover_pending_acao(
+            int(demanda.pk), AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL
+        )
+        AssinaturaValidacaoGestor.objects.filter(
+            demanda=demanda,
+            etapa=AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
+        ).delete()
+        if count:
+            logger.info(
+                "Assinaturas CONCLUSAO_FINAL liberadas demanda=%s count=%s",
                 demanda.pk,
                 count,
             )
@@ -1188,6 +1260,21 @@ class AssinaturaEletronicaService:
         if (declaracao_operador or "").strip().upper() != DECLARACAO_DESPACHO:
             raise ValueError(f'Declaração do operador inválida. Use: "{DECLARACAO_DESPACHO}".')
 
+        texto_despacho = str(payload.get("texto_despacho") or "").strip()
+        tram_pendente = self._criar_tramitacao_pendente_gestor(
+            demanda,
+            operador,
+            tipo="DESPACHO",
+            descricao=texto_despacho,
+            etapa="DESPACHO_PROTOCOLO",
+            metadata_extra={
+                "protocolo_executivo": payload.get("protocolo_executivo"),
+                "total_pernas": len(payload.get("destinos") or []),
+            },
+            staging_id=payload.get("tramitacao_staging_id"),
+            unidade_destino_id=payload.get("unidade_administrativa_id"),
+        )
+
         assinatura = self._criar_assinatura(
             demanda,
             operador,
@@ -1197,12 +1284,15 @@ class AssinaturaEletronicaService:
             declaracao=declaracao_operador,
             request=request,
         )
+        assinatura.tramitacao = tram_pendente
+        assinatura.save(update_fields=["tramitacao"])
         self._criar_validacao_gestor_pendente(
             demanda,
             operador,
             etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
             hash_documento=hash_doc,
             payload=payload,
+            tramitacao=tram_pendente,
             unidade_administrativa_id=payload.get("unidade_administrativa_id"),
             sinapse_orgao_id=PROTOCOLO_ORGAO_ID,
         )
@@ -1380,6 +1470,20 @@ class AssinaturaEletronicaService:
                 f'Declaração do operador inválida. Use: "{DECLARACAO_CONCLUSAO_FINAL}".'
             )
 
+        texto = str(payload.get("parecer_resposta") or "").strip()
+        tram_pendente = self._criar_tramitacao_pendente_gestor(
+            demanda,
+            operador,
+            tipo="CONCLUSAO_FINAL",
+            descricao=f"Conclusão final do Protocolo.\nParecer:\n{texto}",
+            etapa="CONCLUSAO_FINAL",
+            metadata_extra={
+                "parecer": texto,
+                "historico_tecnico": payload.get("historico_tecnico"),
+            },
+            staging_id=payload.get("tramitacao_staging_id"),
+        )
+
         assinatura = self._criar_assinatura(
             demanda,
             operador,
@@ -1389,12 +1493,15 @@ class AssinaturaEletronicaService:
             declaracao=declaracao_operador,
             request=request,
         )
+        assinatura.tramitacao = tram_pendente
+        assinatura.save(update_fields=["tramitacao"])
         self._criar_validacao_gestor_pendente(
             demanda,
             operador,
             etapa=AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
             hash_documento=hash_doc,
             payload=payload,
+            tramitacao=tram_pendente,
             sinapse_orgao_id=PROTOCOLO_ORGAO_ID,
         )
         self._remover_pending_acao(int(demanda.pk), AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL)

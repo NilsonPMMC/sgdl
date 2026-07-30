@@ -8,7 +8,7 @@ from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
 
-from .models import Demanda, Usuario
+from .models import Demanda, Tramitacao, Usuario
 from .services.cluster_service import (
     DEMANDA_STATUS_ELEGIVEIS,
     ClusterService,
@@ -389,6 +389,17 @@ def notificar_eventos_demanda(sender, instance, created, **kwargs):
         from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
 
         AcompanhamentoDemandaService().encerrar_acompanhamentos_demanda(instance)
+
+
+@receiver(post_save, sender=Tramitacao)
+def abrir_janela_edicao_tramitacao(sender, instance: Tramitacao, created, **kwargs):
+    if not created:
+        return
+    if getattr(instance, "_propagando_cluster_tramitacao", False):
+        return
+    from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+    TramitacaoJanelaEdicaoService.abrir_janela(instance)
 
 
 @receiver(post_save, sender=Usuario)

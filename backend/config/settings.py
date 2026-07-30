@@ -287,6 +287,8 @@ CLUSTER_SEMANTIC_THRESHOLD = float(os.environ.get("CLUSTER_SEMANTIC_THRESHOLD", 
 CLUSTER_RADIUS_METERS = float(os.environ.get("CLUSTER_RADIUS_METERS", "300"))
 # Dias em que um cluster aberto ainda aceita novas demandas semelhantes (0 = sem limite).
 CLUSTER_JANELA_AGREGACAO_DIAS = int(os.environ.get("CLUSTER_JANELA_AGREGACAO_DIAS", "90"))
+# Janela (segundos) para corrigir ou desfazer tramitação/despacho após registro.
+DESPACHO_JANELA_EDICAO_SEGUNDOS = int(os.environ.get("DESPACHO_JANELA_EDICAO_SEGUNDOS", "60"))
 CLUSTER_REQUER_MESMO_SERVICO = os.environ.get("CLUSTER_REQUER_MESMO_SERVICO", "True").lower() == "true"
 # Aguarda rascunhos / embeddings pendentes do mesmo serviço antes de despacho solo automático.
 CLUSTER_FORMACAO_GRACE_MINUTES = int(os.environ.get("CLUSTER_FORMACAO_GRACE_MINUTES", "20"))
