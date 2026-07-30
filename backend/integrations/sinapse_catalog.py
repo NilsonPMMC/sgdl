@@ -255,11 +255,15 @@ def choices_servicos(
 
 
 def list_orgaos_api(*, limit: int = 500) -> list[dict[str, Any]]:
+    if not catalog_disponivel():
+        return []
     qs = CatalogOrgao.objects.using(SINAPSE_DB_ALIAS).order_by("nome")[:limit]
     return [orgao_to_dict(o) for o in qs if o]
 
 
 def list_servicos_api(*, limit: int = 2000, orgao_id: int | None = None) -> list[dict[str, Any]]:
+    if not catalog_disponivel():
+        return []
     qs = CatalogServico.objects.using(SINAPSE_DB_ALIAS).select_related("id_orgao").order_by("titulo")
     if orgao_id:
         qs = qs.filter(id_orgao_id=orgao_id)

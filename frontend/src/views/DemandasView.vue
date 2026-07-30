@@ -2074,6 +2074,16 @@ async function tentarEnvioLoteDaQuery() {
                                     v-tooltip.top="'Revisar rascunho'"
                                 />
                                 <Button
+                                    v-if="slotProps.data.status === 'RASCUNHO'"
+                                    icon="pi pi-trash"
+                                    severity="danger"
+                                    text
+                                    rounded
+                                    size="small"
+                                    @click="excluirDemanda(slotProps.data.id)"
+                                    v-tooltip.top="'Excluir rascunho'"
+                                />
+                                <Button
                                     icon="pi pi-eye"
                                     severity="secondary"
                                     text

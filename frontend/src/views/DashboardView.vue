@@ -9,6 +9,7 @@ import TabView from 'primevue/tabview';
 import TabPanel from 'primevue/tabpanel';
 import { useLayout } from '@/layout/composables/layout';
 import { useUserStore } from '@/stores/userStore';
+import { ocultarMetricasSla } from '@/utils/metricasSlaVereador';
 
 const { isDarkTheme } = useLayout();
 const userStore = useUserStore();
@@ -38,7 +39,7 @@ const mostrarKpisTrilha = computed(() =>
     ['GESTOR', 'PROTOCOLO'].includes(perfilUsuario.value)
 );
 
-const mostrarKpiAtrasadas = computed(() => perfilUsuario.value !== 'VEREADOR');
+const mostrarKpiAtrasadas = computed(() => !ocultarMetricasSla(perfilUsuario.value));
 
 const clustersResumo = ref([]);
 const loadingClusters = ref(false);

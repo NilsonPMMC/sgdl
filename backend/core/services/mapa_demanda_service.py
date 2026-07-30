@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any
+from decimal import Decimal
+from typing import Any, Iterator
 
-from django.db.models import Count, Q, QuerySet
-from django.db.models.functions import TruncMonth
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 from core.models import Demanda
 from core.services.demanda_visibilidade import aplicar_escopo_demanda
+from core.services.endereco_normalizacao import endereco_minimo_para_geocode
 from integrations import sinapse_catalog
 
 
@@ -24,12 +25,21 @@ STATUS_ABERTO = [
     'DEVOLVIDO_VEREADOR',
 ]
 
+_FILTRO_MAPA_COORDS_OU_ENDERECO = Q(
+    latitude__isnull=False,
+    longitude__isnull=False,
+) | (
+    Q(logradouro__isnull=False)
+    & ~Q(logradouro='')
+    & Q(bairro__isnull=False)
+    & ~Q(bairro='')
+)
+
 
 def filtrar_demandas_mapa(request) -> QuerySet:
     """Queryset base do mapa com os mesmos filtros da API de locations."""
     queryset = (
-        Demanda.objects.exclude(status='RASCUNHO')
-        .filter(latitude__isnull=False, longitude__isnull=False)
+        Demanda.objects.filter(_FILTRO_MAPA_COORDS_OU_ENDERECO)
         .select_related('cluster', 'unidade_administrativa', 'autor')
     )
 
@@ -88,6 +98,8 @@ def filtrar_demandas_mapa(request) -> QuerySet:
     user = request.user
     if user.is_authenticated:
         queryset = aplicar_escopo_demanda(queryset, user)
+    else:
+        queryset = queryset.exclude(status='RASCUNHO')
 
     if params.get('super_os') in ('1', 'true', 'True'):
         queryset = queryset.filter(cluster__isnull=False)
@@ -106,6 +118,93 @@ def _demanda_atrasada(demanda: Demanda, agora) -> bool:
     return False
 
 
+def _demanda_endereco_geocodificavel(demanda: Demanda) -> bool:
+    return endereco_minimo_para_geocode(demanda.logradouro, demanda.bairro)
+
+
+def _persistir_coords_indicacao(demanda: Demanda, geo: dict[str, Any]) -> None:
+    """Persiste coordenadas resolvidas para indicações ainda sem lat/lng."""
+    if demanda.tipo_legislativo != Demanda.TIPO_LEGISLATIVO_INDICACAO:
+        return
+    if demanda.latitude is not None and demanda.longitude is not None:
+        return
+
+    lat = geo.get('latitude')
+    lng = geo.get('longitude')
+    if lat is None or lng is None:
+        return
+
+    updates: dict[str, Any] = {
+        'latitude': Decimal(str(round(float(lat), 6))),
+        'longitude': Decimal(str(round(float(lng), 6))),
+    }
+    if geo.get('logradouro') and not (demanda.logradouro or '').strip():
+        updates['logradouro'] = geo['logradouro']
+    if geo.get('bairro') and not (demanda.bairro or '').strip():
+        updates['bairro'] = geo['bairro']
+    if geo.get('cep') and not (demanda.cep or '').strip():
+        updates['cep'] = geo['cep']
+
+    Demanda.objects.filter(pk=demanda.pk, latitude__isnull=True).update(**updates)
+    for campo, valor in updates.items():
+        setattr(demanda, campo, valor)
+
+
+def _resolver_coords_demanda_mapa(
+    demanda: Demanda,
+    geocoder,
+    *,
+    persistir_geocode: bool = True,
+) -> tuple[float, float] | None:
+    """Retorna lat/lng da demanda; geocodifica indicações com endereço quando necessário."""
+    if demanda.latitude is not None and demanda.longitude is not None:
+        return float(demanda.latitude), float(demanda.longitude)
+
+    if not _demanda_endereco_geocodificavel(demanda):
+        return None
+
+    geo = geocoder.resolver_endereco_geocode(
+        demanda.logradouro,
+        demanda.bairro,
+        demanda.cep,
+    )
+    lat = geo.get('latitude')
+    lng = geo.get('longitude')
+    if lat is None or lng is None:
+        lat = geo.get('latitude_bruta')
+        lng = geo.get('longitude_bruta')
+    if lat is None or lng is None:
+        return None
+
+    if persistir_geocode:
+        _persistir_coords_indicacao(demanda, geo)
+
+    return float(lat), float(lng)
+
+
+def iter_demandas_geolocalizadas_mapa(
+    queryset,
+    *,
+    geocoder=None,
+    persistir_geocode: bool = True,
+) -> Iterator[tuple[Demanda, float, float]]:
+    """Demandas com coordenadas válidas para exibição no mapa (salvas ou resolvidas)."""
+    if geocoder is None:
+        from core.services.geocoding_service import GeocodingService
+
+        geocoder = GeocodingService()
+
+    for demanda in queryset.iterator(chunk_size=200):
+        coords = _resolver_coords_demanda_mapa(
+            demanda,
+            geocoder,
+            persistir_geocode=persistir_geocode,
+        )
+        if coords is None:
+            continue
+        yield demanda, coords[0], coords[1]
+
+
 def serializar_locations(queryset, *, super_os_only: bool = False) -> list[dict[str, Any]]:
     from core.services.cluster_service import ClusterService
 
@@ -113,7 +212,7 @@ def serializar_locations(queryset, *, super_os_only: bool = False) -> list[dict[
     agora = timezone.now()
     locations: list[dict[str, Any]] = []
 
-    for demanda in queryset:
+    for demanda, lat, lng in iter_demandas_geolocalizadas_mapa(queryset):
         super_info = cluster_svc.info_operacional_super_os(demanda)
         if super_os_only and not super_info.get('ativo'):
             continue
@@ -122,8 +221,8 @@ def serializar_locations(queryset, *, super_os_only: bool = False) -> list[dict[
         unidade = demanda.unidade_administrativa
         locations.append({
             'id': demanda.id,
-            'lat': demanda.latitude,
-            'lng': demanda.longitude,
+            'lat': lat,
+            'lng': lng,
             'titulo': demanda.titulo,
             'protocolo': demanda.protocolo_executivo or demanda.protocolo_legislativo,
             'protocolo_legislativo': demanda.protocolo_legislativo,
@@ -160,42 +259,41 @@ def _nome_servico(servico_id: int | None) -> str:
 def agregar_espacial_sazonal(queryset, *, limit_bairros: int = 12) -> dict[str, Any]:
     """Agregação bairro × serviço × mês para painel lateral E3."""
     agora = timezone.now()
+    geolocalizadas = list(iter_demandas_geolocalizadas_mapa(queryset))
 
     por_bairro_counter: dict[str, int] = defaultdict(int)
     por_bairro_atrasadas: dict[str, int] = defaultdict(int)
     por_mes_counter: dict[str, int] = defaultdict(int)
     hotspot_counter: dict[tuple[str, int | None], int] = defaultdict(int)
-    matriz: list[dict[str, Any]] = []
+    matriz_counter: dict[tuple[str, int | None, str], int] = defaultdict(int)
 
-    mensal_qs = (
-        queryset.annotate(mes=TruncMonth('data_criacao'))
-        .values('bairro', 'sinapse_servico_id', 'mes')
-        .annotate(total=Count('id'))
-        .order_by('-total')
-    )
-    for row in mensal_qs[:200]:
-        bairro = (row['bairro'] or '').strip() or 'Sem bairro'
-        sid = row['sinapse_servico_id']
-        mes_val = row['mes']
-        mes_label = mes_val.strftime('%Y-%m') if mes_val else ''
-        matriz.append({
-            'bairro': bairro,
-            'sinapse_servico_id': sid,
-            'servico_nome': _nome_servico(sid),
-            'mes': mes_label,
-            'total': row['total'],
-        })
-
-    for demanda in queryset.iterator(chunk_size=500):
+    for demanda, _, _ in geolocalizadas:
         bairro = (demanda.bairro or '').strip() or 'Sem bairro'
+        sid = demanda.sinapse_servico_id
         por_bairro_counter[bairro] += 1
         if _demanda_atrasada(demanda, agora):
             por_bairro_atrasadas[bairro] += 1
         mes_label = demanda.data_criacao.strftime('%Y-%m') if demanda.data_criacao else ''
         if mes_label:
             por_mes_counter[mes_label] += 1
-        chave = (bairro, demanda.sinapse_servico_id)
-        hotspot_counter[chave] += 1
+        hotspot_counter[(bairro, sid)] += 1
+        if mes_label:
+            matriz_counter[(bairro, sid, mes_label)] += 1
+
+    matriz = sorted(
+        [
+            {
+                'bairro': bairro,
+                'sinapse_servico_id': sid,
+                'servico_nome': _nome_servico(sid),
+                'mes': mes,
+                'total': total,
+            }
+            for (bairro, sid, mes), total in matriz_counter.items()
+        ],
+        key=lambda x: x['total'],
+        reverse=True,
+    )[:50]
 
     por_bairro = sorted(
         [
@@ -232,7 +330,7 @@ def agregar_espacial_sazonal(queryset, *, limit_bairros: int = 12) -> dict[str, 
     return {
         'por_bairro': por_bairro,
         'por_mes': por_mes,
-        'por_bairro_servico_mes': matriz[:50],
+        'por_bairro_servico_mes': matriz,
         'hotspots': hotspots,
-        'total_geolocalizadas': queryset.count(),
+        'total_geolocalizadas': len(geolocalizadas),
     }

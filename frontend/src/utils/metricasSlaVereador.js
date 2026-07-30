@@ -1,8 +1,8 @@
 import { perfilEhVereador } from '@/constants/tramitacaoVisibilidade';
 
-/** Oculta KPIs e indicadores de atraso/SLA na UX do vereador. */
+/** Oculta KPIs e indicadores de atraso/SLA na UX do vereador e da Câmara Municipal. */
 export function ocultarMetricasSla(perfil) {
-    return perfilEhVereador(perfil);
+    return perfilEhVereador(perfil) || perfil === 'CAMARA';
 }
 
 export function isDemandaAtrasadaParaExibicao(demanda, perfil, verificarAtraso) {

@@ -7,6 +7,7 @@ import { useUserStore } from '@/stores/userStore';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import 'leaflet.heat';
+import 'leaflet.markercluster';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
@@ -33,8 +34,15 @@ const userStore = useUserStore();
 const route = useRoute();
 const perfil = computed(() => userStore.currentUser?.perfil);
 const ocultarSlaVereador = computed(() => ocultarMetricasSla(perfil.value));
-const podeFiltrarOrgao = computed(() => ['GESTOR', 'PROTOCOLO'].includes(perfil.value));
+const podeFiltrarOrgao = computed(() => ['GESTOR', 'PROTOCOLO', 'CAMARA'].includes(perfil.value));
 const podeFiltrarVereador = computed(() => ['GESTOR', 'PROTOCOLO'].includes(perfil.value));
+const isCamara = computed(() => perfil.value === 'CAMARA');
+const opcoesStatusMapa = computed(() => {
+    if (['CAMARA', 'VEREADOR'].includes(perfil.value)) {
+        return STATUS_CHOICES_REPORTS;
+    }
+    return STATUS_CHOICES_REPORTS.filter((s) => s.value !== 'RASCUNHO');
+});
 
 const loading = ref(false);
 const loadingAgregacao = ref(false);
@@ -67,7 +75,6 @@ const filtros = ref({
 });
 
 const opcoes = ref({
-    status: STATUS_CHOICES_REPORTS.filter((s) => s.value !== 'RASCUNHO'),
     secretarias: [],
     servicos: [],
     vereadores: []
@@ -379,10 +386,51 @@ const limparFiltros = () => {
 
 const servicosFiltrados = computed(() => {
     if (!filtros.value.sinapse_orgao_id) return opcoes.value.servicos;
+    const orgaoId = filtros.value.sinapse_orgao_id;
     return opcoes.value.servicos.filter(
-        (s) => !s.orgao_id || s.orgao_id === filtros.value.sinapse_orgao_id
+        (s) => !s.secretaria_responsavel?.id || s.secretaria_responsavel.id === orgaoId
     );
 });
+
+const extrairListaApi = (resultado) => {
+    if (resultado?.status !== 'fulfilled') return [];
+    const payload = resultado.value?.data;
+    return payload?.results || payload || [];
+};
+
+const carregarOpcoesFiltros = async () => {
+    try {
+        const [secRes, srvRes] = await Promise.allSettled([
+            ApiService.getSecretarias(),
+            ApiService.getServicos()
+        ]);
+        opcoes.value.secretarias = extrairListaApi(secRes);
+        opcoes.value.servicos = extrairListaApi(srvRes);
+        if (podeFiltrarVereador.value) {
+            const { data } = await ApiService.getUsuarios({ perfil: 'VEREADOR' });
+            const vereadores = data?.results || data || [];
+            opcoes.value.vereadores = vereadores.map((user) => ({
+                ...user,
+                nome_formatado: `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.username
+            }));
+        }
+    } catch (error) {
+        console.error('Erro ao carregar opções do mapa:', error);
+    }
+};
+
+const initMapaSeguro = () => {
+    try {
+        initMapa();
+        const el = document.getElementById('map-container');
+        if (el && typeof ResizeObserver !== 'undefined') {
+            resizeObserver = new ResizeObserver(() => refreshMapView());
+            resizeObserver.observe(el);
+        }
+    } catch (error) {
+        console.error('Erro ao inicializar mapa:', error);
+    }
+};
 
 const maxBairroTotal = computed(() =>
     Math.max(1, ...(agregacao.value.por_bairro || []).map((b) => b.total))
@@ -392,42 +440,12 @@ onMounted(async () => {
     await nextTick();
     await new Promise((resolve) => {
         requestAnimationFrame(() => {
-            initMapa();
-            const el = document.getElementById('map-container');
-            if (el && typeof ResizeObserver !== 'undefined') {
-                resizeObserver = new ResizeObserver(() => refreshMapView());
-                resizeObserver.observe(el);
-            }
+            initMapaSeguro();
             resolve();
         });
     });
 
-    try {
-        const [secRes, srvRes] = await Promise.all([
-            ApiService.getSecretarias(),
-            ApiService.getServicos()
-        ]);
-        opcoes.value.secretarias = (secRes.data?.results || secRes.data || []).map((o) => ({
-            label: o.nome,
-            value: o.id
-        }));
-        opcoes.value.servicos = (srvRes.data?.results || srvRes.data || []).map((s) => ({
-            label: s.nome,
-            value: s.id,
-            orgao_id: s.secretaria_responsavel?.id || s.orgao_id
-        }));
-        if (podeFiltrarVereador.value) {
-            const { data } = await ApiService.getUsuarios({ perfil: 'VEREADOR' });
-            opcoes.value.vereadores = (data?.results || data || []).map((u) => ({
-                label: u.first_name ? `${u.first_name} ${u.last_name || ''}`.trim() : u.username,
-                value: u.id
-            }));
-        }
-    } catch (error) {
-        console.error('Erro ao carregar opções do mapa:', error);
-    }
-
-    await carregarLocalizacoes();
+    await Promise.all([carregarOpcoesFiltros(), carregarLocalizacoes()]);
     setTimeout(refreshMapView, 150);
 });
 
@@ -507,7 +525,7 @@ onUnmounted(() => {
                     </IconField>
                     <MultiSelect
                         v-model="filtros.status"
-                        :options="opcoes.status"
+                        :options="opcoesStatusMapa"
                         optionLabel="label"
                         optionValue="value"
                         placeholder="Status"
@@ -518,9 +536,9 @@ onUnmounted(() => {
                     <Select
                         v-if="podeFiltrarOrgao"
                         v-model="filtros.sinapse_orgao_id"
-                        :options="[{ label: 'Todos os órgãos', value: null }, ...opcoes.secretarias]"
-                        optionLabel="label"
-                        optionValue="value"
+                        :options="opcoes.secretarias"
+                        optionLabel="nome"
+                        optionValue="id"
                         placeholder="Órgão"
                         filter
                         showClear
@@ -529,9 +547,9 @@ onUnmounted(() => {
                     />
                     <Select
                         v-model="filtros.servico_id"
-                        :options="[{ label: 'Todos os serviços', value: null }, ...servicosFiltrados]"
-                        optionLabel="label"
-                        optionValue="value"
+                        :options="servicosFiltrados"
+                        optionLabel="nome"
+                        optionValue="id"
                         placeholder="Serviço Sinapse"
                         filter
                         showClear
@@ -550,9 +568,9 @@ onUnmounted(() => {
                     <Select
                         v-if="podeFiltrarVereador"
                         v-model="filtros.vereador_id"
-                        :options="[{ label: 'Todos os vereadores', value: null }, ...opcoes.vereadores]"
-                        optionLabel="label"
-                        optionValue="value"
+                        :options="opcoes.vereadores"
+                        optionLabel="nome_formatado"
+                        optionValue="id"
                         placeholder="Vereador"
                         filter
                         showClear
@@ -602,7 +620,13 @@ onUnmounted(() => {
                     :closable="false"
                     class="absolute top-3 right-3 z-[1000] max-w-xs"
                 >
-                    Nenhuma demanda com coordenadas para os filtros selecionados.
+                    <template v-if="isCamara">
+                        Nenhuma indicação georreferenciada no mapa. Indicações precisam de endereço ou
+                        ponto confirmado no Copiloto para aparecer aqui.
+                    </template>
+                    <template v-else>
+                        Nenhuma demanda com coordenadas para os filtros selecionados.
+                    </template>
                 </Message>
             </div>
 
