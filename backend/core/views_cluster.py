@@ -1,4 +1,4 @@
-"""API de leitura para clusters de execução (Protocolo / Gestor)."""
+"""API de leitura para clusters de execução (Protocolo / Gestor / Secretaria)."""
 
 from django.conf import settings
 from django.db.models import Count
@@ -14,7 +14,8 @@ from .services.cluster_despacho_service import ClusterDespachoService
 from .services.cluster_service import CLUSTER_MIN_DEMANDAS, ClusterService
 from .services.gestor_escopo import TIPO_SETORIAL, orgaos_escopo_gestor, tipo_gestor
 
-_PERFIS = frozenset({"PROTOCOLO", "GESTOR"})
+_PERFIS = frozenset({"PROTOCOLO", "GESTOR", "SECRETARIA"})
+_PERFIS_GERIR = frozenset({"PROTOCOLO", "GESTOR", "SECRETARIA"})
 _PERFIS_RESUMO_SUPER_OS = frozenset({"PROTOCOLO", "GESTOR", "SECRETARIA"})
 
 
@@ -26,6 +27,14 @@ def _pode_ver_clusters(user) -> bool:
     )
 
 
+def _pode_gerir_cluster(user) -> bool:
+    return bool(
+        user
+        and user.is_authenticated
+        and (getattr(user, "perfil", None) in _PERFIS_GERIR or user.is_staff)
+    )
+
+
 def _pode_ver_resumo_super_os(user) -> bool:
     return bool(
         user
@@ -34,6 +43,20 @@ def _pode_ver_resumo_super_os(user) -> bool:
             getattr(user, "perfil", None) in _PERFIS_RESUMO_SUPER_OS or user.is_staff
         )
     )
+
+
+def _aplicar_escopo_clusters(qs, user):
+    perfil = getattr(user, "perfil", None)
+    if perfil == "GESTOR" and tipo_gestor(user) == TIPO_SETORIAL:
+        orgaos = orgaos_escopo_gestor(user)
+        if orgaos:
+            return qs.filter(demandas__sinapse_orgao_id__in=orgaos).distinct()
+        return qs.none()
+    if perfil == "SECRETARIA" and getattr(user, "sinapse_orgao_id", None):
+        return qs.filter(
+            demandas__sinapse_orgao_id=int(user.sinapse_orgao_id)
+        ).distinct()
+    return qs
 
 
 class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
@@ -58,14 +81,7 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
                 qs = qs.filter(pk=int(cluster_id))
             except (TypeError, ValueError):
                 pass
-        user = self.request.user
-        if getattr(user, "perfil", None) == "GESTOR" and tipo_gestor(user) == TIPO_SETORIAL:
-            orgaos = orgaos_escopo_gestor(user)
-            if orgaos:
-                qs = qs.filter(demandas__sinapse_orgao_id__in=orgaos).distinct()
-            else:
-                qs = qs.none()
-        return qs
+        return _aplicar_escopo_clusters(qs, self.request.user)
 
     def get_object(self):
         """Deep-link /clusters/:id — permite detalhe mesmo fora dos filtros da listagem."""
@@ -73,10 +89,12 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
             ClusterService().purgar_clusters_unitarios()
             pk = self.kwargs.get(self.lookup_field or "pk")
             try:
-                return (
+                qs = (
                     ClusterExecucao.objects.annotate(demandas_count=Count("demandas"))
-                    .get(pk=int(pk))
+                    .filter(pk=int(pk))
                 )
+                qs = _aplicar_escopo_clusters(qs, self.request.user)
+                return qs.get()
             except (ClusterExecucao.DoesNotExist, TypeError, ValueError):
                 raise Http404 from None
         return super().get_object()
@@ -84,7 +102,7 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
     def list(self, request, *args, **kwargs):
         if not _pode_ver_clusters(request.user):
             return Response(
-                {"detail": "Acesso restrito a Protocolo ou Gestor."},
+                {"detail": "Acesso restrito a Protocolo, Gestor ou Secretaria."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         return super().list(request, *args, **kwargs)
@@ -92,7 +110,7 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         if not _pode_ver_clusters(request.user):
             return Response(
-                {"detail": "Acesso restrito a Protocolo ou Gestor."},
+                {"detail": "Acesso restrito a Protocolo, Gestor ou Secretaria."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         return super().retrieve(request, *args, **kwargs)
@@ -101,7 +119,7 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
     def demandas(self, request, pk=None):
         if not _pode_ver_clusters(request.user):
             return Response(
-                {"detail": "Acesso restrito a Protocolo ou Gestor."},
+                {"detail": "Acesso restrito a Protocolo, Gestor ou Secretaria."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         cluster = self.get_object()
@@ -109,6 +127,39 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
             "-data_criacao"
         )
         return Response(DemandaListSerializer(qs, many=True).data)
+
+    @action(detail=True, methods=["get"], url_path="demandas-candidatas")
+    def demandas_candidatas(self, request, pk=None):
+        """Ofícios candidatos à vinculação manual (mesmo serviço + área compatível)."""
+        if not _pode_gerir_cluster(request.user):
+            return Response(
+                {"detail": "Sem permissão para vincular demandas ao grupo."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        cluster = self.get_object()
+        q = (request.query_params.get("q") or "").strip() or None
+        try:
+            limit = min(int(request.query_params.get("limit", 20)), 50)
+        except (TypeError, ValueError):
+            limit = 20
+        svc = ClusterService()
+        candidatas = svc.listar_demandas_candidatas_vinculo(cluster, q=q, limit=limit)
+        from integrations import sinapse_catalog
+
+        servico_nome = None
+        sid = svc._servico_id_do_cluster(cluster)
+        if sid:
+            cat = sinapse_catalog.get_servico(int(sid))
+            servico_nome = cat.titulo if cat else None
+        return Response(
+            {
+                "total": len(candidatas),
+                "compatíveis": sum(1 for c in candidatas if c.get("compativel")),
+                "cluster_id": cluster.pk,
+                "servico_nome": servico_nome,
+                "results": candidatas,
+            }
+        )
 
     @action(detail=False, methods=["get"], url_path="resumo-operacional")
     def resumo_operacional(self, request):
@@ -178,9 +229,9 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"])
     def vincular(self, request, pk=None):
         """Vincula manualmente uma demanda ao cluster (mesmo serviço + geo)."""
-        if getattr(request.user, "perfil", None) != "PROTOCOLO":
+        if not _pode_gerir_cluster(request.user):
             return Response(
-                {"detail": "Apenas o Protocolo pode gerenciar clusters."},
+                {"detail": "Sem permissão para vincular demandas ao grupo."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         cluster = self.get_object()
@@ -216,9 +267,9 @@ class ClusterExecucaoViewSet(viewsets.ReadOnlyModelViewSet):
     @action(detail=True, methods=["post"])
     def desvincular(self, request, pk=None):
         """Remove uma demanda do cluster manualmente."""
-        if getattr(request.user, "perfil", None) != "PROTOCOLO":
+        if not _pode_gerir_cluster(request.user):
             return Response(
-                {"detail": "Apenas o Protocolo pode gerenciar clusters."},
+                {"detail": "Sem permissão para desvincular demandas do grupo."},
                 status=status.HTTP_403_FORBIDDEN,
             )
         cluster = self.get_object()

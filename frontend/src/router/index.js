@@ -200,7 +200,7 @@ const router = createRouter({
                     component: () => import('@/views/ClustersView.vue'),
                     meta: {
                         requiresAuth: true,
-                        perfis: ['GESTOR', 'PROTOCOLO']
+                        perfis: ['GESTOR', 'PROTOCOLO', 'SECRETARIA']
                     }
                 },
                 {

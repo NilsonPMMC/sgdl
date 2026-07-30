@@ -9,7 +9,7 @@ from typing import Any
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Min, QuerySet
+from django.db.models import Count, Min, Q, QuerySet
 from django.utils import timezone
 
 from core.models import ClusterExecucao, Demanda, Tramitacao
@@ -378,6 +378,121 @@ class ClusterService:
         )
         self._disparar_integracao_automatica_cluster(demanda)
         return cluster
+
+    def avaliar_compatibilidade_vinculo(
+        self, demanda: Demanda, cluster: ClusterExecucao
+    ) -> dict[str, Any]:
+        """Explica se uma demanda pode ser vinculada manualmente ao cluster."""
+        if cluster.status == CLUSTER_STATUS_RESOLVIDO:
+            return {"compativel": False, "motivo": "Este grupo está encerrado."}
+        if not self.demanda_pode_participar_cluster(demanda):
+            return {
+                "compativel": False,
+                "motivo": "Somente ofícios aguardando protocolo podem entrar no grupo.",
+            }
+        if not demanda.sinapse_servico_id:
+            return {"compativel": False, "motivo": "Demanda sem serviço da carta vinculado."}
+        servico_cluster = self._servico_id_do_cluster(cluster)
+        if servico_cluster and int(servico_cluster) != int(demanda.sinapse_servico_id):
+            return {
+                "compativel": False,
+                "motivo": "Serviço diferente do grupo (mesma carta exigida).",
+            }
+        if demanda.cluster_id:
+            if int(demanda.cluster_id) == int(cluster.pk):
+                return {"compativel": False, "motivo": "Demanda já faz parte deste grupo."}
+            return {"compativel": False, "motivo": "Demanda já vinculada a outro grupo."}
+        if not self._geo_compativel(demanda, cluster):
+            return {
+                "compativel": False,
+                "motivo": "Endereço fora da área do grupo (~300 m ou bairro distinto).",
+            }
+        return {"compativel": True, "motivo": "ok"}
+
+    def listar_demandas_candidatas_vinculo(
+        self,
+        cluster: ClusterExecucao,
+        *,
+        q: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Demandas do mesmo serviço candidatas à vinculação manual, com flag de compatibilidade."""
+        servico_id = self._servico_id_do_cluster(cluster)
+        if not servico_id:
+            return []
+
+        qs = (
+            Demanda.objects.filter(sinapse_servico_id=servico_id)
+            .exclude(status__in=DEMANDA_STATUS_BLOQUEIA_CLUSTER)
+            .select_related("autor")
+            .order_by("-data_criacao")
+        )
+        termo = (q or "").strip()
+        if termo:
+            filtro = (
+                Q(titulo__icontains=termo)
+                | Q(protocolo_legislativo__icontains=termo)
+                | Q(protocolo_executivo__icontains=termo)
+                | Q(bairro__icontains=termo)
+                | Q(logradouro__icontains=termo)
+                | Q(autor__first_name__icontains=termo)
+                | Q(autor__last_name__icontains=termo)
+                | Q(autor__username__icontains=termo)
+            )
+            if termo.isdigit():
+                filtro |= Q(pk=int(termo))
+            qs = qs.filter(filtro)
+        else:
+            qs = qs.filter(status__in=DEMANDA_STATUS_ELEGIVEIS, cluster__isnull=True)
+
+        scan_limit = max(limit * 5, 50) if not termo else max(limit * 3, 30)
+        resultado: list[dict[str, Any]] = []
+        compativeis = 0
+        for demanda in qs[:scan_limit]:
+            aval = self.avaliar_compatibilidade_vinculo(demanda, cluster)
+            if not termo and not aval["compativel"]:
+                continue
+            item = self._serializar_candidata_vinculo(demanda, aval)
+            resultado.append(item)
+            if aval["compativel"]:
+                compativeis += 1
+            if not termo and compativeis >= limit:
+                break
+            if termo and len(resultado) >= limit:
+                break
+        if not termo:
+            resultado.sort(key=lambda x: (not x["compativel"], x.get("data_criacao") or ""), reverse=False)
+        else:
+            resultado.sort(
+                key=lambda x: (not x["compativel"], x.get("data_criacao") or ""),
+                reverse=False,
+            )
+        return resultado[:limit]
+
+    @staticmethod
+    def _serializar_candidata_vinculo(
+        demanda: Demanda, aval: dict[str, Any]
+    ) -> dict[str, Any]:
+        autor = demanda.autor
+        autor_nome = ""
+        if autor:
+            autor_nome = f"{autor.first_name or ''} {autor.last_name or ''}".strip() or autor.username
+        servico = sinapse_catalog.get_servico(demanda.sinapse_servico_id)
+        return {
+            "id": demanda.id,
+            "titulo": demanda.titulo,
+            "protocolo_legislativo": demanda.protocolo_legislativo,
+            "protocolo_executivo": demanda.protocolo_executivo,
+            "status": demanda.status,
+            "status_display": demanda.get_status_display(),
+            "bairro": demanda.bairro or "",
+            "logradouro": demanda.logradouro or "",
+            "autor_nome": autor_nome,
+            "servico_nome": (servico.titulo.strip() if servico and servico.titulo else ""),
+            "data_criacao": demanda.data_criacao.isoformat() if demanda.data_criacao else None,
+            "compativel": bool(aval.get("compativel")),
+            "motivo": aval.get("motivo") or "",
+        }
 
     def desvincular_demanda_manual(self, demanda: Demanda, *, usuario) -> None:
         cluster = demanda.cluster

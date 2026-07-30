@@ -306,7 +306,7 @@ const showSuperOsColumn = computed(() =>
 );
 
 const podeAbrirGestorClusters = computed(() =>
-    ['GESTOR', 'PROTOCOLO'].includes(userStore.currentUser?.perfil)
+    ['GESTOR', 'PROTOCOLO', 'SECRETARIA'].includes(userStore.currentUser?.perfil)
 );
 
 const podeDespacharSuperOs = (demanda) =>

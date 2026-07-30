@@ -11,11 +11,12 @@ import Column from 'primevue/column';
 import DataTable from 'primevue/datatable';
 import Dialog from 'primevue/dialog';
 import Dropdown from 'primevue/dropdown';
-import InputText from 'primevue/inputtext';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import Select from 'primevue/select';
 import Tag from 'primevue/tag';
+import DialogVincularDemandaCluster from '@/components/cluster/DialogVincularDemandaCluster.vue';
+import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
 
 const toast = useToast();
 const route = useRoute();
@@ -52,7 +53,6 @@ const filtros = ref({ status: 'ativos' });
 const todasSecretarias = ref([]);
 const superOsDialog = ref(false);
 const vincularDialog = ref(false);
-const demandaIdVincular = ref('');
 const vinculandoDemanda = ref(false);
 const desvinculandoId = ref(null);
 const despachandoSuperOs = ref(false);
@@ -60,11 +60,15 @@ const despachoData = ref({
     secretaria_id: null
 });
 
-const podeGerirCluster = computed(() => userStore.currentUser?.perfil === 'PROTOCOLO');
+const perfil = computed(() => userStore.currentUser?.perfil);
+
+const podeGerirCluster = computed(() =>
+    ['PROTOCOLO', 'GESTOR', 'SECRETARIA'].includes(perfil.value)
+);
 
 const podeDespacharSuperOs = computed(
     () =>
-        podeGerirCluster.value &&
+        perfil.value === 'PROTOCOLO' &&
         detalhe.value?.id &&
         (detalhe.value?.pendentes_protocolo ?? 0) > 0
 );
@@ -226,21 +230,21 @@ const abrirDialogoSuperOs = () => {
 };
 
 const abrirDialogoVincular = () => {
-    demandaIdVincular.value = '';
     vincularDialog.value = true;
 };
 
-const confirmarVincularDemanda = async () => {
-    const demandaId = parseInt(String(demandaIdVincular.value).trim(), 10);
+const confirmarVincularDemanda = async (demandaId) => {
     const clusterId = detalhe.value?.id;
-    if (!clusterId || !demandaId) {
-        toast.add({ severity: 'warn', summary: 'Atenção', detail: 'Informe o ID da demanda.', life: 3000 });
-        return;
-    }
+    if (!clusterId || !demandaId) return;
     vinculandoDemanda.value = true;
     try {
         await ApiService.vincularDemandaCluster(clusterId, demandaId);
-        toast.add({ severity: 'success', summary: 'Vinculado', detail: `Demanda #${demandaId} adicionada ao cluster.`, life: 4000 });
+        toast.add({
+            severity: 'success',
+            summary: 'Vinculado',
+            detail: 'Ofício adicionado ao grupo Super OS.',
+            life: 4000
+        });
         vincularDialog.value = false;
         await Promise.all([loadResumo(), loadClusters(), loadDetalhe(clusterId), loadDemandas(clusterId)]);
     } catch (error) {
@@ -249,6 +253,11 @@ const confirmarVincularDemanda = async () => {
         vinculandoDemanda.value = false;
     }
 };
+
+const rotuloDemanda = (item) =>
+    formatarProtocoloLegislativo(item?.protocolo_legislativo) ||
+    item?.protocolo_executivo ||
+    (item?.id ? `#${item.id}` : '—');
 
 const desvincularDemanda = async (demandaId) => {
     const clusterId = detalhe.value?.id;
@@ -328,8 +337,8 @@ watch(
             <div>
                 <h2 class="text-2xl font-semibold text-[var(--text-color)] m-0">Super Ordens de Serviço</h2>
                 <p class="text-surface-600 mt-1 mb-0 text-sm">
-                    Agrupamento do <strong>mesmo serviço</strong> da carta, com proximidade geográfica (~300 m) quando o
-                    serviço exige local. Ofícios de vereadores diferentes no mesmo problema aparecem juntos.
+                    Grupos automáticos do <strong>mesmo serviço</strong> e mesma área. Quando o sistema não reconhecer
+                    um ofício relacionado, use <strong>Vincular ofício</strong> para integrá-lo ao grupo existente.
                 </p>
             </div>
             <Button label="Atualizar" icon="pi pi-refresh" outlined :loading="loadingLista" @click="recarregar" />
@@ -532,7 +541,7 @@ watch(
                                     @click="abrirDialogoSuperOs"
                                 />
                                 <Button
-                                    label="Vincular demanda"
+                                    label="Vincular ofício"
                                     icon="pi pi-link"
                                     outlined
                                     @click="abrirDialogoVincular"
@@ -555,8 +564,10 @@ watch(
                                     responsiveLayout="scroll"
                                     class="sgdl-table-scroll"
                                 >
-                                    <Column header="ID" style="width: 4rem">
-                                        <template #body="{ data }">{{ data.id }}</template>
+                                    <Column header="Ofício" style="min-width: 8rem">
+                                        <template #body="{ data }">
+                                            <span class="text-xs font-medium">{{ rotuloDemanda(data) }}</span>
+                                        </template>
                                     </Column>
                                     <Column header="Status">
                                         <template #body="{ data }">
@@ -602,24 +613,12 @@ watch(
             </div>
         </div>
 
-        <Dialog v-model:visible="vincularDialog" header="Vincular demanda ao cluster" :modal="true" style="width: 420px">
-            <p class="m-0 text-sm text-surface-600 mb-4">
-                Informe o ID de uma demanda do <strong>mesmo serviço</strong> e na mesma área geográfica.
-            </p>
-            <div>
-                <label for="demanda_vinc_id" class="block mb-2 text-sm font-medium">ID da demanda</label>
-                <InputText id="demanda_vinc_id" v-model="demandaIdVincular" placeholder="Ex.: 42" fluid />
-            </div>
-            <template #footer>
-                <Button label="Cancelar" icon="pi pi-times" text @click="vincularDialog = false" />
-                <Button
-                    label="Vincular"
-                    icon="pi pi-link"
-                    :loading="vinculandoDemanda"
-                    @click="confirmarVincularDemanda"
-                />
-            </template>
-        </Dialog>
+        <DialogVincularDemandaCluster
+            v-model:visible="vincularDialog"
+            :cluster="detalhe"
+            :vinculando="vinculandoDemanda"
+            @vincular="confirmarVincularDemanda"
+        />
 
         <Dialog
             v-model:visible="superOsDialog"

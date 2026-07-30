@@ -29,6 +29,7 @@ const QUICK_LINKS_POR_PERFIL = {
     GESTOR: [
         { label: 'Dashboard', icon: 'pi pi-home', to: '/' },
         { label: 'Demandas', icon: 'pi pi-book', to: '/demandas' },
+        { label: 'Super OS', icon: 'pi pi-objects-column', to: '/clusters' },
         { label: 'Relatórios', icon: 'pi pi-chart-bar', to: '/relatorios' },
         { label: 'Mapa', icon: 'pi pi-map', to: '/mapa-calor' },
         { label: 'Consulta', icon: 'pi pi-search', to: '/consulta' }
@@ -42,6 +43,7 @@ const QUICK_LINKS_POR_PERFIL = {
     ],
     SECRETARIA: [
         { label: 'Demandas', icon: 'pi pi-book', to: '/demandas' },
+        { label: 'Super OS', icon: 'pi pi-objects-column', to: '/clusters' },
         { label: 'Carta', icon: 'pi pi-bookmark', to: '/carta-servicos' },
         { label: 'Setores', icon: 'pi pi-sitemap', to: '/gestao-setores' },
         { label: 'Mapa', icon: 'pi pi-map', to: '/mapa-calor' }

@@ -58,7 +58,7 @@ const model = computed(() =>
             link('Recusas Copiloto', 'pi-ban', '/gestao-recusas-copiloto', 'GESTOR', 'PROTOCOLO')
         ]),
         secao('Operação', [
-            link('Super Ordens', 'pi-objects-column', '/clusters', 'GESTOR', 'PROTOCOLO'),
+            link('Super Ordens', 'pi-objects-column', '/clusters', 'GESTOR', 'PROTOCOLO', 'SECRETARIA'),
             linkOperacaoAvancada('Fluxo por serviço', 'pi-directions', '/gestao-fluxo-servicos'),
             link('Setores (UA)', 'pi-sitemap', '/gestao-setores', 'GESTOR', 'PROTOCOLO', 'SECRETARIA'),
             link('Textos padrão', 'pi-file-edit', '/textos-padrao-despacho', 'GESTOR', 'PROTOCOLO', 'SECRETARIA')
