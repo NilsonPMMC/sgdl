@@ -3,7 +3,7 @@
 > Backlog acordado após conclusão da **geocodificação MC (fases 1–3)**.  
 > Referência geocodificação: [especificacoes/geocodificacao-endereco-mogi.md](especificacoes/geocodificacao-endereco-mogi.md)
 
-**Atualizado:** 2026-07-30 (Fase 3 concluída)
+**Atualizado:** 2026-07-31 (correções reunião homologação — ver [operacao/apontamentos-reuniao-jul2026.md](operacao/apontamentos-reuniao-jul2026.md))
 
 ---
 

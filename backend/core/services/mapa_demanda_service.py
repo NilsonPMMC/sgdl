@@ -232,6 +232,8 @@ def serializar_locations(queryset, *, super_os_only: bool = False) -> list[dict[
             'is_atrasada': is_atrasada,
             'bairro': demanda.bairro or '',
             'sinapse_servico_id': demanda.sinapse_servico_id,
+            'servico_nome': _nome_servico(demanda.sinapse_servico_id),
+            'data_criacao': demanda.data_criacao.isoformat() if demanda.data_criacao else None,
             'sinapse_orgao_id': demanda.sinapse_orgao_id,
             'unidade_sigla': unidade.sigla if unidade else None,
             'unidade_nome': unidade.nome if unidade else None,
@@ -256,10 +258,24 @@ def _nome_servico(servico_id: int | None) -> str:
     return f'Serviço {servico_id}'
 
 
-def agregar_espacial_sazonal(queryset, *, limit_bairros: int = 12) -> dict[str, Any]:
-    """Agregação bairro × serviço × mês para painel lateral E3."""
+def agregar_espacial_sazonal(
+    queryset,
+    *,
+    limit_bairros: int = 12,
+    super_os_only: bool = False,
+) -> dict[str, Any]:
+    """Agregação bairro × serviço × mês — apenas pontos efetivamente no mapa."""
+    locations = serializar_locations(queryset, super_os_only=super_os_only)
+    return agregar_espacial_sazonal_de_locations(locations, limit_bairros=limit_bairros)
+
+
+def agregar_espacial_sazonal_de_locations(
+    locations: list[dict[str, Any]],
+    *,
+    limit_bairros: int = 12,
+) -> dict[str, Any]:
+    """Agrega somente locations com lat/lng válidos (mesma base do mapa)."""
     agora = timezone.now()
-    geolocalizadas = list(iter_demandas_geolocalizadas_mapa(queryset))
 
     por_bairro_counter: dict[str, int] = defaultdict(int)
     por_bairro_atrasadas: dict[str, int] = defaultdict(int)
@@ -267,13 +283,25 @@ def agregar_espacial_sazonal(queryset, *, limit_bairros: int = 12) -> dict[str, 
     hotspot_counter: dict[tuple[str, int | None], int] = defaultdict(int)
     matriz_counter: dict[tuple[str, int | None, str], int] = defaultdict(int)
 
-    for demanda, _, _ in geolocalizadas:
-        bairro = (demanda.bairro or '').strip() or 'Sem bairro'
-        sid = demanda.sinapse_servico_id
+    for loc in locations:
+        lat, lng = loc.get('lat'), loc.get('lng')
+        if lat is None or lng is None:
+            continue
+        try:
+            if not (-90 <= float(lat) <= 90 and -180 <= float(lng) <= 180):
+                continue
+        except (TypeError, ValueError):
+            continue
+
+        bairro = (loc.get('bairro') or '').strip() or 'Sem bairro'
+        sid = loc.get('sinapse_servico_id')
         por_bairro_counter[bairro] += 1
-        if _demanda_atrasada(demanda, agora):
+        if loc.get('is_atrasada'):
             por_bairro_atrasadas[bairro] += 1
-        mes_label = demanda.data_criacao.strftime('%Y-%m') if demanda.data_criacao else ''
+        mes_label = ''
+        raw_data = loc.get('data_criacao')
+        if raw_data:
+            mes_label = str(raw_data)[:7]
         if mes_label:
             por_mes_counter[mes_label] += 1
         hotspot_counter[(bairro, sid)] += 1
@@ -332,5 +360,5 @@ def agregar_espacial_sazonal(queryset, *, limit_bairros: int = 12) -> dict[str, 
         'por_mes': por_mes,
         'por_bairro_servico_mes': matriz,
         'hotspots': hotspots,
-        'total_geolocalizadas': len(geolocalizadas),
+        'total_geolocalizadas': len(locations),
     }

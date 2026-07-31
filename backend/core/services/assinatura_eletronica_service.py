@@ -775,8 +775,8 @@ class AssinaturaEletronicaService:
         return {
             "hash_documento": hash_doc,
             "declaracao_operador": DECLARACAO_DESPACHO,
-            "requer_gestor_protocolo": True,
-            "requer_validacao_gestor": True,
+            "requer_gestor_protocolo": False,
+            "requer_validacao_gestor": False,
         }
 
     def preparar_assinatura_conclusao_secretaria(
@@ -1286,16 +1286,56 @@ class AssinaturaEletronicaService:
         )
         assinatura.tramitacao = tram_pendente
         assinatura.save(update_fields=["tramitacao"])
-        self._criar_validacao_gestor_pendente(
-            demanda,
-            operador,
-            etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
-            hash_documento=hash_doc,
-            payload=payload,
-            tramitacao=tram_pendente,
-            unidade_administrativa_id=payload.get("unidade_administrativa_id"),
-            sinapse_orgao_id=PROTOCOLO_ORGAO_ID,
-        )
+
+        destinos = payload.get("destinos") or []
+        if not destinos and payload.get("secretaria_id") is not None:
+            destinos = [
+                {
+                    "secretaria_id": int(payload["secretaria_id"]),
+                    "unidade_administrativa_id": payload.get("unidade_administrativa_id"),
+                }
+            ]
+        if not destinos:
+            raise ValueError("Destinos do despacho não encontrados na assinatura pendente.")
+
+        from django.db import transaction
+        from core.services.demanda_despacho_service import DemandaDespachoService
+
+        svc = DemandaDespachoService()
+        svc.preparar_redespacho_protocolo(demanda)
+        demanda.refresh_from_db()
+
+        staging_id = payload.get("tramitacao_staging_id")
+        arquivos = None
+        if staging_id:
+            staging = Tramitacao.objects.filter(pk=int(staging_id)).first()
+            if staging:
+                arquivos = list(staging.anexos.all())
+
+        with transaction.atomic():
+            resultado = svc.despachar_multiplo(
+                demanda,
+                destinos,
+                usuario=operador,
+                automatico=False,
+                protocolo_executivo=payload.get("protocolo_executivo"),
+                arquivos_anexos=arquivos or None,
+                texto_despacho=texto_despacho,
+                tramitacao_existente=tram_pendente,
+            )
+            if staging_id:
+                Tramitacao.objects.filter(pk=int(staging_id)).delete()
+
+            tram_final_id = resultado.get("tramitacao_despacho_id")
+            if tram_final_id:
+                from core.services.tramitacao_janela_edicao_service import (
+                    TramitacaoJanelaEdicaoService,
+                )
+
+                tram_final = Tramitacao.objects.filter(pk=int(tram_final_id)).first()
+                if tram_final:
+                    TramitacaoJanelaEdicaoService.abrir_janela(tram_final)
+
         self._remover_pending_acao(int(demanda.pk), AssinaturaEletronica.ETAPA_DESPACHO_INICIAL)
         return [assinatura]
 

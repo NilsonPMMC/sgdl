@@ -231,14 +231,14 @@ export function modoPainelAssinaturaProtocolo(contexto, user, userStore = null) 
     const perfil = (user?.perfil || '').toUpperCase();
     const ehGestorSgac = usuarioEhGestorProtocoloSgac(user, userStore);
 
-    if (contexto === CONTEXTO_ASSINATURA.DEVOLUTIVA) {
+    if (contexto === CONTEXTO_ASSINATURA.DEVOLUTIVA || contexto === CONTEXTO_ASSINATURA.CONCLUSAO_FINAL) {
         if (ehGestorSgac && perfil === 'GESTOR') {
             return MODO_PAINEL_ASSINATURA.GESTOR_APENAS;
         }
         if (perfil === 'PROTOCOLO' || (perfil === 'GESTOR' && userStore?.isGestorGeral)) {
-            return MODO_PAINEL_ASSINATURA.DUAL_PROTOCOLO;
+            return MODO_PAINEL_ASSINATURA.OPERADOR_APENAS;
         }
-        return MODO_PAINEL_ASSINATURA.DUAL_PROTOCOLO;
+        return MODO_PAINEL_ASSINATURA.OPERADOR_APENAS;
     }
 
     if (ehGestorSgac && perfil === 'GESTOR') {

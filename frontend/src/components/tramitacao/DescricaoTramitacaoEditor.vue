@@ -43,9 +43,14 @@ const formModelo = ref({
     corpo: '',
     unidades_administrativas_ids: []
 });
+const editorEpoch = ref(0);
 
 function patch(val) {
     emit('update:modelValue', val);
+}
+
+function forcarAtualizacaoEditor() {
+    editorEpoch.value += 1;
 }
 
 const categoriaPadrao = computed(() => metaEscopo.value?.categoria_padrao || 'OPERACIONAL');
@@ -77,6 +82,7 @@ const opcoesModelos = computed(() =>
 
 function inserirPlaceholder(token) {
     patch(inserirPlaceholderNoHtml(props.modelValue, token));
+    forcarAtualizacaoEditor();
     toast.add({
         severity: 'info',
         summary: 'Placeholder inserido',
@@ -130,6 +136,7 @@ async function aplicarModelo(id) {
             corpo = aplicarPlaceholdersTextoPadrao(corpo, ctx);
         }
         patch(corpo);
+        forcarAtualizacaoEditor();
         emit('modelo-aplicado', { id, titulo: modelo.titulo });
         toast.add({
             severity: 'success',
@@ -348,7 +355,12 @@ watch(
             </router-link>
         </div>
 
-        <Editor :model-value="modelValue" :editor-style="editorStyle" @update:model-value="patch" />
+        <Editor
+            :key="editorEpoch"
+            :model-value="modelValue"
+            :editor-style="editorStyle"
+            @update:model-value="patch"
+        />
 
         <PlaceholdersTextoPadraoChips v-if="exibirPlaceholders" @inserir="inserirPlaceholder" />
     </div>

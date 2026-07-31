@@ -1367,6 +1367,11 @@ class OperacionalEstadoService:
                 and tram.demanda_id in demandas_com_conclusao_final
             ):
                 continue
+            if (
+                tram.tipo == "ENCERRAMENTO_DEVOLUTIVA"
+                and tram.demanda_id in demandas_com_conclusao_final
+            ):
+                continue
             if not tramitacao_operacional_visivel(tram):
                 continue
             meta = dict(tram.metadata if isinstance(tram.metadata, dict) else {})

@@ -5,33 +5,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-from core.models import ClusterExecucao, Demanda, Tramitacao
+from core.models import ClusterExecucao, Demanda
 from integrations import sinapse_catalog
 
 logger = logging.getLogger(__name__)
-
-
-def _proximo_protocolo_executivo() -> str:
-    ano = timezone.now().year
-    ultimo = (
-        Demanda.objects.filter(protocolo_executivo__startswith=f"{ano}-")
-        .order_by("-protocolo_executivo")
-        .first()
-    )
-    novo = 1
-    if ultimo and ultimo.protocolo_executivo:
-        try:
-            novo = int(ultimo.protocolo_executivo.split("-")[-1]) + 1
-        except (ValueError, IndexError):
-            novo = (
-                Demanda.objects.filter(protocolo_executivo__startswith=f"{ano}-").count()
-                + 1
-            )
-    return f"{ano}-{novo:04d}"
 
 
 def _proximo_protocolo_super_os() -> str:
@@ -54,7 +34,7 @@ def _proximo_protocolo_super_os() -> str:
 
 
 class ClusterDespachoService:
-    """Protocolo despacha todas as demandas pendentes de um cluster de uma vez."""
+    """Protocola apenas o líder da Super OS e integra seguidoras ao processo."""
 
     def despachar_super_os(
         self,
@@ -78,61 +58,44 @@ class ClusterDespachoService:
                 "Não há demandas aguardando protocolo neste cluster."
             )
 
+        from core.services.cluster_service import ClusterService
+
+        lider_pk = ClusterService().lider_cluster_pk(cluster.pk)
+        lider = next((d for d in pendentes if int(d.pk) == int(lider_pk)), None) if lider_pk else None
+        if lider is None:
+            lider = pendentes[0]
+
         protocolo_super = cluster.protocolo_super_os or _proximo_protocolo_super_os()
         agora = timezone.now()
-        protocolados: list[int] = []
+        integradas: list[int] = []
 
         with transaction.atomic():
             from core.services.carta_setor_service import CartaSetorService
+            from core.services.cluster_aderencia_service import ClusterAderenciaService
+            from core.services.demanda_despacho_service import DemandaDespachoService
 
-            setor_svc = CartaSetorService()
-            for demanda in pendentes:
-                protocolo_exec = _proximo_protocolo_executivo()
-                demanda.sinapse_orgao_id = secretaria_id
-                demanda.protocolo_executivo = protocolo_exec
-                demanda.status = "PROTOCOLADO"
-                demanda.data_inicio_prazo = agora
-                from core.services.prazo_demanda_service import PrazoDemandaService
+            unidade = CartaSetorService().resolver_unidade_demanda(lider)
+            texto = (
+                f"Despacho Super OS {protocolo_super} — secretaria {orgao_nome}."
+            )
+            if unidade:
+                texto += f" Setor operacional: {unidade.sigla or unidade.nome}."
 
-                PrazoDemandaService().aplicar_snapshot_protocolo(demanda)
-                unidade = setor_svc.resolver_unidade_demanda(demanda)
-                if unidade:
-                    demanda.unidade_administrativa = unidade
-                update_fields = [
-                    "sinapse_orgao_id",
-                    "protocolo_executivo",
-                    "status",
-                    "data_inicio_prazo",
-                    "prazo_efetivo_dias",
-                    "prazo_origem",
-                ]
-                if unidade:
-                    update_fields.append("unidade_administrativa")
-                demanda._notificacao_super_os_lote = True  # noqa: SLF001
-                demanda.save(update_fields=update_fields)
-                desc = (
-                    f"Despacho Super OS {protocolo_super} — secretaria {orgao_nome}. "
-                    f"Protocolo executivo: {protocolo_exec}."
-                )
-                if unidade:
-                    rotulo = unidade.sigla or unidade.nome
-                    desc += f"\nSetor operacional: {rotulo}."
-                Tramitacao.objects.create(
-                    demanda=demanda,
-                    responsavel=usuario,
-                    tipo="DESPACHO",
-                    descricao=desc,
-                    unidade_destino=unidade,
-                )
-                if usuario is None:
-                    from core.services.assinatura_eletronica_service import (
-                        AssinaturaEletronicaService,
-                    )
+            despacho_svc = DemandaDespachoService()
+            automatico = usuario is None
+            despacho_svc.despachar(
+                lider,
+                secretaria_id=int(secretaria_id),
+                usuario=usuario,
+                automatico=automatico,
+                unidade_administrativa_id=unidade.pk if unidade else None,
+                texto_despacho=texto if not automatico else None,
+            )
+            lider._notificacao_super_os_lote = True  # noqa: SLF001
 
-                    AssinaturaEletronicaService().registrar_assinatura_despacho_automatico(
-                        demanda
-                    )
-                protocolados.append(int(demanda.pk))
+            integradas = ClusterAderenciaService().integrar_seguidoras_sem_protocolo_ao_operacional(
+                lider, usuario=usuario
+            )
 
             cluster.protocolo_super_os = protocolo_super
             cluster.despachado_em = agora
@@ -152,22 +115,24 @@ class ClusterDespachoService:
             )
 
         logger.info(
-            "Super OS %s despachada: cluster_id=%s demandas=%s",
+            "Super OS %s despachada: cluster_id=%s lider=%s integradas=%s",
             protocolo_super,
             cluster.pk,
-            protocolados,
+            lider.pk,
+            integradas,
         )
         from core.services.notificacao_service import NotificacaoService
 
         NotificacaoService().notificar_despacho_inicial_super_os(
             cluster,
-            pendentes,
+            [lider],
             orgao_nome=orgao_nome,
         )
         return {
             "cluster_id": cluster.pk,
             "protocolo_super_os": protocolo_super,
-            "demandas_protocoladas": protocolados,
-            "total": len(protocolados),
+            "demandas_protocoladas": [int(lider.pk)],
+            "demandas_integradas": integradas,
+            "total": 1 + len(integradas),
             "secretaria": orgao_nome,
         }

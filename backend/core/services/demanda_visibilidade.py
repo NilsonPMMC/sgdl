@@ -523,6 +523,23 @@ def _demanda_ids_em_operacao_para_orgao_uas(orgao_id: int, uas: list[int]) -> li
     return list(demanda_ids)
 
 
+def demanda_ids_com_validacao_gestor_pendente(user) -> list[int]:
+    """Demandas com assinatura pendente que o gestor pode validar (acesso explícito)."""
+    from core.models_assinatura_eletronica import AssinaturaValidacaoGestor
+    from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+    if getattr(user, "perfil", None) != "GESTOR":
+        return []
+    svc = AssinaturaEletronicaService()
+    ids: list[int] = []
+    for validacao in AssinaturaValidacaoGestor.objects.filter(
+        status=AssinaturaValidacaoGestor.STATUS_PENDENTE
+    ).only("pk", "demanda_id", "unidade_administrativa_id", "sinapse_orgao_id", "operador_id", "etapa", "hash_documento"):
+        if svc.usuario_pode_validar_assinatura_gestor(user, validacao):
+            ids.append(int(validacao.demanda_id))
+    return list(dict.fromkeys(ids))
+
+
 def demanda_ids_pendencia_gestor_setorial(user) -> list[int]:
     from core.services.gestor_escopo import TIPO_SETORIAL, orgaos_escopo_gestor, tipo_gestor
 
@@ -533,13 +550,14 @@ def demanda_ids_pendencia_gestor_setorial(user) -> list[int]:
         return []
     ua_map = _mapa_uas_gestor_por_orgao(user, orgaos)
     ids: set[int] = set()
+    ids.update(demanda_ids_com_validacao_gestor_pendente(user))
     for oid in orgaos:
         uas = ua_map.get(int(oid), [])
         if uas:
             ids.update(_demanda_ids_pendencia_para_orgao_uas(int(oid), uas))
         else:
             ids.update(demanda_ids_pendencia_operacional(int(oid)))
-    return list(ids)
+    return list(dict.fromkeys(ids))
 
 
 def demanda_ids_em_operacao_gestor_setorial(user) -> list[int]:
@@ -817,6 +835,8 @@ def usuario_pode_acessar_demanda(user, demanda: Demanda) -> bool:
         if gestor_protocolo_sgac(user):
             return demanda.status != "RASCUNHO"
         if tipo_gestor(user) == TIPO_SETORIAL:
+            if demanda.pk in demanda_ids_com_validacao_gestor_pendente(user):
+                return True
             if demanda.status in STATUS_FILA_PROTOCOLO_CENTRAL:
                 return False
             orgaos = orgaos_escopo_gestor(user)

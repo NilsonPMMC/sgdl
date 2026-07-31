@@ -689,7 +689,10 @@ const modoAssinaturaDespachoInicial = computed(() =>
 const modoAssinaturaDevolutiva = computed(() => {
     const previewModo = devolutivaPreview.value?.modo_assinatura;
     if (previewModo) return previewModo;
-    return modoPainelAssinaturaProtocolo(CONTEXTO_ASSINATURA.DEVOLUTIVA, userStore.currentUser, userStore);
+    const ctx = demandaParaDevolutiva.value?.fluxo_roteamento
+        ? CONTEXTO_ASSINATURA.CONCLUSAO_FINAL
+        : CONTEXTO_ASSINATURA.DEVOLUTIVA;
+    return modoPainelAssinaturaProtocolo(ctx, userStore.currentUser, userStore);
 });
 
 const extrairMensagemErro = (error) => {
@@ -1530,30 +1533,43 @@ const executarDevolutivaComAssinatura = async (payloadAssinatura) => {
     executandoAssinatura.value = true;
     try {
         const arquivos = formDevolutiva.value.anexos_novos || [];
+        const usaConclusaoFinal = Boolean(demandaParaDevolutiva.value?.fluxo_roteamento);
         const formComGestor = {
             ...formDevolutiva.value,
             gestor_protocolo_id: payloadAssinatura.gestor_protocolo_id
         };
-        await ApiService.despacharDevolutiva(
-            demandaParaDevolutiva.value.id,
-            {
-                ...buildDevolutivaPayload(
-                    formComGestor,
-                    payloadAssinatura.hash_documento || devolutivaPreview.value.hash_documento,
-                    {
-                        declaracaoOperadorText: DECLARACAO_DEVOLUTIVA,
-                        declaracaoGestorText: DECLARACAO_GESTOR_PROTOCOLO
-                    },
-                    modoAssinaturaDevolutiva.value
-                ),
-                ...payloadAssinatura
-            },
-            arquivos
-        );
+        const declaracaoOp = usaConclusaoFinal ? DECLARACAO_CONCLUSAO_FINAL : DECLARACAO_DEVOLUTIVA;
+        const payload = {
+            ...buildDevolutivaPayload(
+                formComGestor,
+                payloadAssinatura.hash_documento || devolutivaPreview.value.hash_documento,
+                {
+                    declaracaoOperadorText: declaracaoOp,
+                    declaracaoGestorText: DECLARACAO_GESTOR_PROTOCOLO
+                },
+                modoAssinaturaDevolutiva.value
+            ),
+            ...payloadAssinatura
+        };
+        if (usaConclusaoFinal) {
+            await ApiService.conclusaoFinalOperacional(
+                demandaParaDevolutiva.value.id,
+                payload,
+                arquivos
+            );
+        } else {
+            await ApiService.despacharDevolutiva(
+                demandaParaDevolutiva.value.id,
+                payload,
+                arquivos
+            );
+        }
         toast.add({
             severity: 'success',
-            summary: 'Devolutiva enviada',
-            detail: 'Demanda finalizada e vereador notificado.',
+            summary: usaConclusaoFinal ? 'Conclusão final registrada' : 'Devolutiva enviada',
+            detail: usaConclusaoFinal
+                ? 'Assinatura registrada. Após validação do gestor do protocolo, a demanda será finalizada.'
+                : 'Demanda finalizada e vereador notificado.',
             life: 4000
         });
         assinaturaDevolutivaDialogVisible.value = false;

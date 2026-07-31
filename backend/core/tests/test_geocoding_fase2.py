@@ -64,6 +64,52 @@ class CopilotoEditarLocalFase2Tests(TestCase):
         self.assertTrue(ChatbotService._item_tem_local_inferido_pendente(item))
 
 
+class CopilotoGpsAvancaFluxoTests(TestCase):
+    @patch.object(ChatbotService, "_enriquecer_demandas_para_ui", side_effect=lambda _s, r: r)
+    @patch.object(ChatbotService, "_popular_candidatos_sinapse_rascunho")
+    @patch.object(GeocodingService, "buscar_endereco_por_coordenadas")
+    def test_gps_confirma_local_e_avanca_para_anexos(
+        self, mock_reverse, _mock_candidatos, _mock_enriquecer
+    ):
+        mock_reverse.return_value = {
+            "logradouro": "Avenida Vereador Narciso Yague Guimarães",
+            "bairro": "Centro Cívico",
+            "cep": "08780-900",
+            "numero": "277",
+        }
+        user = Usuario.objects.create_user(username="f2_gps", password="x", perfil="VEREADOR")
+        session = ChatSession.objects.create(
+            autor=user,
+            estado_atual=ChatSession.ESTADO_COLETA_ENDERECO,
+            demandas_rascunho=[
+                {
+                    "titulo": "Tapa buraco na via",
+                    "descricao": "buraco na rua",
+                    "servico_confirmado_usuario": True,
+                    "sinapse_servico_id_sugerido": 999002,
+                }
+            ],
+        )
+        svc = ChatbotService()
+        with patch(
+            "core.services.chatbot_service.sinapse_catalog.servico_existe",
+            return_value=True,
+        ):
+            resp = svc.atualizar_localizacao_demanda(
+                usuario=user,
+                session_id=str(session.id),
+                indice_demanda=0,
+                latitude=-23.522,
+                longitude=-46.188,
+            )
+        session.refresh_from_db()
+        item = session.demandas_rascunho[0]
+        self.assertTrue(item.get("local_confirmado_usuario"))
+        self.assertEqual(session.estado_atual, ChatSession.ESTADO_VALIDACAO_FINAL)
+        self.assertEqual(resp["estado_atual"], ChatSession.ESTADO_VALIDACAO_FINAL)
+        self.assertIn("anex", (resp.get("resposta_agente") or "").lower())
+
+
 class CopilotoColetaEnderecoFase2Tests(TestCase):
     def test_endereco_por_virgula_nao_e_apagado_antes_da_confirmacao(self):
         user = Usuario.objects.create_user(username="f2_av", password="x", perfil="VEREADOR")

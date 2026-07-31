@@ -435,7 +435,7 @@ class NotificacaoService:
         total = 0
         vistos: set[int] = set()
         for demanda in demandas:
-            for vereador in self.vereadores_interessados(demanda):
+            for vereador in self.interessados_legislativos(demanda):
                 if vereador.pk in vistos:
                     continue
                 vistos.add(int(vereador.pk))

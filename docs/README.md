@@ -55,6 +55,8 @@ Código de referência: `backend/core/urls.py`, `backend/integrations/urls.py`.
 | [operacao/roteiro-e2e-browser-operadores.md](operacao/roteiro-e2e-browser-operadores.md) | Gate A1 — E2E no browser por perfil |
 | [operacao/homologacao-e2e-registro.md](operacao/homologacao-e2e-registro.md) | Registro de achados H2 |
 | [operacao/piloto-apontamentos-jun2026.md](operacao/piloto-apontamentos-jun2026.md) | **Onda B** — apontamentos pós-GO (B1–B9) |
+| [operacao/apontamentos-reuniao-jul2026.md](operacao/apontamentos-reuniao-jul2026.md) | **Reunião 2026-07-31** — 8 correções homologação (assinaturas, Super OS, Copiloto, mapa) |
+| [operacao/relatorio-atividade-jul2026-gestor-projetos.md](operacao/relatorio-atividade-jul2026-gestor-projetos.md) | Relatório executivo jul/2026 para gestão de projetos |
 | [operacao/homologacao-go-live.md](operacao/homologacao-go-live.md) | Checklist go/no-go |
 | [operacao/importacao-unidades-rm271698.md](operacao/importacao-unidades-rm271698.md) | **C6** — import RM271698, de-para, comandos |
 | [operacao/rm271698-ids-duplicados-conferencia.md](operacao/rm271698-ids-duplicados-conferencia.md) | Conferência: 45 IDs duplicados na planilha (1 191 linhas → 1 120 únicos) |

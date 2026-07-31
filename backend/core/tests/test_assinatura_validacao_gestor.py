@@ -57,7 +57,7 @@ class AssinaturaValidacaoGestorServiceTests(SinapseCatalogTestMixin, TestCase):
             sinapse_orgao_id=SINAPSE_ORGAO_A,
         )
 
-    def test_despacho_inicial_cria_validacao_pendente(self):
+    def test_despacho_inicial_executa_imediatamente_sem_gestor(self):
         svc = AssinaturaEletronicaService()
         preview = svc.preparar_assinatura_despacho_inicial(
             self.demanda,
@@ -65,6 +65,7 @@ class AssinaturaValidacaoGestorServiceTests(SinapseCatalogTestMixin, TestCase):
             unidade_administrativa_id=None,
             protocolo_executivo="2026/0301",
         )
+        self.assertFalse(preview.get("requer_validacao_gestor"))
         svc.registrar_assinaturas_despacho_inicial(
             self.demanda,
             self.operador,
@@ -72,71 +73,22 @@ class AssinaturaValidacaoGestorServiceTests(SinapseCatalogTestMixin, TestCase):
             declaracao_operador=DECLARACAO_DESPACHO,
             contexto_operacao={
                 "destinos": [{"secretaria_id": SINAPSE_ORGAO_A, "unidade_administrativa_id": None}],
-                "texto_despacho": "Despacho inicial aguardando gestor.",
+                "texto_despacho": "Despacho inicial executado após assinatura do operador.",
             },
         )
         self.demanda.refresh_from_db()
-        self.assertEqual(self.demanda.status, "AGUARDANDO_PROTOCOLO")
-        resumo = svc.resumo_assinaturas_demanda(self.demanda)
-        self.assertFalse(resumo["despacho_inicial_assinado"])
-        self.assertTrue(resumo["despacho_inicial_pendente_gestor"])
-        self.assertTrue(
+        self.assertIn(self.demanda.status, ("PROTOCOLADO", "EM_EXECUCAO"))
+        self.assertTrue(self.demanda.protocolo_executivo)
+        self.assertFalse(
             AssinaturaValidacaoGestor.objects.filter(
                 demanda=self.demanda,
                 etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
-                status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
             ).exists()
         )
         tram = self.demanda.tramitacoes.filter(tipo="DESPACHO").first()
         self.assertIsNotNone(tram)
-        self.assertTrue(
-            (tram.metadata or {}).get("aguardando_validacao_gestor"),
-            "Despacho deve aparecer na timeline enquanto aguarda gestor",
-        )
-        self.assertIsNotNone(tram.editavel_ate)
-        self.assertGreater(
-            TramitacaoJanelaEdicaoService.segundos_restantes(tram),
-            0,
-        )
-
-    def test_gestor_valida_despacho_inicial(self):
-        svc = AssinaturaEletronicaService()
-        preview = svc.preparar_assinatura_despacho_inicial(
-            self.demanda,
-            secretaria_id=SINAPSE_ORGAO_A,
-            unidade_administrativa_id=None,
-            protocolo_executivo="2026/0302",
-        )
-        svc.registrar_assinaturas_despacho_inicial(
-            self.demanda,
-            self.operador,
-            hash_documento=preview["hash_documento"],
-            declaracao_operador=DECLARACAO_DESPACHO,
-            contexto_operacao={
-                "destinos": [{"secretaria_id": SINAPSE_ORGAO_A, "unidade_administrativa_id": None}],
-                "texto_despacho": "Despacho após gestor.",
-            },
-        )
-        validacao = AssinaturaValidacaoGestor.objects.get(
-            demanda=self.demanda,
-            etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
-        )
-        self.assertEqual(self.demanda.status, "AGUARDANDO_PROTOCOLO")
-        svc.registrar_validacao_gestor(
-            validacao,
-            self.gestor,
-            hash_documento=preview["hash_documento"],
-            declaracao_gestor=DECLARACAO_GESTOR_PROTOCOLO,
-        )
-        self.demanda.refresh_from_db()
-        self.assertNotEqual(self.demanda.status, "AGUARDANDO_PROTOCOLO")
-        tram = self.demanda.tramitacoes.filter(tipo="DESPACHO").order_by("-timestamp").first()
-        self.assertIsNotNone(tram)
         self.assertFalse((tram.metadata or {}).get("aguardando_validacao_gestor"))
         self.assertIsNotNone(tram.editavel_ate)
-        resumo = svc.resumo_assinaturas_demanda(self.demanda)
-        self.assertTrue(resumo["despacho_inicial_assinado"])
-        self.assertFalse(resumo["despacho_inicial_pendente_gestor"])
 
 
 class AssinaturaValidacaoGestorAPITests(SinapseCatalogTestMixin, APITestCase):

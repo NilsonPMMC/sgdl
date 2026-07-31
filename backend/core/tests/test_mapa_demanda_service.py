@@ -76,6 +76,38 @@ class MapaDemandaServiceTests(TestCase):
         self.assertTrue(len(data['por_mes']) >= 1)
         self.assertTrue(len(data['hotspots']) >= 1)
 
+    def test_agregacao_total_igual_serializar_locations(self):
+        qs = filtrar_demandas_mapa(self._request())
+        locs = serializar_locations(qs)
+        data = agregar_espacial_sazonal(qs)
+        self.assertEqual(data['total_geolocalizadas'], len(locs))
+        self.assertEqual(sum(b['total'] for b in data['por_bairro']), len(locs))
+
+    @patch('core.services.geocoding_service.GeocodingService')
+    def test_endereco_sem_geocode_nao_entra_na_agregacao(self, mock_geo_cls):
+        Demanda.objects.create(
+            titulo='Endereco sem geo',
+            descricao='Teste',
+            status='EM_EXECUCAO',
+            logradouro='Rua Inexistente',
+            bairro='Centro',
+            sinapse_servico_id=20,
+        )
+        mock_geo_cls.return_value.resolver_endereco_geocode.return_value = {
+            'latitude': None,
+            'longitude': None,
+            'latitude_bruta': None,
+            'longitude_bruta': None,
+            'fonte': 'indisponivel',
+        }
+        qs = filtrar_demandas_mapa(self._request())
+        self.assertEqual(qs.count(), 3)
+        locs = serializar_locations(qs)
+        data = agregar_espacial_sazonal(qs)
+        self.assertEqual(len(locs), 2)
+        self.assertEqual(data['total_geolocalizadas'], 2)
+        self.assertNotIn('Endereco sem geo', {loc['titulo'] for loc in locs})
+
     def test_camara_ve_rascunho_geolocalizado_proprio(self):
         camara = User.objects.create_user(
             username='camara_mapa',

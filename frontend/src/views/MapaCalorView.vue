@@ -45,7 +45,6 @@ const opcoesStatusMapa = computed(() => {
 });
 
 const loading = ref(false);
-const loadingAgregacao = ref(false);
 const map = ref(null);
 const tileLayer = ref(null);
 const markerClusterGroup = ref(null);
@@ -303,30 +302,73 @@ const renderizarCamadas = async (lista) => {
     }
 };
 
-const carregarAgregacao = async () => {
-    loadingAgregacao.value = true;
-    try {
-        const { data } = await ApiService.getMapaAgregacao(montarParams());
-        agregacao.value = data || { por_bairro: [], por_mes: [], hotspots: [] };
-    } catch (error) {
-        console.error('Erro agregação mapa:', error);
-        agregacao.value = { por_bairro: [], por_mes: [], hotspots: [] };
-    } finally {
-        loadingAgregacao.value = false;
+const montarAgregacaoLocal = (lista, limitBairros = 12) => {
+    const coordValida = (loc) => {
+        const lat = parseFloat(loc.lat);
+        const lng = parseFloat(loc.lng);
+        return Number.isFinite(lat) && Number.isFinite(lng)
+            && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+    };
+    const nomeServico = (loc) =>
+        loc.servico_nome || (loc.sinapse_servico_id ? `Serviço ${loc.sinapse_servico_id}` : 'Sem serviço');
+
+    const pontos = (lista || []).filter(coordValida);
+    const porBairroCounter = {};
+    const porBairroAtrasadas = {};
+    const porMesCounter = {};
+    const hotspotCounter = {};
+
+    for (const loc of pontos) {
+        const bairro = (loc.bairro || '').trim() || 'Sem bairro';
+        const sid = loc.sinapse_servico_id ?? null;
+        porBairroCounter[bairro] = (porBairroCounter[bairro] || 0) + 1;
+        if (loc.is_atrasada) {
+            porBairroAtrasadas[bairro] = (porBairroAtrasadas[bairro] || 0) + 1;
+        }
+        const mes = loc.data_criacao ? String(loc.data_criacao).slice(0, 7) : '';
+        if (mes) {
+            porMesCounter[mes] = (porMesCounter[mes] || 0) + 1;
+        }
+        const hk = `${bairro}\0${sid ?? ''}`;
+        if (!hotspotCounter[hk]) {
+            hotspotCounter[hk] = {
+                bairro,
+                sinapse_servico_id: sid,
+                servico_nome: nomeServico(loc),
+                total: 0
+            };
+        }
+        hotspotCounter[hk].total += 1;
     }
+
+    const por_bairro = Object.entries(porBairroCounter)
+        .map(([bairro, total]) => ({
+            bairro,
+            total,
+            atrasadas: porBairroAtrasadas[bairro] || 0
+        }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, limitBairros);
+
+    const por_mes = Object.entries(porMesCounter)
+        .map(([mes, total]) => ({ mes, total }))
+        .sort((a, b) => a.mes.localeCompare(b.mes));
+
+    const hotspots = Object.values(hotspotCounter)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 15);
+
+    return { por_bairro, por_mes, hotspots, total_geolocalizadas: pontos.length };
 };
 
 const carregarLocalizacoes = async () => {
     loading.value = true;
     try {
         const params = montarParams();
-        const [locRes] = await Promise.all([
-            ApiService.getDemandaLocations(params),
-            carregarAgregacao()
-        ]);
-        const data = locRes.data;
+        const { data } = await ApiService.getDemandaLocations(params);
         const lista = Array.isArray(data) ? data : data?.results ?? [];
         ultimaLista.value = lista;
+        agregacao.value = montarAgregacaoLocal(lista);
         resumo.value = data?.resumo || {
             total: lista.length,
             atrasadas: ocultarSlaVereador.value ? 0 : lista.filter((x) => x.is_atrasada).length,
@@ -352,6 +394,7 @@ const carregarLocalizacoes = async () => {
     } catch (error) {
         console.error('Erro ao carregar localizações:', error);
         ultimaLista.value = [];
+        agregacao.value = { por_bairro: [], por_mes: [], hotspots: [] };
         resumo.value = { total: 0, atrasadas: 0, super_os: 0 };
         limparCamadas();
     } finally {
@@ -634,7 +677,7 @@ onUnmounted(() => {
                 <Card>
                     <template #title>Hotspots (bairro × serviço)</template>
                     <template #content>
-                        <div v-if="loadingAgregacao" class="text-center py-6 text-sm text-muted-color">Carregando…</div>
+                        <div v-if="loading" class="text-center py-6 text-sm text-muted-color">Carregando…</div>
                         <DataTable
                             v-else-if="agregacao.hotspots?.length"
                             :value="agregacao.hotspots"
@@ -660,7 +703,7 @@ onUnmounted(() => {
                 <Card>
                     <template #title>Top bairros</template>
                     <template #content>
-                        <div v-if="loadingAgregacao" class="text-center py-4 text-sm text-muted-color">Carregando…</div>
+                        <div v-if="loading" class="text-center py-4 text-sm text-muted-color">Carregando…</div>
                         <ul v-else-if="agregacao.por_bairro?.length" class="list-none p-0 m-0 flex flex-col gap-2">
                             <li v-for="b in agregacao.por_bairro" :key="b.bairro">
                                 <div class="flex justify-between text-sm mb-1">
@@ -685,7 +728,7 @@ onUnmounted(() => {
                 <Card>
                     <template #title>Sazonalidade (por mês)</template>
                     <template #content>
-                        <div v-if="loadingAgregacao" class="text-center py-6 text-sm text-muted-color">Carregando…</div>
+                        <div v-if="loading" class="text-center py-6 text-sm text-muted-color">Carregando…</div>
                         <div v-else-if="agregacao.por_mes?.length" class="chart-meses-host">
                             <Chart type="bar" :data="chartMeses" :options="chartOptions" />
                         </div>

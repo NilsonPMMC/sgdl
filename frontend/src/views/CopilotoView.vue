@@ -797,6 +797,14 @@ function usarLocalizacaoAtual(indiceDemanda) {
                         revisaoAtiva.value?.etapa === 'local' &&
                         revisaoAtiva.value?.indiceDemanda === indiceDemanda
                 });
+                const msgIa = (data.resposta_agente || '').trim();
+                if (msgIa) adicionarMensagem('assistant', msgIa);
+                if (data.estado_atual === 'VALIDACAO_FINAL') {
+                    etapaAnexosConcluida.value = false;
+                    await scrollParaBlocoEtapa('anexos');
+                } else if (data.estado_atual === 'COLETA_ENDERECO') {
+                    await scrollParaBlocoEtapa('local');
+                }
                 toast.add({ severity: 'success', summary: 'Localização', detail: 'GPS registrado.', life: 3000 });
             } catch (err) {
                 toast.add({
@@ -854,6 +862,16 @@ async function ajustarMapaCopiloto(indiceDemanda, { latitude, longitude }) {
                 revisaoAtiva.value?.indiceDemanda === indiceDemanda
         });
         const d = data.demandas_extraidas?.[indiceDemanda];
+        const end = d?.endereco && typeof d.endereco === 'object' ? d.endereco : {};
+        enderecoFormCopiloto.value = {
+            ...enderecoFormCopiloto.value,
+            [indiceDemanda]: {
+                cep: end.cep || '',
+                logradouro: end.logradouro || '',
+                bairro: end.bairro || '',
+                numero: end.numero || ''
+            }
+        };
         if (d?.latitude != null && d?.longitude != null) {
             toast.add({
                 severity: 'info',

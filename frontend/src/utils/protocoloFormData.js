@@ -72,6 +72,30 @@ export function buildDevolutivaPayload(form, hashDocumento, declaracoes, modo = 
         return payload;
     }
 
+    if (modo === 'operador_apenas') {
+        payload.declaracao_operador = declaracoes.declaracaoOperadorText;
+        payload.declaracao = declaracoes.declaracaoOperadorText;
+        if (form.anexos_tramitacao_ids?.length) {
+            payload.anexos_tramitacao_ids = form.anexos_tramitacao_ids;
+        }
+        if (form.alerta_destinos?.length) {
+            payload.alerta_destinos = form.alerta_destinos
+                .filter((d) => d.secretaria_id)
+                .map((d) => {
+                    const item = { secretaria_id: Number(d.secretaria_id) };
+                    const ids = d.unidade_administrativa_ids?.length
+                        ? d.unidade_administrativa_ids
+                        : d.unidade_administrativa_id
+                          ? [d.unidade_administrativa_id]
+                          : [];
+                    if (ids.length === 1) item.unidade_administrativa_id = Number(ids[0]);
+                    else if (ids.length > 1) item.unidade_administrativa_ids = ids.map(Number);
+                    return item;
+                });
+        }
+        return payload;
+    }
+
     payload.declaracao_operador = declaracoes.declaracaoOperadorText;
     payload.declaracao = declaracoes.declaracaoOperadorText;
     payload.declaracao_gestor = declaracoes.declaracaoGestorText;

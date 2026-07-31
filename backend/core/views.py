@@ -1368,14 +1368,11 @@ class DemandaViewSet(viewsets.ModelViewSet):
             demanda.refresh_from_db()
             serializer = self.get_serializer(demanda)
             data = serializer.data
-            data["aguardando_validacao_gestor"] = True
+            data["aguardando_validacao_gestor"] = False
             data["assinaturas_registradas"] = [
                 {"codigo_validacao": a.codigo_validacao, "papel": a.papel} for a in assinaturas
             ]
-            data["mensagem"] = (
-                "Assinatura registrada. O despacho só será executado após validação do gestor "
-                "do protocolo em Assinaturas pendentes."
-            )
+            data["mensagem"] = "Despacho registrado e executado com sucesso."
             return Response(data)
 
         except Exception:
@@ -2193,7 +2190,8 @@ class DemandaMapAgregacaoAPIView(APIView):
         from core.services.mapa_demanda_service import agregar_espacial_sazonal, filtrar_demandas_mapa
 
         queryset = filtrar_demandas_mapa(request)
-        return Response(agregar_espacial_sazonal(queryset))
+        super_os_only = request.query_params.get('super_os') in ('1', 'true', 'True')
+        return Response(agregar_espacial_sazonal(queryset, super_os_only=super_os_only))
 
     
 class CurrentUserAPIView(APIView):

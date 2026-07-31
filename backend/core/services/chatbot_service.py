@@ -5752,6 +5752,8 @@ class ChatbotService:
         if confirmar_local:
             item["endereco_informado_usuario"] = True
             item["local_confirmado_usuario"] = True
+            if item.get("_revisao_etapa") == "local":
+                item.pop("_revisao_etapa", None)
         else:
             item.pop("local_confirmado_usuario", None)
         if fonte_norm == "gps_dispositivo":
@@ -5778,6 +5780,10 @@ class ChatbotService:
             "estado_atual": session.estado_atual,
             "demandas_extraidas": rascunho,
         }
+        if confirmar_local:
+            self._sincronizar_estado_pos_vinculo_catalogo(session, parsed)
+            if parsed.get("estado_atual") == ChatSession.ESTADO_COLETA_ENDERECO:
+                parsed["resposta_agente"] = msg_resposta
         return self._montar_resposta_http(session, parsed, criadas=[])
 
     def marcar_demanda_rascunho(
