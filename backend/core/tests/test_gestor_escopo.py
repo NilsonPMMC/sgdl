@@ -7,9 +7,14 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from core.models import Demanda, Usuario
+from core.models_assinatura_eletronica import (
+    AssinaturaEletronica,
+    AssinaturaValidacaoGestor,
+)
 from core.models_unidade_administrativa import UnidadeAdministrativa, UnidadeAdministrativaResponsavel
 from core.services.demanda_visibilidade import (
     aplicar_escopo_demanda,
+    demanda_ids_com_validacao_gestor_pendente,
     usuario_pode_acessar_demanda,
 )
 from core.services.gestor_escopo import (
@@ -161,6 +166,43 @@ class GestorEscopoDemandaTests(SinapseCatalogTestMixin, TestCase):
         qs = aplicar_escopo_demanda(Demanda.objects.all(), self.gestor_setorial)
         self.assertNotIn(self.dem_a.pk, set(qs.values_list("pk", flat=True)))
         self.assertFalse(usuario_pode_acessar_demanda(self.gestor_setorial, self.dem_a))
+
+    def test_gestor_setorial_acessa_demanda_com_validacao_pendente_hjul04(self):
+        """H-JUL-04: escopo queryset deve incluir demandas com assinatura pendente do gestor."""
+        secretaria = Usuario.objects.create_user(
+            username="sec_hjul04",
+            password="x",
+            perfil="SECRETARIA",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+        )
+        ua = UnidadeAdministrativa.objects.create(
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            nome="Setor validacao",
+            sigla="SET-VAL",
+        )
+        UnidadeAdministrativaResponsavel.objects.create(
+            unidade=ua,
+            usuario=self.gestor_setorial,
+            ativo=True,
+        )
+        self.dem_a.status = "AGUARDANDO_DEVOLUTIVA_PROTOCOLO"
+        self.dem_a.unidade_administrativa = ua
+        self.dem_a.save(update_fields=["status", "unidade_administrativa"])
+        AssinaturaValidacaoGestor.objects.create(
+            demanda=self.dem_a,
+            etapa=AssinaturaEletronica.ETAPA_CONCLUSAO_SECRETARIA,
+            tipo_gestor=AssinaturaValidacaoGestor.TIPO_GESTOR_SETOR,
+            hash_documento="abc123",
+            payload={"acao_executiva": "CONCLUSAO_SECRETARIA"},
+            operador=secretaria,
+            unidade_administrativa=ua,
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
+        )
+        self.assertIn(self.dem_a.pk, demanda_ids_com_validacao_gestor_pendente(self.gestor_setorial))
+        self.assertTrue(usuario_pode_acessar_demanda(self.gestor_setorial, self.dem_a))
+        qs = aplicar_escopo_demanda(Demanda.objects.all(), self.gestor_setorial)
+        self.assertIn(self.dem_a.pk, set(qs.values_list("pk", flat=True)))
 
     def test_gestor_geral_pode_painel_protocolo_central(self):
         self.assertTrue(usuario_pode_painel_protocolo_central(self.gestor_geral))
@@ -326,6 +368,50 @@ class GestorEscopoAPITests(SinapseCatalogTestMixin, APITestCase):
         self.assertEqual(r.status_code, status.HTTP_200_OK)
         payload = r.data.get("results", r.data)
         self.assertEqual(len(payload), 0)
+
+    def test_setorial_detalhe_demanda_validacao_pendente_hjul04(self):
+        secretaria = Usuario.objects.create_user(
+            username="sec_hjul04_api",
+            password="x",
+            perfil="SECRETARIA",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+        )
+        ua = UnidadeAdministrativa.objects.create(
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            nome="Setor API validacao",
+            sigla="SET-API",
+        )
+        UnidadeAdministrativaResponsavel.objects.create(
+            unidade=ua,
+            usuario=self.gestor_setorial,
+            ativo=True,
+        )
+        vereador = Usuario.objects.create_user(
+            username="ver_hjul04_api", password="x", perfil="VEREADOR"
+        )
+        demanda = Demanda.objects.create(
+            titulo="Validacao pendente",
+            descricao="x",
+            autor=vereador,
+            status="AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            unidade_administrativa=ua,
+        )
+        AssinaturaValidacaoGestor.objects.create(
+            demanda=demanda,
+            etapa=AssinaturaEletronica.ETAPA_CONCLUSAO_SECRETARIA,
+            tipo_gestor=AssinaturaValidacaoGestor.TIPO_GESTOR_SETOR,
+            hash_documento="def456",
+            payload={"acao_executiva": "CONCLUSAO_SECRETARIA"},
+            operador=secretaria,
+            unidade_administrativa=ua,
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
+        )
+        self.client.force_authenticate(user=self.gestor_setorial)
+        r = self.client.get(f"/api/demandas/{demanda.pk}/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertEqual(r.data["id"], demanda.pk)
 
     def test_setorial_fila_operacionais_em_operacao_lista_demanda_no_setor(self):
         from core.models_perna_operacional import PernaOperacional, StatusPernaOperacional

@@ -37,7 +37,9 @@
 | **Causa** | Assimetria entre quem recebe `ASSINATURA_PENDENTE` e regras de `usuario_pode_acessar_demanda` / fila operacional |
 | **Correção** | `demanda_visibilidade.py`: grant explícito via `demanda_ids_com_validacao_gestor_pendente` (usa `usuario_pode_validar_assinatura_gestor`) |
 | **Validar** | Gestor setorial: notificação → abrir demanda → validar em Assinaturas pendentes |
-| **Reteste 31/jul** | **Falhou** — 404 após assinatura operador; verificar escopo fila devolutivas + deep link (H-JUL-04) |
+| **Reteste 31/jul** | **Falhou** — 404 após assinatura operador *(H-JUL-04)* |
+| **Correção 2026-08-03** | `aplicar_escopo_perfil`: demandas com `AssinaturaValidacaoGestor` pendente entram no queryset do gestor setorial (alinha retrieve com `usuario_pode_acessar_demanda`) |
+| **Reteste** | Pendente em homologação (RT-ASS) |
 
 ---
 

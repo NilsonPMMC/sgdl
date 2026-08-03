@@ -772,7 +772,17 @@ def aplicar_escopo_perfil(qs: QuerySet[Demanda], user) -> QuerySet[Demanda]:
             orgaos = orgaos_escopo_gestor(user)
             if not orgaos:
                 return qs.none()
-            return qs.filter(_filtro_demandas_participacao_orgaos(user, orgaos)).exclude(
+            pendente_validacao = demanda_ids_com_validacao_gestor_pendente(user)
+            filtro_participacao = _filtro_demandas_participacao_orgaos(user, orgaos)
+            if pendente_validacao:
+                return qs.filter(
+                    Q(pk__in=pendente_validacao)
+                    | (
+                        filtro_participacao
+                        & ~Q(status__in=STATUS_FILA_PROTOCOLO_CENTRAL)
+                    )
+                )
+            return qs.filter(filtro_participacao).exclude(
                 status__in=STATUS_FILA_PROTOCOLO_CENTRAL
             )
         return qs
