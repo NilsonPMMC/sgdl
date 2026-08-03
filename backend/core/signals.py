@@ -380,7 +380,8 @@ def notificar_eventos_demanda(sender, instance, created, **kwargs):
     # (vereador só recebe conclusão em FINALIZADO; protocolo via gather/SLA/cluster)
 
     elif instance.status == 'FINALIZADO':
-        svc.notificar_conclusao_final(instance)
+        if not getattr(instance, "_propagando_cluster_status", False):
+            svc.notificar_conclusao_final(instance)
         from core.services.acompanhamento_demanda_service import AcompanhamentoDemandaService
 
         AcompanhamentoDemandaService().encerrar_acompanhamentos_demanda(instance)

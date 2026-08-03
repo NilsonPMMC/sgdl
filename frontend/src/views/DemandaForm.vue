@@ -22,15 +22,10 @@ import Message from 'primevue/message';
 import Dialog from 'primevue/dialog';
 import Checkbox from 'primevue/checkbox';
 import { descricaoParaHtml } from '@/utils/oficioTexto';
-import {
-    filtrarArquivosDuplicados,
-    mensagemAnexosRejeitados,
-    nomeAnexoSalvo
-} from '@/utils/anexoValidacao';
-import {
-    mensagemResumoBackend
-} from '@/utils/duplicidadeAlerta';
+import { filtrarArquivosDuplicados, mensagemAnexosRejeitados, nomeAnexoSalvo } from '@/utils/anexoValidacao';
+import { mensagemResumoBackend } from '@/utils/duplicidadeAlerta';
 import { aplicarAjusteManualMapa, vincularMarcadorArrastavel } from '@/utils/mapaLocalAjustavel';
+import { termoBuscaLogradouroValido } from '@/utils/enderecoCopiloto';
 
 const toast = useToast();
 const router = useRouter();
@@ -77,21 +72,14 @@ const DECLARACAO_ENVIO = 'ASSINO E ENVIO';
 
 const ehTrilhaTendencia = computed(() => {
     const d = demanda.value;
-    return Boolean(
-        d?.origem_vinculo === 'TENDENCIA' || d?.tendencia?.id || d?.tendencia_id
-    );
+    return Boolean(d?.origem_vinculo === 'TENDENCIA' || d?.tendencia?.id || d?.tendencia_id);
 });
 
 const tendenciaResumo = computed(() => demanda.value?.tendencia || null);
 
 const orgaoDestinoNome = computed(() => {
     if (ehTrilhaTendencia.value) {
-        return (
-            tendenciaResumo.value?.sinapse_orgao_nome ||
-            secretariaDestino.value?.nome ||
-            demanda.value?.secretaria_destino?.nome ||
-            ''
-        );
+        return tendenciaResumo.value?.sinapse_orgao_nome || secretariaDestino.value?.nome || demanda.value?.secretaria_destino?.nome || '';
     }
     return secretariaCartaNome.value;
 });
@@ -135,25 +123,11 @@ const demanda = ref({
     longitude: null
 });
 
-const servicoCartaNome = computed(
-    () => selectedServico.value?.nome || demanda.value?.servico?.nome || ''
-);
+const servicoCartaNome = computed(() => selectedServico.value?.nome || demanda.value?.servico?.nome || '');
 
-const secretariaCartaNome = computed(
-    () =>
-        secretariaDestino.value?.nome ||
-        selectedServico.value?.secretaria_responsavel?.nome ||
-        demanda.value?.secretaria_destino?.nome ||
-        ''
-);
+const secretariaCartaNome = computed(() => secretariaDestino.value?.nome || selectedServico.value?.secretaria_responsavel?.nome || demanda.value?.secretaria_destino?.nome || '');
 
-const temEnderecoParaMapa = computed(
-    () =>
-        Boolean(
-            (demanda.value.cep && demanda.value.cep.replace(/\D/g, '').length >= 8) ||
-                (demanda.value.logradouro && demanda.value.bairro)
-        )
-);
+const temEnderecoParaMapa = computed(() => Boolean((demanda.value.cep && demanda.value.cep.replace(/\D/g, '').length >= 8) || (demanda.value.logradouro && demanda.value.bairro)));
 
 const coordenadasMapaLabel = computed(() => {
     if (demanda.value.latitude && demanda.value.longitude) {
@@ -277,18 +251,17 @@ onMounted(async () => {
             ...data,
             descricao: descricaoParaHtml(data.descricao)
         };
-            anexos.value = data.anexos || [];
-            selectedServico.value = data.servico || null;
-            secretariaDestino.value = data.secretaria_destino || data.servico?.secretaria_responsavel || null;
-            const trilhaTend =
-                data.origem_vinculo === 'TENDENCIA' || data.tendencia?.id || data.tendencia_id;
-            podeEscolherServico.value = !trilhaTend && !data.sinapse_servico_id;
-            if (trilhaTend && data.tendencia?.sinapse_orgao_id && !secretariaDestino.value) {
-                secretariaDestino.value = {
-                    id: data.tendencia.sinapse_orgao_id,
-                    nome: data.tendencia.sinapse_orgao_nome || 'Órgão sugerido'
-                };
-            }
+        anexos.value = data.anexos || [];
+        selectedServico.value = data.servico || null;
+        secretariaDestino.value = data.secretaria_destino || data.servico?.secretaria_responsavel || null;
+        const trilhaTend = data.origem_vinculo === 'TENDENCIA' || data.tendencia?.id || data.tendencia_id;
+        podeEscolherServico.value = !trilhaTend && !data.sinapse_servico_id;
+        if (trilhaTend && data.tendencia?.sinapse_orgao_id && !secretariaDestino.value) {
+            secretariaDestino.value = {
+                id: data.tendencia.sinapse_orgao_id,
+                nome: data.tendencia.sinapse_orgao_nome || 'Órgão sugerido'
+            };
+        }
 
         if (data.latitude && data.longitude) {
             showMap.value = true;
@@ -340,19 +313,20 @@ const buscarCep = async () => {
 };
 
 const searchLogradouro = (event) => {
-    const termo = (event.query || '').trim();
+    const termo = event.query ?? '';
     if (debounceLogradouro) {
         clearTimeout(debounceLogradouro);
     }
-    if (termo.length < 3) {
+    if (!termoBuscaLogradouroValido(termo)) {
         sugLogradouros.value = [];
         return;
     }
+    const termoBusca = termo.trim();
     debounceLogradouro = setTimeout(async () => {
         buscandoLogradouros.value = true;
         try {
             const bairro = (demanda.value.bairro || '').trim() || null;
-            const { data } = await ApiService.buscarLogradouros(termo, bairro);
+            const { data } = await ApiService.buscarLogradouros(termoBusca, bairro);
             sugLogradouros.value = data.resultados || [];
         } catch {
             sugLogradouros.value = [];
@@ -415,9 +389,7 @@ const geocodeAddress = async () => {
         toast.add({
             severity: 'warn',
             summary: 'Mapa',
-            detail:
-                data.detail ||
-                'Endereço não localizado em Mogi das Cruzes. Mapa exibido na região do município.',
+            detail: data.detail || 'Endereço não localizado em Mogi das Cruzes. Mapa exibido na região do município.',
             life: 5000
         });
     } catch (error) {
@@ -440,9 +412,7 @@ const salvarRascunho = async (silent = false) => {
         delete payload.servico_id;
         payload.sinapse_servico_id = null;
     } else {
-        payload.servico_id = selectedServico.value
-            ? selectedServico.value.id
-            : demanda.value.sinapse_servico_id || null;
+        payload.servico_id = selectedServico.value ? selectedServico.value.id : demanda.value.sinapse_servico_id || null;
         if (!payload.servico_id) {
             if (!silent) {
                 toast.add({
@@ -485,9 +455,7 @@ const enviarOficialmente = async () => {
         toast.add({
             severity: 'error',
             summary: ehTrilhaTendencia.value ? 'Tendência' : 'Serviço',
-            detail: ehTrilhaTendencia.value
-                ? 'Esta demanda precisa estar vinculada a uma tendência antes do envio.'
-                : 'Selecione o serviço da carta antes de enviar.',
+            detail: ehTrilhaTendencia.value ? 'Esta demanda precisa estar vinculada a uma tendência antes do envio.' : 'Selecione o serviço da carta antes de enviar.',
             life: 4000
         });
         return;
@@ -548,9 +516,7 @@ const confirmarEnvioOficial = async () => {
         toast.add({
             severity: 'success',
             summary: 'Ofício enviado',
-            detail: codigo
-                ? `Assinatura eletrônica registrada (${codigo.slice(0, 8)}…).`
-                : 'Ofício enviado oficialmente.',
+            detail: codigo ? `Assinatura eletrônica registrada (${codigo.slice(0, 8)}…).` : 'Ofício enviado oficialmente.',
             life: 5000
         });
         router.push('/demandas');
@@ -588,10 +554,7 @@ const onUpload = async (event) => {
             const response = await ApiService.createAnexo(formData);
             anexos.value.push(response.data);
         } catch (error) {
-            const detail =
-                error?.response?.data?.arquivo?.[0] ||
-                error?.response?.data?.detail ||
-                `Falha no upload de «${file.name}».`;
+            const detail = error?.response?.data?.arquivo?.[0] || error?.response?.data?.detail || `Falha no upload de «${file.name}».`;
             toast.add({ severity: 'error', summary: 'Erro', detail: String(detail), life: 4000 });
         }
     }
@@ -625,10 +588,7 @@ const removerAnexo = async (anexoId, index) => {
                 <h5 class="m-0">Editar rascunho do ofício</h5>
                 <Button label="Voltar" icon="pi pi-arrow-left" severity="secondary" outlined @click="voltar" />
             </div>
-            <Message severity="info" :closable="false" class="mb-4 w-full">
-                Novos ofícios são criados pelo <strong>Copiloto</strong>. Revise texto, serviço, endereço e
-                anexos nesta tela antes de assinar e enviar oficialmente ao Protocolo.
-            </Message>
+            <Message severity="info" :closable="false" class="mb-4 w-full"> Novos ofícios são criados pelo <strong>Copiloto</strong>. Revise texto, serviço, endereço e anexos nesta tela antes de assinar e enviar oficialmente ao Protocolo. </Message>
             <div>
                 <label class="block mb-3" for="titulo">Título do Ofício</label>
                 <InputText id="titulo" v-model="demanda.titulo" fluid />
@@ -636,30 +596,16 @@ const removerAnexo = async (anexoId, index) => {
 
             <div>
                 <label class="block mb-3" for="servico">
-                    {{
-                        ehTrilhaTendencia
-                            ? 'Classificação (tendência — fora da carta)'
-                            : 'Serviço solicitado (Carta de Serviços)'
-                    }}
+                    {{ ehTrilhaTendencia ? 'Classificação (tendência — fora da carta)' : 'Serviço solicitado (Carta de Serviços)' }}
                 </label>
-                <div
-                    v-if="ehTrilhaTendencia && tendenciaResumo"
-                    class="flex flex-col gap-2 rounded-lg border border-violet-500/35 bg-[var(--surface-ground)] p-4"
-                >
+                <div v-if="ehTrilhaTendencia && tendenciaResumo" class="flex flex-col gap-2 rounded-lg border border-violet-500/35 bg-[var(--surface-ground)] p-4">
                     <div class="flex flex-wrap items-center gap-2">
                         <Tag value="Tendência" severity="secondary" />
                         <span class="font-semibold text-[var(--text-color)]">{{ tendenciaResumo.titulo }}</span>
-                        <span
-                            v-if="tendenciaResumo.volume_total != null"
-                            class="text-sm text-[var(--text-color-secondary)]"
-                        >
-                            · volume {{ tendenciaResumo.volume_total }}
-                        </span>
+                        <span v-if="tendenciaResumo.volume_total != null" class="text-sm text-[var(--text-color-secondary)]"> · volume {{ tendenciaResumo.volume_total }} </span>
                     </div>
                     <p class="m-0 text-sm text-[var(--text-color-secondary)]">
-                        Esta demanda não está vinculada a um serviço da carta Sinapse. O Protocolo pode
-                        promover a tendência à carta depois; o envio oficial gera o ofício legislativo
-                        normalmente.
+                        Esta demanda não está vinculada a um serviço da carta Sinapse. O Protocolo pode promover a tendência à carta depois; o envio oficial gera o ofício legislativo normalmente.
                     </p>
                     <p class="m-0 text-sm text-[var(--text-color-secondary)]">
                         <i class="pi pi-building mr-1" aria-hidden="true" />
@@ -667,31 +613,14 @@ const removerAnexo = async (anexoId, index) => {
                             Órgão sugerido:
                             <strong class="text-[var(--text-color)]">{{ orgaoDestinoNome }}</strong>
                         </template>
-                        <template v-else>
-                            Órgão será definido no despacho do Protocolo.
-                        </template>
+                        <template v-else> Órgão será definido no despacho do Protocolo. </template>
                     </p>
                 </div>
-                <Message
-                    v-else-if="ehTrilhaTendencia"
-                    severity="warn"
-                    :closable="false"
-                    class="mb-0 w-full"
-                >
-                    Demanda marcada como tendência, mas sem vínculo registrado. Reabra pelo Copiloto ou
-                    contate o suporte antes de enviar.
-                </Message>
-                <div
-                    v-else-if="servicoCartaNome && !podeEscolherServico"
-                    class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-4"
-                >
+                <Message v-else-if="ehTrilhaTendencia" severity="warn" :closable="false" class="mb-0 w-full"> Demanda marcada como tendência, mas sem vínculo registrado. Reabra pelo Copiloto ou contate o suporte antes de enviar. </Message>
+                <div v-else-if="servicoCartaNome && !podeEscolherServico" class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-4">
                     <div class="flex flex-wrap items-center gap-2">
                         <span class="font-semibold text-[var(--text-color)]">{{ servicoCartaNome }}</span>
-                        <Tag
-                            v-if="selectedServico?.tipo"
-                            :value="selectedServico.tipo"
-                            :severity="getTagSeverity(selectedServico.tipo)"
-                        />
+                        <Tag v-if="selectedServico?.tipo" :value="selectedServico.tipo" :severity="getTagSeverity(selectedServico.tipo)" />
                     </div>
                     <p v-if="secretariaCartaNome" class="m-0 text-sm text-[var(--text-color-secondary)]">
                         <i class="pi pi-building mr-1" aria-hidden="true" />
@@ -718,19 +647,13 @@ const removerAnexo = async (anexoId, index) => {
                                     <span class="font-medium">{{ option.nome }}</span>
                                     <Tag :value="option.tipo" :severity="getTagSeverity(option.tipo)" />
                                 </div>
-                                <span
-                                    v-if="option.secretaria_responsavel?.nome"
-                                    class="text-xs text-[var(--text-color-secondary)]"
-                                >
+                                <span v-if="option.secretaria_responsavel?.nome" class="text-xs text-[var(--text-color-secondary)]">
                                     {{ option.secretaria_responsavel.nome }}
                                 </span>
                             </div>
                         </template>
                     </AutoComplete>
-                    <p
-                        v-if="selectedServico && secretariaCartaNome"
-                        class="mt-2 mb-0 text-sm text-[var(--text-color-secondary)]"
-                    >
+                    <p v-if="selectedServico && secretariaCartaNome" class="mt-2 mb-0 text-sm text-[var(--text-color-secondary)]">
                         Órgão responsável:
                         <strong class="text-[var(--text-color)]">{{ secretariaCartaNome }}</strong>
                     </p>
@@ -743,10 +666,8 @@ const removerAnexo = async (anexoId, index) => {
                     Local da solicitação
                 </p>
                 <p class="m-0 mb-0 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                    Informe o <strong>CEP</strong> (preenche logradouro e bairro via ViaCEP) ou digite
-                    <strong>rua e bairro</strong>. Use «Atualizar mapa» para obter latitude e longitude
-                    com o mesmo serviço do Copiloto (Nominatim, restrito a Mogi das Cruzes). A
-                    georreferência é opcional e não impede o envio.
+                    Informe o <strong>CEP</strong> (preenche logradouro e bairro via ViaCEP) ou digite <strong>rua e bairro</strong>. Use «Atualizar mapa» para obter latitude e longitude com o mesmo serviço do Copiloto (Nominatim, restrito a Mogi das
+                    Cruzes). A georreferência é opcional e não impede o envio.
                 </p>
             </div>
 
@@ -763,14 +684,13 @@ const removerAnexo = async (anexoId, index) => {
                         :suggestions="sugLogradouros"
                         optionLabel="label"
                         :loading="buscandoLogradouros"
+                        :completeOnFocus="false"
                         placeholder="Digite ao menos 3 letras (ruas de Mogi das Cruzes)"
                         fluid
                         @complete="searchLogradouro"
                         @item-select="onLogradouroSelecionado"
                     />
-                    <p class="mt-1 mb-0 text-xs text-[var(--text-color-secondary)]">
-                        Sugestões via Nominatim (Mogi das Cruzes). Você pode digitar manualmente se não encontrar.
-                    </p>
+                    <p class="mt-1 mb-0 text-xs text-[var(--text-color-secondary)]">Sugestões via Nominatim (Mogi das Cruzes). Você pode digitar manualmente se não encontrar.</p>
                 </div>
             </div>
 
@@ -792,109 +712,52 @@ const removerAnexo = async (anexoId, index) => {
             <div class="field">
                 <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <label class="m-0">Consulta no mapa</label>
-                    <Button
-                        type="button"
-                        label="Atualizar mapa"
-                        icon="pi pi-map"
-                        severity="secondary"
-                        outlined
-                        size="small"
-                        :loading="mapaCarregando"
-                        @click="consultarMapa"
-                    />
+                    <Button type="button" label="Atualizar mapa" icon="pi pi-map" severity="secondary" outlined size="small" :loading="mapaCarregando" @click="consultarMapa" />
                 </div>
                 <p v-if="coordenadasMapaLabel" class="mt-0 mb-2 text-sm text-[var(--text-color-secondary)]">
                     Coordenadas de referência: {{ coordenadasMapaLabel }}
                     <span v-if="fonteGeocodificacao"> (fonte: {{ labelFonteGeo(fonteGeocodificacao) }})</span>
                 </p>
-                <div
-                    v-show="showMap"
-                    id="demanda-map"
-                    class="h-[350px] w-full rounded-md border border-[var(--surface-border)]"
-                />
-                <p v-if="showMap" class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">
-                    Arraste o pin para o local exato no mapa.
-                </p>
-                <p v-if="!showMap" class="m-0 text-sm text-[var(--text-color-secondary)]">
-                    Clique em «Atualizar mapa» após preencher o endereço para conferir a localização.
-                </p>
+                <div v-show="showMap" id="demanda-map" class="h-[350px] w-full rounded-md border border-[var(--surface-border)]" />
+                <p v-if="showMap" class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">Arraste o pin para o local exato no mapa.</p>
+                <p v-if="!showMap" class="m-0 text-sm text-[var(--text-color-secondary)]">Clique em «Atualizar mapa» após preencher o endereço para conferir a localização.</p>
             </div>
 
             <div>
                 <label class="mb-2 block" for="descricao">Texto do ofício</label>
-                <p class="mt-0 mb-3 text-sm text-[var(--text-color-secondary)]">
-                    Texto formal em parágrafos, no padrão do ofício institucional. Revise antes do envio.
-                </p>
+                <p class="mt-0 mb-3 text-sm text-[var(--text-color-secondary)]">Texto formal em parágrafos, no padrão do ofício institucional. Revise antes do envio.</p>
                 <Editor id="descricao" v-model="demanda.descricao" editorStyle="height: 360px" />
             </div>
 
             <div class="mt-4 flex flex-wrap justify-end gap-2">
                 <Button label="Cancelar" severity="secondary" outlined @click="voltar" />
                 <Button label="Salvar Rascunho" icon="pi pi-save" severity="info" @click="salvarRascunho" />
-                <Button
-                    label="Enviar Oficialmente"
-                    icon="pi pi-send"
-                    @click="enviarOficialmente"
-                    :disabled="!podeEnviarOficialmente"
-                />
+                <Button label="Enviar Oficialmente" icon="pi pi-send" @click="enviarOficialmente" :disabled="!podeEnviarOficialmente" />
             </div>
 
-            <Dialog
-                v-model:visible="envioDialog"
-                header="Assinatura eletrônica e envio oficial"
-                :modal="true"
-                style="width: 520px"
-            >
+            <Dialog v-model:visible="envioDialog" header="Assinatura eletrônica e envio oficial" :modal="true" style="width: 520px">
                 <div class="flex flex-col gap-4">
-                    <Message severity="info" :closable="false" class="text-sm m-0">
-                        Revise o PDF do ofício. Ao confirmar, você assina eletronicamente e o protocolo
-                        legislativo é gerado.
-                    </Message>
+                    <Message severity="info" :closable="false" class="text-sm m-0"> Revise o PDF do ofício. Ao confirmar, você assina eletronicamente e o protocolo legislativo é gerado. </Message>
                     <div v-if="carregandoPreview" class="text-sm text-muted-color">Gerando pré-visualização…</div>
                     <template v-else-if="previewEnvio">
-                        <Message
-                            v-if="previewEnvio.duplicidade_resumo?.tem_duplicidade"
-                            :severity="previewEnvio.duplicidade_resumo?.sugerir_nao_enviar ? 'error' : 'warn'"
-                            :closable="false"
-                            class="text-sm m-0"
-                        >
+                        <Message v-if="previewEnvio.duplicidade_resumo?.tem_duplicidade" :severity="previewEnvio.duplicidade_resumo?.sugerir_nao_enviar ? 'error' : 'warn'" :closable="false" class="text-sm m-0">
                             <p class="m-0 font-medium">
-                                {{
-                                    previewEnvio.duplicidade_resumo?.sugerir_nao_enviar
-                                        ? 'Atenção — possível duplicidade em tramitação'
-                                        : 'Possível duplicidade de rascunho'
-                                }}
+                                {{ previewEnvio.duplicidade_resumo?.sugerir_nao_enviar ? 'Atenção — possível duplicidade em tramitação' : 'Possível duplicidade de rascunho' }}
                             </p>
                             <p class="m-0 mt-2">
                                 {{ mensagemResumoBackend(previewEnvio.duplicidade_resumo) }}
                             </p>
-                            <ul
-                                v-if="previewEnvio.alertas_duplicidade?.length"
-                                class="m-0 mt-2 list-disc pl-5"
-                            >
-                                <li
-                                    v-for="a in previewEnvio.alertas_duplicidade"
-                                    :key="a.demanda_id"
-                                >
+                            <ul v-if="previewEnvio.alertas_duplicidade?.length" class="m-0 mt-2 list-disc pl-5">
+                                <li v-for="a in previewEnvio.alertas_duplicidade" :key="a.demanda_id">
                                     {{ a.mensagem }}
                                 </li>
                             </ul>
-                            <p v-if="previewEnvio.duplicidade_resumo?.sugerir_nao_enviar" class="m-0 mt-2">
-                                Você pode cancelar e acompanhar o processo existente, ou continuar se tiver
-                                certeza de que é um pedido diferente.
-                            </p>
+                            <p v-if="previewEnvio.duplicidade_resumo?.sugerir_nao_enviar" class="m-0 mt-2">Você pode cancelar e acompanhar o processo existente, ou continuar se tiver certeza de que é um pedido diferente.</p>
                         </Message>
                         <div v-if="previewEnvio.preview_pdf_disponivel">
-                            <Button
-                                label="Abrir pré-visualização (PDF)"
-                                icon="pi pi-file-pdf"
-                                outlined
-                                @click="abrirPreviewPdf"
-                            />
+                            <Button label="Abrir pré-visualização (PDF)" icon="pi pi-file-pdf" outlined @click="abrirPreviewPdf" />
                         </div>
-                        <p class="m-0 text-xs text-muted-color break-all">
-                            Hash do documento: {{ previewEnvio.hash_documento?.slice(0, 16) }}…
-                        </p>
+                        <p class="m-0 text-xs text-muted-color break-all">Hash do documento: {{ previewEnvio.hash_documento?.slice(0, 16) }}…</p>
                     </template>
                     <div class="flex items-start gap-2">
                         <Checkbox v-model="declaracaoAceita" inputId="declaracao_assinatura" binary />
@@ -906,55 +769,26 @@ const removerAnexo = async (anexoId, index) => {
                 </div>
                 <template #footer>
                     <Button label="Cancelar" icon="pi pi-times" text @click="envioDialog = false" />
-                    <Button
-                        label="Assino e envio"
-                        icon="pi pi-check"
-                        :loading="enviandoOficial"
-                        :disabled="carregandoPreview || !declaracaoAceita"
-                        @click="confirmarEnvioOficial"
-                    />
+                    <Button label="Assino e envio" icon="pi pi-check" :loading="enviandoOficial" :disabled="carregandoPreview || !declaracaoAceita" @click="confirmarEnvioOficial" />
                 </template>
             </Dialog>
 
             <div v-if="anexos.length > 0" class="mb-3">
                 <div class="mb-3 text-xl font-semibold">Anexos salvos</div>
                 <div class="flex flex-col gap-2">
-                    <div
-                        v-for="(anexo, index) in anexos"
-                        :key="anexo.id"
-                        class="surface-border flex items-center rounded border p-2"
-                    >
-                        <a
-                            :href="anexo.arquivo"
-                            target="_blank"
-                            class="text-color hover:text-primary flex items-center no-underline"
-                        >
+                    <div v-for="(anexo, index) in anexos" :key="anexo.id" class="surface-border flex items-center rounded border p-2">
+                        <a :href="anexo.arquivo" target="_blank" class="text-color hover:text-primary flex items-center no-underline">
                             <i class="pi pi-file mr-2" />
                             <span>{{ anexo.arquivo.split('/').pop() }}</span>
                         </a>
-                        <Button
-                            icon="pi pi-times"
-                            severity="danger"
-                            text
-                            rounded
-                            class="ml-2"
-                            @click="removerAnexo(anexo.id, index)"
-                        />
+                        <Button icon="pi pi-times" severity="danger" text rounded class="ml-2" @click="removerAnexo(anexo.id, index)" />
                     </div>
                 </div>
             </div>
 
             <div class="mb-3">
                 <div class="mb-4 text-xl font-semibold">Anexar documentos ou fotos</div>
-                <FileUpload
-                    name="arquivo"
-                    :multiple="true"
-                    accept="image/*,application/pdf"
-                    :maxFileSize="2000000"
-                    @uploader="onUpload"
-                    :customUpload="true"
-                    :disabled="!demandaId"
-                >
+                <FileUpload name="arquivo" :multiple="true" accept="image/*,application/pdf" :maxFileSize="2000000" @uploader="onUpload" :customUpload="true" :disabled="!demandaId">
                     <template #empty>
                         <p>Salve um rascunho para poder anexar arquivos.</p>
                     </template>

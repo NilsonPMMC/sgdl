@@ -453,12 +453,34 @@ class NotificacaoService:
         return total
 
     def notificar_conclusao_final(self, demanda: Demanda) -> int:
+        from core.services.cluster_service import CLUSTER_MIN_DEMANDAS, ClusterService
         from core.services.indicacao_service import demanda_eh_indicacao
 
+        cluster = demanda.cluster
+        lider_pk = int(demanda.pk)
+        protocolo_super = ""
+        if cluster:
+            svc = ClusterService()
+            total = Demanda.objects.filter(cluster_id=cluster.pk).count()
+            super_os = svc.grupo_super_os_ativo(demanda) or total >= CLUSTER_MIN_DEMANDAS
+            if super_os:
+                lider_id = svc.lider_cluster_pk(int(cluster.pk))
+                if lider_id and int(lider_id) != int(demanda.pk):
+                    return 0
+                if lider_id:
+                    lider_pk = int(lider_id)
+                protocolo_super = (cluster.protocolo_super_os or "").strip()
+
         protocolo = self.protocolo_rotulo(demanda)
+        link = self.link_demanda(lider_pk)
         if demanda_eh_indicacao(demanda):
             mensagem = (
                 f"Conclusão final da indicação {demanda.protocolo_legislativo} "
+                f"(processo {protocolo}). Revise o laudo digital na tela do processo."
+            )
+        elif protocolo_super:
+            mensagem = (
+                f"Conclusão final da Super OS {protocolo_super} "
                 f"(processo {protocolo}). Revise o laudo digital na tela do processo."
             )
         else:
@@ -467,7 +489,7 @@ class NotificacaoService:
                 "Revise o laudo digital na tela do processo."
             )
         return self._notificar_vereadores(
-            demanda, "CONCLUSAO", mensagem, link=self.link_demanda(demanda.pk)
+            demanda, "CONCLUSAO", mensagem, link=link
         ) + self._notificar_acompanhantes(demanda, "CONCLUSAO", mensagem)
 
     # ------------------------------------------------------------------ eventos — protocolo

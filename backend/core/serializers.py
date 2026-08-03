@@ -373,12 +373,9 @@ class ClusterExecucaoSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         data = super().to_representation(instance)
         meta = self._metadata(instance)
-        if not (data.get("descricao_resumo") or "").strip():
-            data["descricao_resumo"] = meta["descricao_resumo"]
-        if not (data.get("secretaria_responsavel") or "").strip():
-            data["secretaria_responsavel"] = meta["secretaria_responsavel"]
-        if not (data.get("bairro_referencia") or "").strip():
-            data["bairro_referencia"] = meta["bairro_referencia"]
+        data["descricao_resumo"] = meta["descricao_resumo"]
+        data["secretaria_responsavel"] = meta["secretaria_responsavel"]
+        data["bairro_referencia"] = meta["bairro_referencia"]
         return data
 
     def get_tipo(self, obj: ClusterExecucao) -> str:
@@ -408,6 +405,9 @@ class ClusterExecucaoSerializer(serializers.ModelSerializer):
         ).count()
 
     def get_servico_nome(self, obj: ClusterExecucao) -> str | None:
+        nome = self._metadata(obj).get("servico_nome")
+        if nome:
+            return nome
         if not obj.sinapse_servico_id:
             return None
         from integrations import sinapse_catalog

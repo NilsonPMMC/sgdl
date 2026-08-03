@@ -17,6 +17,7 @@ import Select from 'primevue/select';
 import Tag from 'primevue/tag';
 import DialogVincularDemandaCluster from '@/components/cluster/DialogVincularDemandaCluster.vue';
 import { formatarProtocoloLegislativo } from '@/utils/protocoloLegislativo';
+import { htmlParaTexto } from '@/utils/oficioTexto';
 
 const toast = useToast();
 const route = useRoute();
@@ -62,16 +63,9 @@ const despachoData = ref({
 
 const perfil = computed(() => userStore.currentUser?.perfil);
 
-const podeGerirCluster = computed(() =>
-    ['PROTOCOLO', 'GESTOR', 'SECRETARIA'].includes(perfil.value)
-);
+const podeGerirCluster = computed(() => ['PROTOCOLO', 'GESTOR', 'SECRETARIA'].includes(perfil.value));
 
-const podeDespacharSuperOs = computed(
-    () =>
-        perfil.value === 'PROTOCOLO' &&
-        detalhe.value?.id &&
-        (detalhe.value?.pendentes_protocolo ?? 0) > 0
-);
+const podeDespacharSuperOs = computed(() => perfil.value === 'PROTOCOLO' && detalhe.value?.id && (detalhe.value?.pendentes_protocolo ?? 0) > 0);
 
 const extrairLista = (response) => {
     const data = response?.data;
@@ -254,10 +248,7 @@ const confirmarVincularDemanda = async (demandaId) => {
     }
 };
 
-const rotuloDemanda = (item) =>
-    formatarProtocoloLegislativo(item?.protocolo_legislativo) ||
-    item?.protocolo_executivo ||
-    (item?.id ? `#${item.id}` : '—');
+const rotuloDemanda = (item) => formatarProtocoloLegislativo(item?.protocolo_legislativo) || item?.protocolo_executivo || (item?.id ? `#${item.id}` : '—');
 
 const desvincularDemanda = async (demandaId) => {
     const clusterId = detalhe.value?.id;
@@ -337,19 +328,16 @@ watch(
             <div>
                 <h2 class="text-2xl font-semibold text-[var(--text-color)] m-0">Super Ordens de Serviço</h2>
                 <p class="text-surface-600 mt-1 mb-0 text-sm">
-                    Grupos automáticos do <strong>mesmo serviço</strong> e mesma área. Quando o sistema não reconhecer
-                    um ofício relacionado, use <strong>Vincular ofício</strong> para integrá-lo ao grupo existente.
+                    Grupos automáticos do <strong>mesmo serviço</strong> e mesma área. Quando o sistema não reconhecer um ofício relacionado, use <strong>Vincular ofício</strong> para integrá-lo ao grupo existente.
                 </p>
             </div>
             <Button label="Atualizar" icon="pi pi-refresh" outlined :loading="loadingLista" @click="recarregar" />
         </div>
 
         <Message v-if="kpis.threshold != null" severity="info" :closable="false" class="text-sm">
-            Critérios ativos: <strong>mesmo serviço Sinapse</strong> · similaridade ≥
-            {{ (kpis.threshold * 100).toFixed(0) }}% (desempate) · raio {{ kpis.raio }} m quando exige local (ou mesmo
-            bairro)<template v-if="kpis.janelaDias">
-                · novos ofícios agregam por até {{ kpis.janelaDias }} dias
-            </template>.
+            Critérios ativos: <strong>mesmo serviço Sinapse</strong> · similaridade ≥ {{ (kpis.threshold * 100).toFixed(0) }}% (desempate) · raio {{ kpis.raio }} m quando exige local (ou mesmo bairro)<template v-if="kpis.janelaDias">
+                · novos ofícios agregam por até {{ kpis.janelaDias }} dias </template
+            >.
         </Message>
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -381,26 +369,9 @@ watch(
                     <template #title>Clusters</template>
                     <template #content>
                         <div class="mb-4">
-                            <Dropdown
-                                v-model="filtros.status"
-                                :options="STATUS_OPCOES"
-                                optionLabel="label"
-                                optionValue="value"
-                                class="w-full sm:w-64"
-                            />
+                            <Dropdown v-model="filtros.status" :options="STATUS_OPCOES" optionLabel="label" optionValue="value" class="w-full sm:w-64" />
                         </div>
-                        <DataTable
-                            :value="clusters"
-                            :loading="loadingLista"
-                            selectionMode="single"
-                            dataKey="id"
-                            stripedRows
-                            size="small"
-                            :metaKeySelection="false"
-                            responsiveLayout="scroll"
-                            class="sgdl-table-scroll"
-                            @row-select="selecionarCluster"
-                        >
+                        <DataTable :value="clusters" :loading="loadingLista" selectionMode="single" dataKey="id" stripedRows size="small" :metaKeySelection="false" responsiveLayout="scroll" class="sgdl-table-scroll" @row-select="selecionarCluster">
                             <Column field="titulo" header="Tema / local">
                                 <template #body="{ data }">
                                     <span class="font-medium">{{ data.titulo }}</span>
@@ -414,10 +385,7 @@ watch(
                             </Column>
                             <Column header="Status" style="width: 8rem">
                                 <template #body="{ data }">
-                                    <Tag
-                                        :value="statusTag(data.status).label"
-                                        :severity="statusTag(data.status).severity"
-                                    />
+                                    <Tag :value="statusTag(data.status).label" :severity="statusTag(data.status).severity" />
                                 </template>
                             </Column>
                             <Column header="Dem." style="width: 4rem">
@@ -427,12 +395,7 @@ watch(
                             </Column>
                             <Column header="Vereadores" style="width: 5rem">
                                 <template #body="{ data }">
-                                    <Tag
-                                        v-if="(data.autores_distintos || 0) > 1"
-                                        :value="String(data.autores_distintos)"
-                                        severity="warn"
-                                        v-tooltip.top="'Super OS — mais de um gabinete'"
-                                    />
+                                    <Tag v-if="(data.autores_distintos || 0) > 1" :value="String(data.autores_distintos)" severity="warn" v-tooltip.top="'Super OS — mais de um gabinete'" />
                                     <span v-else>{{ data.autores_distintos ?? 1 }}</span>
                                 </template>
                             </Column>
@@ -457,30 +420,19 @@ watch(
                             <div class="flex flex-wrap justify-between gap-2">
                                 <h3 class="text-lg font-semibold m-0">{{ detalhe.titulo }}</h3>
                                 <div class="flex flex-wrap gap-2">
-                                    <Tag
-                                        v-if="detalhe.tipo_display"
-                                        :value="detalhe.tipo_display"
-                                        :severity="detalhe.tipo === 'MULTI_DESTINO' ? 'help' : 'info'"
-                                    />
-                                    <Tag
-                                        :value="statusTag(detalhe.status).label"
-                                        :severity="statusTag(detalhe.status).severity"
-                                    />
+                                    <Tag v-if="detalhe.tipo_display" :value="detalhe.tipo_display" :severity="detalhe.tipo === 'MULTI_DESTINO' ? 'help' : 'info'" />
+                                    <Tag :value="statusTag(detalhe.status).label" :severity="statusTag(detalhe.status).severity" />
                                 </div>
                             </div>
                             <p v-if="detalhe.descricao_resumo" class="m-0 whitespace-pre-wrap text-justify">
-                                {{ detalhe.descricao_resumo }}
+                                {{ htmlParaTexto(detalhe.descricao_resumo) }}
                             </p>
-                            <Message
-                                v-if="detalhe.orgaos_envolvidos?.length > 1"
-                                severity="info"
-                                :closable="false"
-                                class="m-0 text-xs"
-                            >
+                            <Message v-if="detalhe.orgaos_envolvidos?.length > 1" severity="info" :closable="false" class="m-0 text-xs">
                                 Órgãos no grupo:
                                 {{ detalhe.orgaos_envolvidos.map((o) => o.orgao_nome).join(', ') }}.
                                 <span v-if="detalhe.orgao_competente_nome">
-                                    Competente (carta): <strong>{{ detalhe.orgao_competente_nome }}</strong>.
+                                    Competente (carta): <strong>{{ detalhe.orgao_competente_nome }}</strong
+                                    >.
                                 </span>
                             </Message>
                             <div class="grid grid-cols-2 gap-2 text-xs">
@@ -511,20 +463,13 @@ watch(
                                 <div v-if="detalhe.lider_demanda_id">
                                     <span class="font-semibold">Demanda líder</span>
                                     <p class="m-0">
-                                        <Button
-                                            :label="`#${detalhe.lider_demanda_id}`"
-                                            link
-                                            class="p-0"
-                                            @click="irDemanda(detalhe.lider_demanda_id)"
-                                        />
+                                        <Button :label="`#${detalhe.lider_demanda_id}`" link class="p-0" @click="irDemanda(detalhe.lider_demanda_id)" />
                                     </p>
                                 </div>
                                 <div v-if="detalhe.protocolo_super_os" class="col-span-2">
                                     <span class="font-semibold">Protocolo Super OS</span>
                                     <p class="m-0 font-medium">{{ detalhe.protocolo_super_os }}</p>
-                                    <p v-if="detalhe.despachado_em" class="m-0 text-surface-500">
-                                        Despachado em {{ formatarData(detalhe.despachado_em) }}
-                                    </p>
+                                    <p v-if="detalhe.despachado_em" class="m-0 text-surface-500">Despachado em {{ formatarData(detalhe.despachado_em) }}</p>
                                 </div>
                                 <div v-if="(detalhe.pendentes_protocolo ?? 0) > 0">
                                     <span class="font-semibold">Aguardando protocolo</span>
@@ -533,19 +478,8 @@ watch(
                             </div>
 
                             <div v-if="podeGerirCluster" class="flex flex-wrap gap-2">
-                                <Button
-                                    v-if="podeDespacharSuperOs"
-                                    label="Despachar Super OS"
-                                    icon="pi pi-sitemap"
-                                    severity="help"
-                                    @click="abrirDialogoSuperOs"
-                                />
-                                <Button
-                                    label="Vincular ofício"
-                                    icon="pi pi-link"
-                                    outlined
-                                    @click="abrirDialogoVincular"
-                                />
+                                <Button v-if="podeDespacharSuperOs" label="Despachar Super OS" icon="pi pi-sitemap" severity="help" @click="abrirDialogoSuperOs" />
+                                <Button label="Vincular ofício" icon="pi pi-link" outlined @click="abrirDialogoVincular" />
                             </div>
 
                             <div>
@@ -553,17 +487,8 @@ watch(
                                 <div v-if="loadingDemandas" class="flex justify-center py-4">
                                     <ProgressSpinner style="width: 28px; height: 28px" />
                                 </div>
-                                <p v-else-if="!demandasCluster.length" class="text-surface-500 m-0">
-                                    Nenhuma demanda vinculada.
-                                </p>
-                                <DataTable
-                                    v-else
-                                    :value="demandasCluster"
-                                    size="small"
-                                    stripedRows
-                                    responsiveLayout="scroll"
-                                    class="sgdl-table-scroll"
-                                >
+                                <p v-else-if="!demandasCluster.length" class="text-surface-500 m-0">Nenhuma demanda vinculada.</p>
+                                <DataTable v-else :value="demandasCluster" size="small" stripedRows responsiveLayout="scroll" class="sgdl-table-scroll">
                                     <Column header="Ofício" style="min-width: 8rem">
                                         <template #body="{ data }">
                                             <span class="text-xs font-medium">{{ rotuloDemanda(data) }}</span>
@@ -582,50 +507,23 @@ watch(
                                     <Column header="" style="width: 6rem">
                                         <template #body="{ data }">
                                             <div class="flex gap-1">
-                                                <Button
-                                                    icon="pi pi-external-link"
-                                                    text
-                                                    rounded
-                                                    v-tooltip.top="'Ver demanda'"
-                                                    @click="irDemanda(data.id)"
-                                                />
-                                                <Button
-                                                    v-if="podeGerirCluster"
-                                                    icon="pi pi-times"
-                                                    text
-                                                    rounded
-                                                    severity="danger"
-                                                    :loading="desvinculandoId === data.id"
-                                                    v-tooltip.top="'Desvincular do cluster'"
-                                                    @click="desvincularDemanda(data.id)"
-                                                />
+                                                <Button icon="pi pi-external-link" text rounded v-tooltip.top="'Ver demanda'" @click="irDemanda(data.id)" />
+                                                <Button v-if="podeGerirCluster" icon="pi pi-times" text rounded severity="danger" :loading="desvinculandoId === data.id" v-tooltip.top="'Desvincular do cluster'" @click="desvincularDemanda(data.id)" />
                                             </div>
                                         </template>
                                     </Column>
                                 </DataTable>
                             </div>
                         </div>
-                        <p v-else class="text-surface-500 m-0">
-                            Selecione um cluster para ver demandas agrupadas e abrir cada protocolo.
-                        </p>
+                        <p v-else class="text-surface-500 m-0">Selecione um cluster para ver demandas agrupadas e abrir cada protocolo.</p>
                     </template>
                 </Card>
             </div>
         </div>
 
-        <DialogVincularDemandaCluster
-            v-model:visible="vincularDialog"
-            :cluster="detalhe"
-            :vinculando="vinculandoDemanda"
-            @vincular="confirmarVincularDemanda"
-        />
+        <DialogVincularDemandaCluster v-model:visible="vincularDialog" :cluster="detalhe" :vinculando="vinculandoDemanda" @vincular="confirmarVincularDemanda" />
 
-        <Dialog
-            v-model:visible="superOsDialog"
-            header="Despachar Super Ordem de Serviço"
-            :modal="true"
-            style="width: 480px"
-        >
+        <Dialog v-model:visible="superOsDialog" header="Despachar Super Ordem de Serviço" :modal="true" style="width: 480px">
             <div v-if="detalhe" class="flex flex-col gap-4">
                 <p class="m-0 text-sm text-surface-600">
                     Protocola em lote as
@@ -636,25 +534,12 @@ watch(
                 </p>
                 <div>
                     <label for="secretaria_super_cl" class="block mb-2 text-sm font-medium">Secretaria de destino</label>
-                    <Select
-                        id="secretaria_super_cl"
-                        v-model="despachoData.secretaria_id"
-                        :options="todasSecretarias"
-                        optionLabel="nome"
-                        optionValue="id"
-                        placeholder="Selecione"
-                        fluid
-                    />
+                    <Select id="secretaria_super_cl" v-model="despachoData.secretaria_id" :options="todasSecretarias" optionLabel="nome" optionValue="id" placeholder="Selecione" fluid />
                 </div>
             </div>
             <template #footer>
                 <Button label="Cancelar" icon="pi pi-times" text @click="superOsDialog = false" />
-                <Button
-                    label="Confirmar Super OS"
-                    icon="pi pi-sitemap"
-                    :loading="despachandoSuperOs"
-                    @click="confirmarDespachoSuperOs"
-                />
+                <Button label="Confirmar Super OS" icon="pi pi-sitemap" :loading="despachandoSuperOs" @click="confirmarDespachoSuperOs" />
             </template>
         </Dialog>
     </div>

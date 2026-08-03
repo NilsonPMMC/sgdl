@@ -1812,6 +1812,16 @@ class AssinaturaEletronicaService:
 
     def resumo_assinaturas_demanda(self, demanda: Demanda) -> dict[str, bool]:
         """Flags de conclusão por etapa (B7 — feedback Protocolo/Secretaria)."""
+        from core.services.cluster_aderencia_service import demanda_integrada_ao_lider
+        from core.services.cluster_service import ClusterService
+
+        if demanda_integrada_ao_lider(demanda) and demanda.cluster_id:
+            lider_pk = ClusterService().lider_cluster_pk(int(demanda.cluster_id))
+            if lider_pk and int(lider_pk) != int(demanda.pk):
+                lider = Demanda.objects.filter(pk=int(lider_pk)).first()
+                if lider:
+                    return self.resumo_assinaturas_demanda(lider)
+
         pares = set(
             demanda.assinaturas_eletronicas.values_list("etapa", "papel")
         )

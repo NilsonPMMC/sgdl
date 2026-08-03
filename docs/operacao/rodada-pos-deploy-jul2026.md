@@ -31,7 +31,7 @@
 | 5 | Despacho inicial — sem gestor | **Parcial → corrigido dev** | H-JUL-02 *(reteste pendente)* |
 | 6 | Despacho final — operador assina, gestor valida | **Parcial → corrigido dev** | H-JUL-03 *(reteste pendente)*; H-JUL-10, H-JUL-11 |
 | 7 | Indicações — vereador vinculado | **Falhou** → **corrigido dev** | H-JUL-07 |
-| 8 | Copiloto — CEP após pin | **Parcial** | H-JUL-13, H-JUL-14 |
+| 8 | Copiloto — CEP após pin | **Parcial → corrigido dev** | H-JUL-13, H-JUL-14 *(reteste pendente)* |
 | — | Mapa analítico = pinos | **Não retestado** | — |
 | — | Janela CRUD 60 s (tarefa 1 backlog) | **Corrigido dev** | H-JUL-01, H-JUL-02 *(reteste pendente)* |
 
@@ -65,17 +65,17 @@
 | **H-JUL-10** | Timeline · **outros perfis** · tramitações **aguardando validação gestor** visíveis na timeline completa após janela 60s do autor · deveriam ficar ocultas ou com badge «pendente aprovação gestor» para não-autores · **incômodo** | incômodo | `tramitacao_janela_edicao_service.usuario_pode_ver_tramitacao_timeline`, `operacional_estado_service.montar_timeline_operacional` — **corrigido 2026-08-03** |
 | **H-JUL-11** | Conclusão final · **GESTOR DO PROTOCOLO** · POST `/demandas/4134/operacional/conclusao-final/` → **400** «Declaração do operador inválida…» · gestor fechando nó não deveria exigir declaração de operador · **incômodo** | incômodo | `registrar_assinaturas_conclusao_final` (ramo `gestor_apenas`), `views_operacional` — **corrigido 2026-08-03** |
 | **H-JUL-12** | Timeline · **GESTOR SECRETARIA** · operação scatter-gather duplicada (2 cards idênticos «Operação scatter-gather») · placeholders não resolvidos · R4.7 persiste · **incômodo** | incômodo | `scatter_gather_service._registrar_evento` + `resolver_descricao_tramitacao`; dedupe `_dedupe_scatter_timeline` / `operacionalEstado.js` — **corrigido 2026-08-03** |
-| **H-JUL-13** | CopilotoView / revisão rascunho · **VEREADOR** · mover pin **intermitente** — nem sempre atualiza CEP/logradouro (R1.3) · **incômodo** | incômodo | `CopilotoView.ajustarMapaCopiloto`, race reverse geocode |
-| **H-JUL-14** | Revisão rascunho · **VEREADOR** · busca logradouro (≥3 caracteres) **não aceita espaço** como caractere · impede buscas tipo «Rua Barão» · **incômodo** | incômodo | input/máscara logradouro em `CopilotoView.vue` ou `DemandaForm` |
+| **H-JUL-13** | CopilotoView / revisão rascunho · **VEREADOR** · mover pin **intermitente** — nem sempre atualiza CEP/logradouro (R1.3) · **incômodo** | incômodo | `CopilotoView.ajustarMapaCopiloto` (debounce + seq anti-race), `:key` estável do mapa, sync explícito do form — **corrigido 2026-08-03** |
+| **H-JUL-14** | Revisão rascunho · **VEREADOR** · busca logradouro (≥3 caracteres) **não aceita espaço** como caractere · impede buscas tipo «Rua Barão» · **incômodo** | incômodo | `obterFormEnderecoCopiloto` deixou de sobrescrever digitação; `enderecoCopiloto.js` — **corrigido 2026-08-03** |
 
 ### P3 — Baixa / melhoria
 
 | ID | Registro | Severidade | Área provável |
 |----|----------|------------|---------------|
-| **H-JUL-15** | ClustersView detalhe · **PROTOCOLO** · descrição exibe **HTML cru** (`<p>`, `&nbsp;`, `&ndash;`) · **cosmético** | cosmético | renderização `v-html` vs strip tags / campo resumo cluster |
-| **H-JUL-16** | ClustersView detalhe · **PROTOCOLO** · metadados (bairro, serviço, órgão) refletem **última demanda vinculada**, não a **líder #4134** · **incômodo** | incômodo | API detalhe cluster — usar `demanda_lider_id` |
-| **H-JUL-17** | DemandasView · **PROTOCOLO** · Super OS finalizada SUPER-2026-0011: demandas com status secundário divergente («Ofício assinado» vs «Devolutiva assinada») · **incômodo** | incômodo | espelhamento seguidoras / labels status pós-conclusão |
-| **H-JUL-18** | Notificações · **VEREADOR** · encerramento Super OS gera **notificações duplicadas** (uma por demanda vinculada) · **incômodo** | incômodo | `notificacao_service` — deduplicar por cluster/demanda líder |
+| **H-JUL-15** | ClustersView detalhe · **PROTOCOLO** · descrição exibe **HTML cru** (`<p>`, `&nbsp;`, `&ndash;`) · **cosmético** | cosmético | `_strip_html` em `metadata_cluster` / `_criar_cluster`; `htmlParaTexto` no frontend — **corrigido 2026-08-03** |
+| **H-JUL-16** | ClustersView detalhe · **PROTOCOLO** · metadados (bairro, serviço, órgão) refletem **última demanda vinculada**, não a **líder #4134** · **incômodo** | incômodo | `metadata_cluster` deriva bairro/serviço/órgão/descrição da demanda líder — **corrigido 2026-08-03** |
+| **H-JUL-17** | DemandasView · **PROTOCOLO** · Super OS finalizada SUPER-2026-0011: demandas com status secundário divergente («Ofício assinado» vs «Devolutiva assinada») · **incômodo** | incômodo | `resumo_assinaturas_demanda` delega ao líder quando seguidora integrada — **corrigido 2026-08-03** |
+| **H-JUL-18** | Notificações · **VEREADOR** · encerramento Super OS gera **notificações duplicadas** (uma por demanda vinculada) · **incômodo** | incômodo | `signals.py` ignora `_propagando_cluster_status`; `notificar_conclusao_final` dedupe Super OS — **corrigido 2026-08-03** |
 | **H-JUL-19** | MapaCalorView · **PROTOCOLO/SECRETARIA/GESTOR** · solicitar **filtro de demandas atrasadas** no mapa operacional/analítico · **melhoria** | melhoria | backlog UX mapa |
 | **H-JUL-20** | DescricaoTramitacaoEditor · **PROTOCOLO** · «não notei Quill carregar» — toolbar Heading/Sans Serif visível = editor ativo; corpo vazio = bug H-JUL-09 · **ok (esclarecimento)** | — | documentação operador |
 
@@ -103,9 +103,9 @@ Marque após deploy da correção P0/P1.
 
 - [x] `/clusters` despacho Super OS: fila Protocolo mostra **só líder** *(corrigido 2026-08-03 — retestar em homologação)*
 - [x] Após despacho: seguidora com **1** despacho inicial espelhado (não 2) *(corrigido 2026-08-03 — retestar em homologação)*
-- [ ] Detalhe cluster: descrição legível (sem HTML cru); metadados da **demanda líder**
-- [ ] Pós-finalização: status secundário **consistente** entre líder e seguidoras
-- [ ] Vereador: **1** notificação de encerramento por Super OS
+- [ ] Detalhe cluster: descrição legível (sem HTML cru); metadados da **demanda líder** *(corrigido 2026-08-03 — retestar em homologação)*
+- [ ] Pós-finalização: status secundário **consistente** entre líder e seguidoras *(corrigido 2026-08-03 — retestar em homologação)*
+- [ ] Vereador: **1** notificação de encerramento por Super OS *(corrigido 2026-08-03 — retestar em homologação)*
 
 ### RT-IND — Indicações (H-JUL-07)
 
@@ -114,8 +114,8 @@ Marque após deploy da correção P0/P1.
 
 ### RT-GEO — Copiloto / revisão (H-JUL-13, H-JUL-14)
 
-- [ ] Mover pin 5× seguidas → CEP/logradouro atualizam sempre
-- [ ] Busca logradouro aceita espaços («Rua Barão»)
+- [ ] Mover pin 5× seguidas → CEP/logradouro atualizam sempre *(corrigido 2026-08-03 — retestar em homologação)*
+- [ ] Busca logradouro aceita espaços («Rua Barão») *(corrigido 2026-08-03 — retestar em homologação)*
 
 ### RT-PLC — Placeholders (H-JUL-08, H-JUL-09)
 
@@ -137,7 +137,9 @@ Marque após deploy da correção P0/P1.
 | 7 | H-JUL-08, H-JUL-09 | Substituir placeholders na publicação + fix sync Editor | 0,5 d | **Concluído 2026-08-03** |
 | 8 | H-JUL-10, H-JUL-12 | Timeline pendente gestor + dedupe scatter/conclusão | 0,5 d | **Concluído 2026-08-03** |
 | 9 | H-JUL-11 | Conclusão final gestor protocolo sem declaração operador | 0,25 d | **Concluído 2026-08-03** |
-| 10 | H-JUL-13–18 | Geo, cluster UI, status Super OS, notificações | 1 d |
+| 10 | H-JUL-13, H-JUL-14 | Pin mapa + busca logradouro com espaço | 0,5 d | **Concluído 2026-08-03** |
+| 11 | H-JUL-15–18 | Cluster UI, status Super OS, notificações | 1 d | **Concluído 2026-08-03** |
+| 12 | H-JUL-19 | Filtro demandas atrasadas no mapa | backlog | Pendente |
 
 **Meta reteste:** fim do 1º dia útil após deploy P0 (itens 1–4).
 

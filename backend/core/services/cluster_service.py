@@ -15,6 +15,7 @@ from django.utils import timezone
 from core.models import ClusterExecucao, Demanda, Tramitacao
 from core.services.triagem_service import cosine_similarity
 from integrations import sinapse_catalog
+from integrations.sinapse_catalog import _strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -610,6 +611,9 @@ class ClusterService:
             .values("pk", "sinapse_orgao_id", "bairro", "status")
         )
         lider_id = self.lider_cluster_pk(int(cluster.pk))
+        lider_demanda = (
+            Demanda.objects.filter(pk=int(lider_id)).first() if lider_id else None
+        )
 
         orgaos_map: dict[int, str] = {}
         for row in demandas:
@@ -635,7 +639,7 @@ class ClusterService:
             if orgao_carta_id:
                 orgao_carta_nome = sinapse_catalog.get_orgao_nome(int(orgao_carta_id))
 
-        descricao = (cluster.descricao_resumo or "").strip()
+        descricao = _strip_html(cluster.descricao_resumo or "")
         if not descricao:
             if multi:
                 nomes = ", ".join(o["orgao_nome"] for o in orgaos_envolvidos)
@@ -661,6 +665,30 @@ class ClusterService:
                     bairro = b
                     break
 
+        if lider_demanda:
+            bairro_lider = (lider_demanda.bairro or "").strip()
+            if bairro_lider:
+                bairro = bairro_lider
+            if lider_demanda.sinapse_orgao_id:
+                orgao_lider = sinapse_catalog.get_orgao_nome(
+                    int(lider_demanda.sinapse_orgao_id)
+                )
+                if orgao_lider:
+                    secretaria = orgao_lider
+                    orgao_carta_id = int(lider_demanda.sinapse_orgao_id)
+                    orgao_carta_nome = orgao_lider
+            desc_lider = _strip_html(
+                lider_demanda.descricao or lider_demanda.titulo or ""
+            )
+            if desc_lider:
+                descricao = desc_lider[:2000]
+            if lider_demanda.sinapse_servico_id:
+                svc_lider = sinapse_catalog.get_servico(
+                    int(lider_demanda.sinapse_servico_id)
+                )
+                if svc_lider and (svc_lider.titulo or "").strip():
+                    servico_nome = (svc_lider.titulo or "").strip()
+
         pendentes = sum(1 for d in demandas if d["status"] == "AGUARDANDO_PROTOCOLO")
         protocolados = sum(
             1 for d in demandas if d["status"] in ("PROTOCOLADO", "EM_EXECUCAO")
@@ -681,6 +709,7 @@ class ClusterService:
             "descricao_resumo": descricao,
             "secretaria_responsavel": secretaria,
             "bairro_referencia": bairro,
+            "servico_nome": servico_nome,
             "pendentes_protocolo": pendentes,
             "protocolados_count": protocolados,
         }
@@ -1241,7 +1270,7 @@ class ClusterService:
 
         return ClusterExecucao.objects.create(
             titulo=titulo,
-            descricao_resumo=(demanda.descricao or "")[:2000],
+            descricao_resumo=_strip_html(demanda.descricao or "")[:2000],
             status="ABERTO",
             secretaria_responsavel=(orgao_nome or "")[:150],
             bairro_referencia=(demanda.bairro or "")[:100],
@@ -1334,22 +1363,17 @@ class ClusterService:
                 continue
             autores = demandas_cluster.values_list("autor_id", flat=True).distinct()
             pendentes = demandas_cluster.filter(status="AGUARDANDO_PROTOCOLO").count()
-            lider_id = (
-                demandas_cluster.order_by("pk").values_list("pk", flat=True).first()
-            )
-            servico_nome = None
-            if c.sinapse_servico_id:
-                svc = sinapse_catalog.get_servico(int(c.sinapse_servico_id))
-                servico_nome = (svc.titulo or "").strip() if svc else None
+            lider_id = self.lider_cluster_pk(int(c.pk))
+            meta = self.metadata_cluster(c)
             out.append(
                 {
                     "id": c.id,
                     "titulo": c.titulo,
                     "status": c.status,
-                    "bairro_referencia": c.bairro_referencia,
-                    "secretaria_responsavel": c.secretaria_responsavel,
+                    "bairro_referencia": meta["bairro_referencia"],
+                    "secretaria_responsavel": meta["secretaria_responsavel"],
                     "sinapse_servico_id": c.sinapse_servico_id,
-                    "servico_nome": servico_nome,
+                    "servico_nome": meta.get("servico_nome"),
                     "protocolo_super_os": c.protocolo_super_os,
                     "demandas_count": c.demandas_count,
                     "pendentes_protocolo": pendentes,

@@ -16,15 +16,9 @@ import InputMask from 'primevue/inputmask';
 import CopilotoContextoPainel from '@/components/copiloto/CopilotoContextoPainel.vue';
 import CopilotoIndicacaoCampos from '@/components/copiloto/CopilotoIndicacaoCampos.vue';
 import MapaLocalAjustavel from '@/components/mapa/MapaLocalAjustavel.vue';
-import {
-    filtrarArquivosDuplicados,
-    mensagemAnexosRejeitados,
-    normalizarNomeArquivo
-} from '@/utils/anexoValidacao';
-import {
-    resumoDuplicidadeFrontend,
-    temDuplicidadeEmTramite
-} from '@/utils/duplicidadeAlerta';
+import { filtrarArquivosDuplicados, mensagemAnexosRejeitados, normalizarNomeArquivo } from '@/utils/anexoValidacao';
+import { resumoDuplicidadeFrontend, temDuplicidadeEmTramite } from '@/utils/duplicidadeAlerta';
+import { snapshotEnderecoDemanda, termoBuscaLogradouroValido } from '@/utils/enderecoCopiloto';
 import Message from 'primevue/message';
 
 const router = useRouter();
@@ -148,11 +142,7 @@ const candidatosFingerprint = ref({});
 const NENHUMA_OPCAO_CARTA = '__NENHUMA_CARTA__';
 
 function tendenciaConfirmada(demanda) {
-    return Boolean(
-        demanda?.tendencia_id ??
-            demanda?.tendencia?.id ??
-            demanda?.origem_vinculo === 'TENDENCIA'
-    );
+    return Boolean(demanda?.tendencia_id ?? demanda?.tendencia?.id ?? demanda?.origem_vinculo === 'TENDENCIA');
 }
 
 function sinapseIdValido(valor) {
@@ -270,9 +260,7 @@ function rotuloHintHistorico(hint) {
     return `${rank}${rotulo}`;
 }
 
-const temDemandaForaCompetencia = computed(() =>
-    demandasExtraidas.value.some((d) => demandaForaCompetencia(d))
-);
+const temDemandaForaCompetencia = computed(() => demandasExtraidas.value.some((d) => demandaForaCompetencia(d)));
 
 const todosServicosConfirmados = computed(() => {
     const lista = demandasExtraidas.value;
@@ -282,44 +270,18 @@ const todosServicosConfirmados = computed(() => {
 });
 
 /** Aguardando escolha na carta (ou tendência via última opção do mesmo card). */
-const demandasPendentesVinculo = computed(() =>
-    demandasExtraidas.value
-        .map((d, i) => ({ d, i }))
-        .filter(
-            ({ d }) =>
-                !d?.descartada &&
-                !demandaForaCompetencia(d) &&
-                !servicoConfirmado(d) &&
-                !tendenciaConfirmada(d)
-        )
-);
+const demandasPendentesVinculo = computed(() => demandasExtraidas.value.map((d, i) => ({ d, i })).filter(({ d }) => !d?.descartada && !demandaForaCompetencia(d) && !servicoConfirmado(d) && !tendenciaConfirmada(d)));
 
 /** Itens no painel da carta (inclui descartados, para restaurar). */
-const demandasNoPainelServico = computed(() =>
-    demandasExtraidas.value
-        .map((d, i) => ({ d, i }))
-        .filter(({ d }) => !demandaForaCompetencia(d))
-);
+const demandasNoPainelServico = computed(() => demandasExtraidas.value.map((d, i) => ({ d, i })).filter(({ d }) => !demandaForaCompetencia(d)));
 
-const demandasAtivasNoFluxo = computed(() =>
-    demandasExtraidas.value.filter((d) => !d?.descartada && !demandaForaCompetencia(d))
-);
+const demandasAtivasNoFluxo = computed(() => demandasExtraidas.value.filter((d) => !d?.descartada && !demandaForaCompetencia(d)));
 
-const demandasParaAprovacaoFinal = computed(() =>
-    demandasExtraidas.value
-        .map((d, i) => ({ d, i }))
-        .filter(({ d }) => !d?.descartada && !demandaForaCompetencia(d))
-);
+const demandasParaAprovacaoFinal = computed(() => demandasExtraidas.value.map((d, i) => ({ d, i })).filter(({ d }) => !d?.descartada && !demandaForaCompetencia(d)));
 
-const demandasForaCompetenciaNoChat = computed(() =>
-    demandasExtraidas.value
-        .map((d, i) => ({ d, i }))
-        .filter(({ d }) => demandaForaCompetencia(d))
-);
+const demandasForaCompetenciaNoChat = computed(() => demandasExtraidas.value.map((d, i) => ({ d, i })).filter(({ d }) => demandaForaCompetencia(d)));
 
-const mostrarBlocoForaCompetenciaNoChat = computed(
-    () => demandasForaCompetenciaNoChat.value.length > 0 && !sucessoCriacao.value
-);
+const mostrarBlocoForaCompetenciaNoChat = computed(() => demandasForaCompetenciaNoChat.value.length > 0 && !sucessoCriacao.value);
 
 const demandasComCartaNoChat = demandasNoPainelServico;
 
@@ -333,20 +295,10 @@ const mostrarBlocoServicoNoChat = computed(() => {
 const mostrarBlocoTendenciaNoChat = computed(() => false);
 
 const demandasAguardandoComplemento = computed(() =>
-    demandasExtraidas.value
-        .map((d, i) => ({ d, i }))
-        .filter(
-            ({ d }) =>
-                !d?.descartada &&
-                !demandaForaCompetencia(d) &&
-                servicoConfirmado(d) &&
-                (d?.corpus_aguarda_complemento || estadoAtual.value === 'COLETA_ENDERECO')
-        )
+    demandasExtraidas.value.map((d, i) => ({ d, i })).filter(({ d }) => !d?.descartada && !demandaForaCompetencia(d) && servicoConfirmado(d) && (d?.corpus_aguarda_complemento || estadoAtual.value === 'COLETA_ENDERECO'))
 );
 
-const mostrarBlocoComplementoNoChat = computed(
-    () => demandasAguardandoComplemento.value.length > 0 && !sucessoCriacao.value && !mostrarBlocoServicoNoChat.value
-);
+const mostrarBlocoComplementoNoChat = computed(() => demandasAguardandoComplemento.value.length > 0 && !sucessoCriacao.value && !mostrarBlocoServicoNoChat.value);
 
 /** Busca semântica + formulário por índice de demanda fora da carta. */
 const tendenciasSimilares = ref({});
@@ -354,11 +306,7 @@ const tituloTendenciaForm = ref({});
 const escolhaTendenciaForm = ref({});
 
 function textoParaBuscaTendencia(demanda) {
-    return (
-        (demanda?.texto_para_embedding || demanda?.titulo || demanda?.descricao || '')
-            .trim()
-            .slice(0, 2000) || 'solicitação'
-    );
+    return (demanda?.texto_para_embedding || demanda?.titulo || demanda?.descricao || '').trim().slice(0, 2000) || 'solicitação';
 }
 
 async function carregarSimilaresTendencia(indice, demanda) {
@@ -400,8 +348,7 @@ function opcoesTendenciaSelect(indice) {
     const pack = tendenciasSimilares.value[indice];
     const items = pack?.items || [];
     const opcoes = items.map((t) => {
-        const pct =
-            t.similaridade != null ? ` · ${Math.round(Number(t.similaridade) * 100)}%` : '';
+        const pct = t.similaridade != null ? ` · ${Math.round(Number(t.similaridade) * 100)}%` : '';
         const vol = t.volume_total != null ? ` (${t.volume_total} ocorr.)` : '';
         return {
             label: `${t.titulo}${pct}${vol}`,
@@ -439,9 +386,7 @@ async function aplicarTendenciaDemanda(indiceDemanda) {
     try {
         const { data } = await ApiService.confirmarTendenciaCopiloto(payload);
         aplicarRespostaCopiloto(data, {
-            limparRevisao:
-                revisaoAtiva.value?.etapa === 'servico' &&
-                revisaoAtiva.value?.indiceDemanda === indiceDemanda
+            limparRevisao: revisaoAtiva.value?.etapa === 'servico' && revisaoAtiva.value?.indiceDemanda === indiceDemanda
         });
         const msgIa = (data.resposta_agente || '').trim();
         if (msgIa) adicionarMensagem('assistant', msgIa);
@@ -452,11 +397,7 @@ async function aplicarTendenciaDemanda(indiceDemanda) {
             life: 4000
         });
     } catch (err) {
-        const detalhe =
-            err?.response?.data?.detail ||
-            err?.response?.data?.mensagem ||
-            err?.message ||
-            'Não foi possível registrar.';
+        const detalhe = err?.response?.data?.detail || err?.response?.data?.mensagem || err?.message || 'Não foi possível registrar.';
         const is503 = err?.response?.status === 503;
         toast.add({
             severity: 'error',
@@ -515,16 +456,14 @@ const mostrarBlocoAnexosNoChat = computed(() => {
     return estadoAtual.value === 'VALIDACAO_FINAL';
 });
 
-const mostrarAnexarNoCompositor = computed(
-    () => {
-        if (etapaAnexosConcluida.value || sucessoCriacao.value) return false;
-        if (estadoAtual.value === 'COLETA_ENDERECO') return false;
-        if (demandasAtivasNoFluxo.value.length > 1 && !todosServicosConfirmados.value) {
-            return false;
-        }
-        return true;
+const mostrarAnexarNoCompositor = computed(() => {
+    if (etapaAnexosConcluida.value || sucessoCriacao.value) return false;
+    if (estadoAtual.value === 'COLETA_ENDERECO') return false;
+    if (demandasAtivasNoFluxo.value.length > 1 && !todosServicosConfirmados.value) {
+        return false;
     }
-);
+    return true;
+});
 
 watch(todosServicosConfirmados, (ok) => {
     if (!ok) {
@@ -593,9 +532,7 @@ async function aplicarServicoCarta(indiceDemanda) {
         toast.add({
             severity: 'warn',
             summary: 'Somente orientação',
-            detail:
-                escolhido.mensagem_orientacao ||
-                'Este serviço não gera ofício pelo gabinete. Oriente o munícipe ao canal correto.',
+            detail: escolhido.mensagem_orientacao || 'Este serviço não gera ofício pelo gabinete. Oriente o munícipe ao canal correto.',
             life: 7000
         });
         return;
@@ -608,9 +545,7 @@ async function aplicarServicoCarta(indiceDemanda) {
             sinapse_servico_id: servicoId
         });
         aplicarRespostaCopiloto(data, {
-            limparRevisao:
-                revisaoAtiva.value?.etapa === 'servico' &&
-                revisaoAtiva.value?.indiceDemanda === indiceDemanda
+            limparRevisao: revisaoAtiva.value?.etapa === 'servico' && revisaoAtiva.value?.indiceDemanda === indiceDemanda
         });
         if (data.estado_atual === 'COLETA_ENDERECO') {
             etapaAnexosConcluida.value = false;
@@ -727,9 +662,7 @@ async function descartarSolicitacao(indiceDemanda) {
         const esc = { ...escolhaServicoCarta.value };
         delete esc[indiceDemanda];
         escolhaServicoCarta.value = esc;
-        anexosPendentes.value = anexosPendentes.value.map((a) =>
-            a.indiceDemanda === indiceDemanda ? { ...a, indiceDemanda: null } : a
-        );
+        anexosPendentes.value = anexosPendentes.value.map((a) => (a.indiceDemanda === indiceDemanda ? { ...a, indiceDemanda: null } : a));
         toast.add({
             severity: 'info',
             summary: 'Solicitação descartada',
@@ -793,9 +726,7 @@ function usarLocalizacaoAtual(indiceDemanda) {
                     longitude: pos.coords.longitude
                 });
                 aplicarRespostaCopiloto(data, {
-                    limparRevisao:
-                        revisaoAtiva.value?.etapa === 'local' &&
-                        revisaoAtiva.value?.indiceDemanda === indiceDemanda
+                    limparRevisao: revisaoAtiva.value?.etapa === 'local' && revisaoAtiva.value?.indiceDemanda === indiceDemanda
                 });
                 const msgIa = (data.resposta_agente || '').trim();
                 if (msgIa) adicionarMensagem('assistant', msgIa);
@@ -846,102 +777,126 @@ async function ajustarMapaCopiloto(indiceDemanda, { latitude, longitude }) {
         demandasExtraidas.value = lista;
     }
 
-    carregando.value = true;
-    try {
-        const { data } = await ApiService.atualizarLocalizacaoCopiloto({
-            session_id: sessionId.value,
-            indice_demanda: indiceDemanda,
-            latitude,
-            longitude,
-            fonte: 'ajuste_mapa',
-            confirmar_local: false
-        });
-        aplicarRespostaCopiloto(data, {
-            limparRevisao:
-                revisaoAtiva.value?.etapa === 'local' &&
-                revisaoAtiva.value?.indiceDemanda === indiceDemanda
-        });
-        const d = data.demandas_extraidas?.[indiceDemanda];
-        const end = d?.endereco && typeof d.endereco === 'object' ? d.endereco : {};
-        enderecoFormCopiloto.value = {
-            ...enderecoFormCopiloto.value,
-            [indiceDemanda]: {
-                cep: end.cep || '',
-                logradouro: end.logradouro || '',
-                bairro: end.bairro || '',
-                numero: end.numero || ''
-            }
-        };
-        if (d?.latitude != null && d?.longitude != null) {
-            toast.add({
-                severity: 'info',
-                summary: 'Mapa',
-                detail: `Ponto ajustado (${Number(d.latitude).toFixed(6)}, ${Number(d.longitude).toFixed(6)}). Confirme o local quando estiver correto.`,
-                life: 4000
-            });
-        }
-    } catch (err) {
-        toast.add({
-            severity: 'error',
-            summary: 'Mapa',
-            detail: String(err?.response?.data?.detail || err?.message || 'Falha ao ajustar o ponto'),
-            life: 5000
-        });
-    } finally {
-        carregando.value = false;
+    const seq = (ajusteMapaSeq.value[indiceDemanda] || 0) + 1;
+    ajusteMapaSeq.value = { ...ajusteMapaSeq.value, [indiceDemanda]: seq };
+    ajustandoMapaCopiloto.value = { ...ajustandoMapaCopiloto.value, [indiceDemanda]: true };
+
+    if (debounceAjusteMapa[indiceDemanda]) {
+        clearTimeout(debounceAjusteMapa[indiceDemanda]);
     }
+
+    debounceAjusteMapa[indiceDemanda] = setTimeout(async () => {
+        try {
+            const { data } = await ApiService.atualizarLocalizacaoCopiloto({
+                session_id: sessionId.value,
+                indice_demanda: indiceDemanda,
+                latitude,
+                longitude,
+                fonte: 'ajuste_mapa',
+                confirmar_local: false
+            });
+            if (ajusteMapaSeq.value[indiceDemanda] !== seq) return;
+
+            aplicarRespostaCopiloto(data, {
+                limparRevisao: revisaoAtiva.value?.etapa === 'local' && revisaoAtiva.value?.indiceDemanda === indiceDemanda,
+                sincronizarEnderecoIndices: [indiceDemanda]
+            });
+
+            const d = data.demandas_extraidas?.[indiceDemanda];
+            if (d?.latitude != null && d?.longitude != null) {
+                toast.add({
+                    severity: 'info',
+                    summary: 'Mapa',
+                    detail: `Ponto ajustado (${Number(d.latitude).toFixed(6)}, ${Number(d.longitude).toFixed(6)}). Confirme o local quando estiver correto.`,
+                    life: 4000
+                });
+            }
+        } catch (err) {
+            if (ajusteMapaSeq.value[indiceDemanda] !== seq) return;
+            toast.add({
+                severity: 'error',
+                summary: 'Mapa',
+                detail: String(err?.response?.data?.detail || err?.message || 'Falha ao ajustar o ponto'),
+                life: 5000
+            });
+        } finally {
+            if (ajusteMapaSeq.value[indiceDemanda] === seq) {
+                ajustandoMapaCopiloto.value = {
+                    ...ajustandoMapaCopiloto.value,
+                    [indiceDemanda]: false
+                };
+            }
+        }
+    }, 320);
 }
 
 /** Formulário estruturado de endereço (Fase 2 — autocomplete alinhado ao DemandaForm). */
 const enderecoFormCopiloto = ref({});
+const enderecoEmEdicaoCopiloto = ref({});
 const sugLogradourosCopiloto = ref([]);
 const buscandoLogradourosCopiloto = ref(false);
 const indiceAutocompleteLogradouro = ref(0);
+const ajusteMapaSeq = ref({});
+const ajustandoMapaCopiloto = ref({});
 let debounceLogradouroCopiloto = null;
+const debounceAjusteMapa = {};
 
 function obterFormEnderecoCopiloto(indice) {
-    const atual = enderecoFormCopiloto.value[indice];
-    const d = demandasExtraidas.value[indice];
-    const end = d?.endereco && typeof d.endereco === 'object' ? d.endereco : {};
-    const snapshot = {
-        cep: end.cep || '',
-        logradouro: end.logradouro || '',
-        bairro: end.bairro || '',
-        numero: end.numero || '',
-    };
-    if (!atual) {
-        enderecoFormCopiloto.value = { ...enderecoFormCopiloto.value, [indice]: { ...snapshot } };
-        return enderecoFormCopiloto.value[indice];
-    }
-    const mudou =
-        (atual.logradouro || '') !== (snapshot.logradouro || '') ||
-        (atual.bairro || '') !== (snapshot.bairro || '') ||
-        (atual.cep || '') !== (snapshot.cep || '');
-    if (mudou && !carregando.value) {
+    if (!enderecoFormCopiloto.value[indice]) {
+        const d = demandasExtraidas.value[indice];
         enderecoFormCopiloto.value = {
             ...enderecoFormCopiloto.value,
-            [indice]: { ...atual, ...snapshot },
+            [indice]: snapshotEnderecoDemanda(d)
         };
     }
     return enderecoFormCopiloto.value[indice];
 }
 
+function sincronizarFormularioEnderecoCopiloto(indice, demanda) {
+    if (enderecoEmEdicaoCopiloto.value[indice]) return;
+    enderecoFormCopiloto.value = {
+        ...enderecoFormCopiloto.value,
+        [indice]: snapshotEnderecoDemanda(demanda)
+    };
+}
+
+function sincronizarFormulariosEnderecoCopiloto(demandas, indices = null) {
+    if (!Array.isArray(demandas)) return;
+    const alvo = indices == null ? demandas.map((_, i) => i) : indices.filter((i) => i >= 0 && i < demandas.length);
+    alvo.forEach((i) => sincronizarFormularioEnderecoCopiloto(i, demandas[i]));
+}
+
+function marcarEnderecoEmEdicaoCopiloto(indice) {
+    enderecoEmEdicaoCopiloto.value = { ...enderecoEmEdicaoCopiloto.value, [indice]: true };
+}
+
+function desmarcarEnderecoEmEdicaoCopiloto(indice) {
+    const next = { ...enderecoEmEdicaoCopiloto.value };
+    delete next[indice];
+    enderecoEmEdicaoCopiloto.value = next;
+}
+
+function mapaCopilotoArrastavel(indice) {
+    return !carregando.value && !ajustandoMapaCopiloto.value[indice];
+}
+
 function searchLogradouroCopiloto(event, indice) {
     indiceAutocompleteLogradouro.value = indice;
-    const termo = (event.query || '').trim();
+    const termo = event.query ?? '';
     if (debounceLogradouroCopiloto) {
         clearTimeout(debounceLogradouroCopiloto);
     }
-    if (termo.length < 3) {
+    if (!termoBuscaLogradouroValido(termo)) {
         sugLogradourosCopiloto.value = [];
         return;
     }
     const form = obterFormEnderecoCopiloto(indice);
+    const termoBusca = termo.trim();
     debounceLogradouroCopiloto = setTimeout(async () => {
         buscandoLogradourosCopiloto.value = true;
         try {
             const bairro = (form.bairro || '').trim() || null;
-            const { data } = await ApiService.buscarLogradouros(termo, bairro);
+            const { data } = await ApiService.buscarLogradouros(termoBusca, bairro);
             sugLogradourosCopiloto.value = data.resultados || [];
         } catch {
             sugLogradourosCopiloto.value = [];
@@ -973,16 +928,21 @@ async function buscarCepCopiloto(indice) {
             severity: 'success',
             summary: 'CEP',
             detail: 'Logradouro e bairro preenchidos via ViaCEP.',
-            life: 3000,
+            life: 3000
         });
     } catch (err) {
         toast.add({
             severity: 'error',
             summary: 'CEP',
             detail: String(err?.response?.data?.detail || 'CEP não encontrado.'),
-            life: 3500,
+            life: 3500
         });
     }
+}
+
+function onBlurCepCopiloto(indice) {
+    desmarcarEnderecoEmEdicaoCopiloto(indice);
+    buscarCepCopiloto(indice);
 }
 
 async function aplicarEnderecoCopiloto(indice) {
@@ -996,7 +956,7 @@ async function aplicarEnderecoCopiloto(indice) {
             severity: 'warn',
             summary: 'Endereço',
             detail: 'Informe CEP ou logradouro com bairro.',
-            life: 4000,
+            life: 4000
         });
         return;
     }
@@ -1009,20 +969,20 @@ async function aplicarEnderecoCopiloto(indice) {
                 cep: cep || undefined,
                 logradouro: logr || undefined,
                 bairro: bairro || undefined,
-                numero: (form.numero || '').trim() || undefined,
-            },
+                numero: (form.numero || '').trim() || undefined
+            }
         });
         aplicarRespostaCopiloto(data, {
-            limparRevisao:
-                revisaoAtiva.value?.etapa === 'local' &&
-                revisaoAtiva.value?.indiceDemanda === indice,
+            limparRevisao: revisaoAtiva.value?.etapa === 'local' && revisaoAtiva.value?.indiceDemanda === indice,
+            sincronizarEnderecoIndices: [indice]
         });
+        desmarcarEnderecoEmEdicaoCopiloto(indice);
     } catch (err) {
         toast.add({
             severity: 'error',
             summary: 'Endereço',
             detail: String(err?.response?.data?.detail || err?.message || 'Falha ao aplicar endereço.'),
-            life: 5000,
+            life: 5000
         });
     } finally {
         carregando.value = false;
@@ -1036,12 +996,7 @@ function indicesAprovadosParaFinalizar() {
     }
     return lista
         .map((d, i) => ({ d, i }))
-        .filter(
-            ({ d, i }) =>
-                !d?.descartada &&
-                !demandaForaCompetencia(d) &&
-                aprovacaoFinal.value[i] !== false
-        )
+        .filter(({ d, i }) => !d?.descartada && !demandaForaCompetencia(d) && aprovacaoFinal.value[i] !== false)
         .map(({ i }) => i);
 }
 
@@ -1122,22 +1077,14 @@ watch(
         });
         aprovacaoFinal.value = next;
         if (descartados.size) {
-            anexosPendentes.value = anexosPendentes.value.map((a) =>
-                descartados.has(a.indiceDemanda) ? { ...a, indiceDemanda: null } : a
-            );
+            anexosPendentes.value = anexosPendentes.value.map((a) => (descartados.has(a.indiceDemanda) ? { ...a, indiceDemanda: null } : a));
         }
     },
     { deep: true }
 );
 
 async function confirmarTodosServicosCarta() {
-    const pendentes = demandasComCartaNoChat.value.filter(
-        ({ d, i }) =>
-            !d?.descartada &&
-            !servicoConfirmado(d) &&
-            escolhaServicoCarta.value[i] != null &&
-            escolhaServicoCarta.value[i] !== NENHUMA_OPCAO_CARTA
-    );
+    const pendentes = demandasComCartaNoChat.value.filter(({ d, i }) => !d?.descartada && !servicoConfirmado(d) && escolhaServicoCarta.value[i] != null && escolhaServicoCarta.value[i] !== NENHUMA_OPCAO_CARTA);
     for (const { i } of pendentes) {
         await aplicarServicoCarta(i);
     }
@@ -1157,19 +1104,16 @@ function marcarEtapaAnexosConcluida(textoUsuario, tinhaAnexos) {
         return;
     }
     const t = (textoUsuario || '').trim().toLowerCase();
-    if (
-        tinhaAnexos ||
-        /^continuar\s+sem\s+anexos?\.?$/.test(t) ||
-        /^confirmar\s+(?:os\s+)?(?:documentos|anexos)/i.test(t)
-    ) {
+    if (tinhaAnexos || /^continuar\s+sem\s+anexos?\.?$/.test(t) || /^confirmar\s+(?:os\s+)?(?:documentos|anexos)/i.test(t)) {
         etapaAnexosConcluida.value = true;
     }
 }
 
-function aplicarRespostaCopiloto(data, { limparRevisao = false } = {}) {
+function aplicarRespostaCopiloto(data, { limparRevisao = false, sincronizarEnderecoIndices = null } = {}) {
     if (data.session_id) sessionId.value = data.session_id;
     if (Array.isArray(data.demandas_extraidas)) {
         demandasExtraidas.value = data.demandas_extraidas;
+        sincronizarFormulariosEnderecoCopiloto(data.demandas_extraidas, sincronizarEnderecoIndices);
     }
     if (data.estado_atual) estadoAtual.value = data.estado_atual;
     if (isModoIndicacao.value && Array.isArray(data.demandas_extraidas) && !temPdfIndicacao.value) {
@@ -1194,14 +1138,7 @@ function aplicarRespostaCopiloto(data, { limparRevisao = false } = {}) {
 
 async function scrollParaBlocoEtapa(etapa) {
     await nextTick();
-    const seletor =
-        etapa === 'servico'
-            ? '[data-copiloto-bloco="servico"]'
-            : etapa === 'local'
-              ? '[data-copiloto-bloco="local"]'
-              : etapa === 'anexos'
-                ? '[data-copiloto-bloco="anexos"]'
-                : null;
+    const seletor = etapa === 'servico' ? '[data-copiloto-bloco="servico"]' : etapa === 'local' ? '[data-copiloto-bloco="local"]' : etapa === 'anexos' ? '[data-copiloto-bloco="anexos"]' : null;
     if (!seletor) return;
     listaChatRef.value?.querySelector(seletor)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -1242,11 +1179,7 @@ async function revisarEtapa({ indice, etapa }) {
 
 function confirmarLocalDemanda(indiceDemanda) {
     const n = indiceDemanda + 1;
-    return enviarMensagem(
-        demandasExtraidas.value.length > 1
-            ? `confirmar local solicitação ${n}`
-            : 'confirmar local'
-    );
+    return enviarMensagem(demandasExtraidas.value.length > 1 ? `confirmar local solicitação ${n}` : 'confirmar local');
 }
 
 function confirmarDocumentos() {
@@ -1285,31 +1218,18 @@ function anexosSalvosDemanda(indiceDemanda) {
     return Array.isArray(d?.anexos) ? d.anexos : [];
 }
 
-const temAnexosSalvosNaSessao = computed(() =>
-    demandasExtraidas.value.some((_, i) => anexosSalvosDemanda(i).length > 0)
-);
+const temAnexosSalvosNaSessao = computed(() => demandasExtraidas.value.some((_, i) => anexosSalvosDemanda(i).length > 0));
 
 const demandasEscopoLocal = computed(() => {
-    const idxRev =
-        revisaoAtiva.value?.etapa === 'local' ? revisaoAtiva.value.indiceDemanda : null;
-    const base = demandasExtraidas.value
-        .map((d, i) => ({ d, i }))
-        .filter(
-            ({ d }) =>
-                d?.requer_localizacao !== false &&
-                !d?.descartada &&
-                !demandaForaCompetencia(d) &&
-                !d?.endereco_opcional_dispensado
-        );
+    const idxRev = revisaoAtiva.value?.etapa === 'local' ? revisaoAtiva.value.indiceDemanda : null;
+    const base = demandasExtraidas.value.map((d, i) => ({ d, i })).filter(({ d }) => d?.requer_localizacao !== false && !d?.descartada && !demandaForaCompetencia(d) && !d?.endereco_opcional_dispensado);
     if (idxRev != null) return base.filter(({ i }) => i === idxRev);
     if (estadoAtual.value === 'COLETA_ENDERECO') {
         if (isModoIndicacao.value) {
             const ind = base.filter(({ d }) => d?.modo_indicacao);
             if (ind.length) return ind;
         }
-        return base.filter(
-            ({ d }) => d.local_pendente_confirmacao === true || demandaPodeConfirmarLocal(d)
-        );
+        return base.filter(({ d }) => d.local_pendente_confirmacao === true || demandaPodeConfirmarLocal(d));
     }
     return base;
 });
@@ -1329,23 +1249,15 @@ const labelGpsCopiloto = computed(() => {
     return 'Usar minha localização';
 });
 
-const indiceDemandaRevisaoAnexos = computed(() =>
-    revisaoAtiva.value?.etapa === 'anexos' ? revisaoAtiva.value.indiceDemanda : null
-);
+const indiceDemandaRevisaoAnexos = computed(() => (revisaoAtiva.value?.etapa === 'anexos' ? revisaoAtiva.value.indiceDemanda : null));
 
 function emRevisaoDemanda(indice, etapa) {
     return revisaoAtiva.value?.etapa === etapa && revisaoAtiva.value?.indiceDemanda === indice;
 }
 
-const mostrarVinculoAnexoDemanda = computed(
-    () => demandasAtivasNoFluxo.value.length > 1 && anexosPendentes.value.length > 0
-);
+const mostrarVinculoAnexoDemanda = computed(() => demandasAtivasNoFluxo.value.length > 1 && anexosPendentes.value.length > 0);
 
-const anexosSemVinculo = computed(() =>
-    mostrarVinculoAnexoDemanda.value
-        ? anexosPendentes.value.filter((a) => a.indiceDemanda === null || a.indiceDemanda === undefined)
-        : []
-);
+const anexosSemVinculo = computed(() => (mostrarVinculoAnexoDemanda.value ? anexosPendentes.value.filter((a) => a.indiceDemanda === null || a.indiceDemanda === undefined) : []));
 
 watch(
     () => demandasExtraidas.value.length,
@@ -1377,9 +1289,7 @@ const ultimaMensagemAssistente = computed(() => {
     return mensagens.value[idx].texto || '';
 });
 
-const temCartaSinapseNoRascunho = computed(() =>
-    demandasExtraidas.value.some((d) => (d?.candidatos_sinapse?.length || 0) > 0)
-);
+const temCartaSinapseNoRascunho = computed(() => demandasExtraidas.value.some((d) => (d?.candidatos_sinapse?.length || 0) > 0));
 
 /** Texto de triagem da carta — redundante com o card «Serviço na carta». */
 function mensagemRelacionadaFluxoCarta(texto) {
@@ -1453,11 +1363,7 @@ function anexoEhPdf(nome) {
 function temPdfNaDemanda(indice) {
     const salvos = anexosSalvosDemanda(indice);
     if (salvos.some((a) => anexoEhPdf(a.nome))) return true;
-    return anexosPendentes.value.some(
-        (a) =>
-            (a.indiceDemanda === indice || (demandasExtraidas.value.length === 1 && indice === 0)) &&
-            anexoEhPdf(a.file?.name)
-    );
+    return anexosPendentes.value.some((a) => (a.indiceDemanda === indice || (demandasExtraidas.value.length === 1 && indice === 0)) && anexoEhPdf(a.file?.name));
 }
 
 const temPdfIndicacao = computed(() => {
@@ -1494,9 +1400,7 @@ async function persistirMetadadosIndicacaoNaSessao() {
     if (ativas.every(({ d }) => indicacaoMetadadosOk(d))) return true;
     const refs = Object.values(indicacaoCamposRefs.value).filter(Boolean);
     if (!refs.length) return false;
-    const resultados = await Promise.all(
-        refs.map((comp) => comp.persistirAguardando?.() ?? Promise.resolve(false))
-    );
+    const resultados = await Promise.all(refs.map((comp) => comp.persistirAguardando?.() ?? Promise.resolve(false)));
     return resultados.every(Boolean);
 }
 
@@ -1539,23 +1443,13 @@ const mostrarOpcoesSinapse = computed(() => {
 });
 
 const mostrarSimNaoBinario = computed(() => {
-    if (
-        mostrarBlocoServicoNoChat.value ||
-        mostrarBlocoTendenciaNoChat.value ||
-        carregando.value ||
-        sucessoCriacao.value ||
-        mostrarSimNaoValidacao.value ||
-        mostrarOpcoesSinapse.value
-    ) {
+    if (mostrarBlocoServicoNoChat.value || mostrarBlocoTendenciaNoChat.value || carregando.value || sucessoCriacao.value || mostrarSimNaoValidacao.value || mostrarOpcoesSinapse.value) {
         return false;
     }
     const t = ultimaMensagemAssistente.value;
     if (!t || !t.includes('?')) return false;
     const trecho = t.slice(-320).toLowerCase();
-    return (
-        (trecho.includes('sim') && (trecho.includes('não') || trecho.includes('nao'))) ||
-        (trecho.includes('sim ou não') || trecho.includes('sim ou nao'))
-    );
+    return (trecho.includes('sim') && (trecho.includes('não') || trecho.includes('nao'))) || trecho.includes('sim ou não') || trecho.includes('sim ou nao');
 });
 
 const temMensagemUsuario = computed(() => mensagens.value.some((m) => m.role === 'user'));
@@ -1600,8 +1494,7 @@ function cancelarDetalheAtalho() {
 
 async function usarAtalhoTopTrend(atalho) {
     const opcoesInline = Array.isArray(atalho?.opcoes_carta) ? atalho.opcoes_carta : [];
-    const precisaDetalhe =
-        atalho?.tem_detalhamento && (opcoesInline.length > 1 || (atalho?.qtd_opcoes_carta ?? 0) > 1);
+    const precisaDetalhe = atalho?.tem_detalhamento && (opcoesInline.length > 1 || (atalho?.qtd_opcoes_carta ?? 0) > 1);
 
     if (precisaDetalhe) {
         atalhoEmDetalhamento.value = atalho;
@@ -1652,17 +1545,7 @@ function rotuloOpcaoCartaAtalho(opcao) {
     return titulo;
 }
 
-watch(
-    [
-        mostrarBlocoServicoNoChat,
-        mostrarBlocoComplementoNoChat,
-        mostrarBlocoForaCompetenciaNoChat,
-        mostrarBlocoTendenciaNoChat,
-        mostrarBlocoAnexosNoChat,
-        mostrarSimNaoValidacao
-    ],
-    () => rolarParaOFim()
-);
+watch([mostrarBlocoServicoNoChat, mostrarBlocoComplementoNoChat, mostrarBlocoForaCompetenciaNoChat, mostrarBlocoTendenciaNoChat, mostrarBlocoAnexosNoChat, mostrarSimNaoValidacao], () => rolarParaOFim());
 
 function adicionarMensagem(role, texto) {
     mensagens.value.push({
@@ -1732,15 +1615,11 @@ const podeEnviar = computed(() => {
 /** @param {string} [textoOpcional] — se omitido, usa o conteúdo do campo de texto */
 /** @param {{ corpus_atalho_id?: string, corpus_sinapse_servico_id?: number }} [extras] */
 async function enviarMensagem(textoOpcional, extras = {}) {
-    const texto =
-        textoOpcional !== undefined && textoOpcional !== null
-            ? String(textoOpcional).trim()
-            : inputTexto.value.trim();
+    const texto = textoOpcional !== undefined && textoOpcional !== null ? String(textoOpcional).trim() : inputTexto.value.trim();
     const pendentes = [...anexosPendentes.value];
     if ((!texto && !pendentes.length) || carregando.value) return;
 
-    const textoFinalizar =
-        /^(?:finalizar|sim)$/i.test(texto) && estadoAtual.value === 'VALIDACAO_FINAL';
+    const textoFinalizar = /^(?:finalizar|sim)$/i.test(texto) && estadoAtual.value === 'VALIDACAO_FINAL';
     if (isModoIndicacao.value && textoFinalizar) {
         const salvou = await persistirMetadadosIndicacaoNaSessao();
         if (!salvou) {
@@ -1777,11 +1656,7 @@ async function enviarMensagem(textoOpcional, extras = {}) {
         return;
     }
 
-    const rotuloUsuario =
-        texto ||
-        (pendentes.length === 1
-            ? `📎 ${pendentes[0].file.name}`
-            : `📎 ${pendentes.length} anexos enviados`);
+    const rotuloUsuario = texto || (pendentes.length === 1 ? `📎 ${pendentes[0].file.name}` : `📎 ${pendentes.length} anexos enviados`);
     adicionarMensagem('user', rotuloUsuario);
     marcarEtapaAnexosConcluida(texto, pendentes.length > 0);
     inputTexto.value = '';
@@ -1813,20 +1688,12 @@ async function enviarMensagem(textoOpcional, extras = {}) {
         if (data.reabrir_anexos) {
             etapaAnexosConcluida.value = false;
         }
-        if (
-            isModoIndicacao.value &&
-            pendentes.some((p) => anexoEhPdf(p.file?.name)) &&
-            demandasParaAprovacaoFinal.value.every(({ i }) => temPdfNaDemanda(i))
-        ) {
+        if (isModoIndicacao.value && pendentes.some((p) => anexoEhPdf(p.file?.name)) && demandasParaAprovacaoFinal.value.every(({ i }) => temPdfNaDemanda(i))) {
             etapaAnexosConcluida.value = true;
         }
 
         const rev = revisaoAtiva.value;
-        if (
-            rev?.etapa === 'local' &&
-            /^confirmar\s+(?:o\s+)?local/i.test(texto) &&
-            (data.revisao_encerrada || data.estado_atual !== 'COLETA_ENDERECO')
-        ) {
+        if (rev?.etapa === 'local' && /^confirmar\s+(?:o\s+)?local/i.test(texto) && (data.revisao_encerrada || data.estado_atual !== 'COLETA_ENDERECO')) {
             revisaoAtiva.value = null;
         }
         if (rev?.etapa === 'anexos' && (data.revisao_encerrada || /^confirmar\s+(?:os\s+)?(?:documentos|anexos)/i.test(texto))) {
@@ -1835,10 +1702,7 @@ async function enviarMensagem(textoOpcional, extras = {}) {
         }
 
         if (pendentes.length && !data.anexos_adiados) {
-            if (
-                revisaoAtiva.value?.etapa === 'anexos' ||
-                etapaAnexosConcluida.value
-            ) {
+            if (revisaoAtiva.value?.etapa === 'anexos' || etapaAnexosConcluida.value) {
                 revisaoAtiva.value = null;
             }
         }
@@ -1861,9 +1725,7 @@ async function enviarMensagem(textoOpcional, extras = {}) {
                     (data.duplicidade_resumo?.mensagem_resumo
                         ? {
                               severity: data.duplicidade_resumo.sugerir_nao_enviar ? 'error' : 'warn',
-                              summary: data.duplicidade_resumo.sugerir_nao_enviar
-                                  ? 'Possível duplicidade em tramitação'
-                                  : 'Possível duplicidade de rascunho',
+                              summary: data.duplicidade_resumo.sugerir_nao_enviar ? 'Possível duplicidade em tramitação' : 'Possível duplicidade de rascunho',
                               detail: data.duplicidade_resumo.mensagem_resumo,
                               sugerirNaoEnviar: Boolean(data.duplicidade_resumo.sugerir_nao_enviar)
                           }
@@ -1884,8 +1746,7 @@ async function enviarMensagem(textoOpcional, extras = {}) {
             toast.add({
                 severity: 'info',
                 summary: 'Anexos',
-                detail:
-                    'Com mais de um serviço no pedido, confirme cada serviço na carta e envie os arquivos novamente na etapa Documentos. Os anexos selecionados foram mantidos.',
+                detail: 'Com mais de um serviço no pedido, confirme cada serviço na carta e envie os arquivos novamente na etapa Documentos. Os anexos selecionados foram mantidos.',
                 life: 8000
             });
         }
@@ -1897,11 +1758,7 @@ async function enviarMensagem(textoOpcional, extras = {}) {
         const detalhe = err?.response?.data?.detail || err?.response?.data?.mensagem || err?.message || 'Falha na comunicação.';
         const respostaApi = (err?.response?.data?.resposta_agente || '').trim();
         toast.add({ severity: 'error', summary: 'Copiloto', detail: String(detalhe), life: 5000 });
-        adicionarMensagem(
-            'assistant',
-            respostaApi ||
-                'Não consegui concluir esta etapa. Tente novamente ou reformule a mensagem.'
-        );
+        adicionarMensagem('assistant', respostaApi || 'Não consegui concluir esta etapa. Tente novamente ou reformule a mensagem.');
     } finally {
         carregando.value = false;
     }
@@ -1977,10 +1834,8 @@ function novaConversa() {
     adicionarMensagem(
         'assistant',
         isModoIndicacao.value
-            ? 'Olá! Descreva a indicação legislativa com suas palavras. Anexe o PDF com as assinaturas ' +
-                  'dos vereadores; na validação final, vincule os parlamentares e confirme o número da Câmara.'
-            : 'Olá! Conte o pedido com suas palavras, pode anexar documentos a qualquer momento. ' +
-                  'Se for zeladoria ou serviço em via/parque, informe também o local quando souber.'
+            ? 'Olá! Descreva a indicação legislativa com suas palavras. Anexe o PDF com as assinaturas ' + 'dos vereadores; na validação final, vincule os parlamentares e confirme o número da Câmara.'
+            : 'Olá! Conte o pedido com suas palavras, pode anexar documentos a qualquer momento. ' + 'Se for zeladoria ou serviço em via/parque, informe também o local quando souber.'
     );
     if (!isModoIndicacao.value) {
         carregarAtalhosTopTrends();
@@ -2002,59 +1857,27 @@ novaConversa();
                     {{ isModoIndicacao ? 'Copiloto — Indicações' : 'Copiloto de demandas' }}
                 </h1>
                 <p class="mt-1.5 text-xs leading-relaxed text-[var(--text-color-secondary)] sm:mt-1 sm:text-sm">
-                    <template v-if="isModoIndicacao">
-                        Descreva a indicação na conversa, anexe o PDF assinado e confirme vereadores e numeração
-                        antes de gerar o rascunho.
-                    </template>
-                    <template v-else>
-                        Descreva o pedido na conversa — o painel <strong class="font-medium">Contexto</strong> mostra o que
-                        já foi entendido (assunto, serviço, local).
-                    </template>
+                    <template v-if="isModoIndicacao"> Descreva a indicação na conversa, anexe o PDF assinado e confirme vereadores e numeração antes de gerar o rascunho. </template>
+                    <template v-else> Descreva o pedido na conversa — o painel <strong class="font-medium">Contexto</strong> mostra o que já foi entendido (assunto, serviço, local). </template>
                 </p>
             </div>
             <div class="copiloto-header__actions flex w-full shrink-0 items-stretch gap-2 sm:w-auto">
-                <Button
-                    type="button"
-                    label="Contexto"
-                    icon="pi pi-list"
-                    severity="secondary"
-                    outlined
-                    class="copiloto-header__btn flex-1 lg:!hidden"
-                    @click="painelContextoAberto = true"
-                />
-                <Button
-                    type="button"
-                    label="Nova conversa"
-                    icon="pi pi-refresh"
-                    severity="secondary"
-                    outlined
-                    class="copiloto-header__btn copiloto-header__btn--nova hidden shrink-0 sm:inline-flex"
-                    @click="novaConversa"
-                />
+                <Button type="button" label="Contexto" icon="pi pi-list" severity="secondary" outlined class="copiloto-header__btn flex-1 lg:!hidden" @click="painelContextoAberto = true" />
+                <Button type="button" label="Nova conversa" icon="pi pi-refresh" severity="secondary" outlined class="copiloto-header__btn copiloto-header__btn--nova hidden shrink-0 sm:inline-flex" @click="novaConversa" />
             </div>
         </header>
 
         <!-- Sucesso -->
-        <div
-            v-if="sucessoCriacao"
-            class="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto bg-[var(--surface-ground)] px-4 py-10"
-        >
+        <div v-if="sucessoCriacao" class="flex min-h-0 flex-1 flex-col items-center justify-center gap-6 overflow-y-auto bg-[var(--surface-ground)] px-4 py-10">
             <div class="max-w-md text-center">
                 <i class="pi pi-check-circle text-6xl text-green-500" aria-hidden="true"></i>
                 <h2 class="mt-4 text-2xl font-semibold text-[var(--text-color)]">
                     {{ isModoIndicacao ? 'Indicação registrada!' : 'Demandas criadas!' }}
                 </h2>
                 <p class="mt-2 leading-relaxed text-[var(--text-color-secondary)]">
-                    Foram gerados <strong class="text-[var(--text-color)]">{{ sucessoCriacao.length }}</strong>
-                    {{ isModoIndicacao ? 'rascunho(s) de indicação' : 'rascunho(s)' }} (IDs:
-                    {{ sucessoCriacao.map((d) => d.id).join(', ') }}).
+                    Foram gerados <strong class="text-[var(--text-color)]">{{ sucessoCriacao.length }}</strong> {{ isModoIndicacao ? 'rascunho(s) de indicação' : 'rascunho(s)' }} (IDs: {{ sucessoCriacao.map((d) => d.id).join(', ') }}).
                 </p>
-                <Message
-                    v-if="alertasDuplicidadeCriacao?.length"
-                    :severity="temDuplicidadeEmTramite(alertasDuplicidadeCriacao) ? 'error' : 'warn'"
-                    :closable="false"
-                    class="mt-4 text-left text-sm"
-                >
+                <Message v-if="alertasDuplicidadeCriacao?.length" :severity="temDuplicidadeEmTramite(alertasDuplicidadeCriacao) ? 'error' : 'warn'" :closable="false" class="mt-4 text-left text-sm">
                     <template v-if="temDuplicidadeEmTramite(alertasDuplicidadeCriacao)">
                         <strong>Atenção — possível duplicidade em tramitação.</strong>
                         <ul class="m-0 mt-2 list-disc pl-5">
@@ -2079,25 +1902,9 @@ novaConversa();
                 </Message>
             </div>
             <div class="flex flex-col gap-2 sm:flex-row">
-                <Button
-                    v-if="isModoIndicacao && sucessoCriacao.length === 1"
-                    label="Revisar indicação"
-                    icon="pi pi-pencil"
-                    @click="router.push({ name: 'indicacao-editar', params: { id: sucessoCriacao[0].id } })"
-                />
-                <Button
-                    v-else-if="sucessoCriacao.length > 1"
-                    label="Assinar e enviar todos"
-                    icon="pi pi-send"
-                    @click="assinarEnviarRascunhosCopiloto"
-                />
-                <Button
-                    :label="isModoIndicacao ? 'Ver indicações' : 'Revisar rascunhos'"
-                    icon="pi pi-table"
-                    severity="secondary"
-                    outlined
-                    @click="irParaRascunhos"
-                />
+                <Button v-if="isModoIndicacao && sucessoCriacao.length === 1" label="Revisar indicação" icon="pi pi-pencil" @click="router.push({ name: 'indicacao-editar', params: { id: sucessoCriacao[0].id } })" />
+                <Button v-else-if="sucessoCriacao.length > 1" label="Assinar e enviar todos" icon="pi pi-send" @click="assinarEnviarRascunhosCopiloto" />
+                <Button :label="isModoIndicacao ? 'Ver indicações' : 'Revisar rascunhos'" icon="pi pi-table" severity="secondary" outlined @click="irParaRascunhos" />
                 <Button label="Continuar no copiloto" icon="pi pi-comments" severity="secondary" outlined @click="sucessoCriacao = null" />
             </div>
         </div>
@@ -2106,34 +1913,19 @@ novaConversa();
         <div v-else class="flex min-h-0 flex-1 flex-row overflow-hidden">
             <!-- Coluna chat: mensagens ocupam o espaço; compositor shrink-0 na base -->
             <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div
-                    ref="listaChatRef"
-                    class="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[var(--surface-ground)] px-3 py-4 sm:px-5"
-                >
+                <div ref="listaChatRef" class="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[var(--surface-ground)] px-3 py-4 sm:px-5">
                     <div class="mx-auto flex max-w-3xl flex-col gap-3">
-                        <div
-                            v-for="(m, idx) in mensagens"
-                            :key="m.id"
-                            class="flex w-full"
-                            :class="m.role === 'user' ? 'justify-end' : 'justify-start'"
-                        >
+                        <div v-for="(m, idx) in mensagens" :key="m.id" class="flex w-full" :class="m.role === 'user' ? 'justify-end' : 'justify-start'">
                             <div
                                 v-if="!ocultarBolhaAssistenteNoChat(m)"
                                 class="max-w-[min(100%,28rem)] break-words rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm sm:text-base"
-                                :class="
-                                    m.role === 'user'
-                                        ? 'rounded-br-md bg-primary text-primary-contrast'
-                                        : 'rounded-bl-md border border-[var(--surface-border)] bg-[var(--surface-card)] text-[var(--text-color)]'
-                                "
+                                :class="m.role === 'user' ? 'rounded-br-md bg-primary text-primary-contrast' : 'rounded-bl-md border border-[var(--surface-border)] bg-[var(--surface-card)] text-[var(--text-color)]'"
                             >
                                 <span class="whitespace-pre-wrap">{{ m.texto }}</span>
                             </div>
                         </div>
 
-                        <div
-                            v-if="mostrarBlocoForaCompetenciaNoChat"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-red-500/40 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
+                        <div v-if="mostrarBlocoForaCompetenciaNoChat" class="mx-auto w-full max-w-3xl rounded-2xl border border-red-500/40 bg-[var(--surface-card)] p-4 shadow-sm">
                             <div class="mb-3 flex flex-wrap items-center gap-2">
                                 <span class="text-sm font-semibold text-[var(--text-color)]">
                                     <i class="pi pi-ban mr-1" aria-hidden="true" />
@@ -2141,83 +1933,44 @@ novaConversa();
                                 </span>
                             </div>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                O assunto não pode virar ofício pelo gabinete. Reformule descrevendo um problema de
-                                serviço público da Prefeitura (zeladoria, obras, meio ambiente, etc.) ou use o cadastro
-                                tradicional de demandas para outros assuntos.
+                                O assunto não pode virar ofício pelo gabinete. Reformule descrevendo um problema de serviço público da Prefeitura (zeladoria, obras, meio ambiente, etc.) ou use o cadastro tradicional de demandas para outros assuntos.
                             </p>
-                            <div
-                                v-for="{ d, i } in demandasForaCompetenciaNoChat"
-                                :key="`chat-fc-${i}`"
-                                class="mb-3 flex flex-col gap-2 rounded-xl border border-red-400/30 bg-red-500/5 p-3 last:mb-0"
-                            >
-                                <span class="text-sm font-medium text-[var(--text-color)]">
-                                    {{ i + 1 }}. {{ d.titulo || 'Solicitação' }}
-                                </span>
+                            <div v-for="{ d, i } in demandasForaCompetenciaNoChat" :key="`chat-fc-${i}`" class="mb-3 flex flex-col gap-2 rounded-xl border border-red-400/30 bg-red-500/5 p-3 last:mb-0">
+                                <span class="text-sm font-medium text-[var(--text-color)]"> {{ i + 1 }}. {{ d.titulo || 'Solicitação' }} </span>
                                 <p class="m-0 text-xs text-[var(--text-color-secondary)]">
                                     {{ d.motivo_recusa || 'Não corresponde a um serviço público municipal.' }}
                                 </p>
-                                <div
-                                    v-if="d.faq_orientacao?.titulo"
-                                    class="mt-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-2"
-                                >
+                                <div v-if="d.faq_orientacao?.titulo" class="mt-1 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-2">
                                     <p class="m-0 text-xs font-semibold text-[var(--text-color)]">
                                         {{ d.faq_orientacao.titulo }}
                                     </p>
                                     <p class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">
                                         {{ d.faq_orientacao.mensagem }}
                                     </p>
-                                    <p
-                                        v-if="d.faq_orientacao.orgao_hint"
-                                        class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]"
-                                    >
+                                    <p v-if="d.faq_orientacao.orgao_hint" class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">
                                         <i class="pi pi-info-circle mr-1" aria-hidden="true" />
                                         {{ d.faq_orientacao.orgao_hint }}
                                     </p>
                                 </div>
                             </div>
-                            <Button
-                                label="Nova conversa"
-                                icon="pi pi-refresh"
-                                size="small"
-                                severity="secondary"
-                                outlined
-                                class="self-start"
-                                @click="novaConversa"
-                            />
+                            <Button label="Nova conversa" icon="pi pi-refresh" size="small" severity="secondary" outlined class="self-start" @click="novaConversa" />
                         </div>
 
-                        <div
-                            v-if="mostrarBlocoServicoNoChat"
-                            data-copiloto-bloco="servico"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-amber-500/35 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
+                        <div v-if="mostrarBlocoServicoNoChat" data-copiloto-bloco="servico" class="mx-auto w-full max-w-3xl rounded-2xl border border-amber-500/35 bg-[var(--surface-card)] p-4 shadow-sm">
                             <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
                                 <span class="text-sm font-semibold text-[var(--text-color)]">
                                     <i class="pi pi-book mr-1" aria-hidden="true" />
                                     Serviço na carta de serviços
                                 </span>
-                                <Button
-                                    v-if="demandasComCartaNoChat.length > 1"
-                                    label="Confirmar sugestões"
-                                    icon="pi pi-check-circle"
-                                    size="small"
-                                    severity="success"
-                                    outlined
-                                    :loading="carregando"
-                                    @click="confirmarTodosServicosCarta"
-                                />
+                                <Button v-if="demandasComCartaNoChat.length > 1" label="Confirmar sugestões" icon="pi pi-check-circle" size="small" severity="success" outlined :loading="carregando" @click="confirmarTodosServicosCarta" />
                             </div>
                             <p class="m-0 mb-3 text-xs text-[var(--text-color-secondary)]">
                                 <strong>Carta de serviços:</strong>
                                 <template v-if="demandasComCartaNoChat.some(({ d }) => ehModoCartaDominio(d))">
                                     quando o pedido é do mesmo eixo (ex.: mobilidade), listamos até
-                                    {{ MAX_OPCOES_DOMINIO }} serviços com similaridade ≥
-                                    {{ Math.round(LIMIAR_SCORE_DOMINIO * 100) }}% — ou registre como tendência.
+                                    {{ MAX_OPCOES_DOMINIO }} serviços com similaridade ≥ {{ Math.round(LIMIAR_SCORE_DOMINIO * 100) }}% — ou registre como tendência.
                                 </template>
-                                <template v-else>
-                                    até {{ MAX_OPCOES_CARTA }} opções com similaridade ≥
-                                    {{ Math.round(LIMIAR_SCORE_CARTA * 100) }}%. Abaixo disso, use tendência.
-                                </template>
+                                <template v-else> até {{ MAX_OPCOES_CARTA }} opções com similaridade ≥ {{ Math.round(LIMIAR_SCORE_CARTA * 100) }}%. Abaixo disso, use tendência. </template>
                                 Pode ignorar, refazer a busca, escolher no menu ou descartar uma solicitação quando houver mais de um pedido.
                             </p>
                             <div
@@ -2230,363 +1983,165 @@ novaConversa();
                                 }"
                             >
                                 <div class="flex flex-wrap items-center gap-2">
-                                    <span class="text-sm font-medium text-[var(--text-color)]">
-                                        {{ i + 1 }}. {{ d.titulo || 'Solicitação' }}
-                                    </span>
+                                    <span class="text-sm font-medium text-[var(--text-color)]"> {{ i + 1 }}. {{ d.titulo || 'Solicitação' }} </span>
                                     <Tag v-if="d.descartada" value="Descartada" severity="secondary" class="!text-xs" />
                                     <Tag v-else-if="servicoConfirmado(d)" value="Confirmado" severity="success" class="!text-xs" />
                                     <Tag v-else-if="d.servico_alerta" value="Revise a opção" severity="warn" class="!text-xs" />
                                 </div>
                                 <template v-if="d.descartada">
-                                    <p class="m-0 text-xs text-[var(--text-color-secondary)]">
-                                        Esta solicitação foi ignorada e não será incluída no ofício.
-                                    </p>
-                                    <Button
-                                        label="Restaurar solicitação"
-                                        icon="pi pi-undo"
-                                        size="small"
-                                        severity="secondary"
-                                        text
-                                        :loading="carregando"
-                                        @click="restaurarSolicitacao(i)"
-                                    />
+                                    <p class="m-0 text-xs text-[var(--text-color-secondary)]">Esta solicitação foi ignorada e não será incluída no ofício.</p>
+                                    <Button label="Restaurar solicitação" icon="pi pi-undo" size="small" severity="secondary" text :loading="carregando" @click="restaurarSolicitacao(i)" />
                                 </template>
                                 <template v-else>
-                                <p
-                                    v-if="d.dominio_operacional?.label && ehModoCartaDominio(d)"
-                                    class="m-0 text-xs text-sky-800 dark:text-sky-300"
-                                >
-                                    Eixo reconhecido: <strong>{{ d.dominio_operacional.label }}</strong> — escolha um
-                                    serviço da carta abaixo ou «Nenhuma das opções» para tendência.
-                                </p>
-                                <p
-                                    v-else-if="demandaForaCarta(d) || !candidatosCartaExibicao(d).length"
-                                    class="m-0 text-xs text-amber-700 dark:text-amber-400"
-                                >
-                                    Nenhuma opção atingiu {{ Math.round(limiarScoreDemanda(d) * 100) }}% — registre como
-                                    tendência ou use «Nova busca».
-                                </p>
-                                <div
-                                    v-if="corpusHintsDemanda(d).length && (demandaForaCarta(d) || !candidatosCartaExibicao(d).length)"
-                                    class="flex flex-col gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2"
-                                >
-                                    <span class="text-xs font-medium uppercase tracking-wide text-sky-800 dark:text-sky-300">
-                                        Serviços da carta sugeridos
-                                    </span>
-                                    <p class="m-0 text-xs text-[var(--text-color-secondary)]">
-                                        Escolha o serviço mais adequado — cada opção confirma na carta e segue para complementar o local.
+                                    <p v-if="d.dominio_operacional?.label && ehModoCartaDominio(d)" class="m-0 text-xs text-sky-800 dark:text-sky-300">
+                                        Eixo reconhecido: <strong>{{ d.dominio_operacional.label }}</strong> — escolha um serviço da carta abaixo ou «Nenhuma das opções» para tendência.
                                     </p>
-                                    <ul class="m-0 flex list-none flex-col gap-2 p-0">
-                                        <li
-                                            v-for="h in corpusHintsDemanda(d)"
-                                            :key="h.id || h.servico_legado"
-                                            class="flex flex-wrap items-center gap-2"
-                                        >
+                                    <p v-else-if="demandaForaCarta(d) || !candidatosCartaExibicao(d).length" class="m-0 text-xs text-amber-700 dark:text-amber-400">
+                                        Nenhuma opção atingiu {{ Math.round(limiarScoreDemanda(d) * 100) }}% — registre como tendência ou use «Nova busca».
+                                    </p>
+                                    <div v-if="corpusHintsDemanda(d).length && (demandaForaCarta(d) || !candidatosCartaExibicao(d).length)" class="flex flex-col gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2">
+                                        <span class="text-xs font-medium uppercase tracking-wide text-sky-800 dark:text-sky-300"> Serviços da carta sugeridos </span>
+                                        <p class="m-0 text-xs text-[var(--text-color-secondary)]">Escolha o serviço mais adequado — cada opção confirma na carta e segue para complementar o local.</p>
+                                        <ul class="m-0 flex list-none flex-col gap-2 p-0">
+                                            <li v-for="h in corpusHintsDemanda(d)" :key="h.id || h.servico_legado" class="flex flex-wrap items-center gap-2">
+                                                <Button
+                                                    v-if="h.sinapse_servico_id_sugerido_historico"
+                                                    :label="rotuloHintHistorico(h)"
+                                                    icon="pi pi-check"
+                                                    size="small"
+                                                    severity="info"
+                                                    outlined
+                                                    class="!text-left"
+                                                    :loading="carregando"
+                                                    @click="aplicarHintCorpus(i, h)"
+                                                />
+                                                <span v-else class="text-sm text-[var(--text-color)]">
+                                                    {{ rotuloHintHistorico(h) }}
+                                                </span>
+                                                <Tag v-if="h.padrao" value="Mais comum" severity="success" class="!text-xs" />
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <div v-if="!servicoConfirmado(d)" class="flex flex-wrap gap-2">
+                                        <Button label="Nova busca" icon="pi pi-refresh" size="small" severity="secondary" outlined :loading="carregando" @click="novaBuscaSemantica(i)" />
+                                        <Button label="Ignorar sugestões" icon="pi pi-ban" size="small" severity="secondary" text :loading="carregando" @click="ignorarSugestoesCarta(i)" />
+                                        <Button v-if="demandasAtivasNoFluxo.length > 1" label="Descartar solicitação" icon="pi pi-trash" size="small" severity="danger" text :loading="carregando" @click="descartarSolicitacao(i)" />
+                                    </div>
+                                    <Select
+                                        :key="fingerprintCandidatos(d)"
+                                        v-model="escolhaServicoCarta[i]"
+                                        :options="opcoesServicoCarta(d)"
+                                        option-label="label"
+                                        option-value="value"
+                                        :placeholder="`Serviços da carta (≥ ${Math.round(limiarScoreDemanda(d) * 100)}%)`"
+                                        class="w-full"
+                                        :disabled="carregando || servicoConfirmado(d)"
+                                    />
+                                    <div v-if="escolheuNenhumaCarta(i)" class="flex flex-col gap-3 rounded-lg border border-violet-400/40 bg-violet-500/5 p-3">
+                                        <span class="text-xs font-semibold text-[var(--text-color)]"> 2º passo — tendência (fora da carta) </span>
+                                        <div v-if="tendenciasSimilares[i]?.loading" class="flex items-center gap-2 text-xs text-[var(--text-color-secondary)]">
+                                            <ProgressSpinner class="!h-5 !w-5" strokeWidth="6" />
+                                            Buscando tendências semelhantes…
+                                        </div>
+                                        <template v-else>
+                                            <label class="text-xs font-medium text-[var(--text-color-secondary)]"> Título para registro </label>
+                                            <InputText v-model="tituloTendenciaForm[i]" class="w-full" :disabled="carregando" placeholder="Ex.: Reserva em área não catalogada" />
+                                            <label class="text-xs font-medium text-[var(--text-color-secondary)]">
+                                                {{ (tendenciasSimilares[i]?.items?.length || 0) > 0 ? 'Vincular a tendência existente ou criar nova' : 'Nova tendência' }}
+                                            </label>
+                                            <Select v-model="escolhaTendenciaForm[i]" :options="opcoesTendenciaSelect(i)" option-label="label" option-value="value" placeholder="Tendência" class="w-full" :disabled="carregando" />
+                                            <p v-if="tendenciasSimilares[i]?.erro" class="m-0 text-xs text-amber-600 dark:text-amber-400">Busca indisponível; será criada uma nova tendência.</p>
                                             <Button
-                                                v-if="h.sinapse_servico_id_sugerido_historico"
-                                                :label="rotuloHintHistorico(h)"
+                                                label="Confirmar tendência"
                                                 icon="pi pi-check"
                                                 size="small"
-                                                severity="info"
-                                                outlined
-                                                class="!text-left"
+                                                severity="secondary"
+                                                class="self-start"
                                                 :loading="carregando"
-                                                @click="aplicarHintCorpus(i, h)"
+                                                :disabled="!tituloTendenciaForm[i]?.trim()"
+                                                @click="aplicarTendenciaDemanda(i)"
                                             />
-                                            <span v-else class="text-sm text-[var(--text-color)]">
-                                                {{ rotuloHintHistorico(h) }}
-                                            </span>
-                                            <Tag
-                                                v-if="h.padrao"
-                                                value="Mais comum"
-                                                severity="success"
-                                                class="!text-xs"
-                                            />
-                                        </li>
-                                    </ul>
-                                </div>
-                                <div v-if="!servicoConfirmado(d)" class="flex flex-wrap gap-2">
-                                    <Button
-                                        label="Nova busca"
-                                        icon="pi pi-refresh"
-                                        size="small"
-                                        severity="secondary"
-                                        outlined
-                                        :loading="carregando"
-                                        @click="novaBuscaSemantica(i)"
-                                    />
-                                    <Button
-                                        label="Ignorar sugestões"
-                                        icon="pi pi-ban"
-                                        size="small"
-                                        severity="secondary"
-                                        text
-                                        :loading="carregando"
-                                        @click="ignorarSugestoesCarta(i)"
-                                    />
-                                    <Button
-                                        v-if="demandasAtivasNoFluxo.length > 1"
-                                        label="Descartar solicitação"
-                                        icon="pi pi-trash"
-                                        size="small"
-                                        severity="danger"
-                                        text
-                                        :loading="carregando"
-                                        @click="descartarSolicitacao(i)"
-                                    />
-                                </div>
-                                <Select
-                                    :key="fingerprintCandidatos(d)"
-                                    v-model="escolhaServicoCarta[i]"
-                                    :options="opcoesServicoCarta(d)"
-                                    option-label="label"
-                                    option-value="value"
-                                    :placeholder="`Serviços da carta (≥ ${Math.round(limiarScoreDemanda(d) * 100)}%)`"
-                                    class="w-full"
-                                    :disabled="carregando || servicoConfirmado(d)"
-                                />
-                                <div
-                                    v-if="escolheuNenhumaCarta(i)"
-                                    class="flex flex-col gap-3 rounded-lg border border-violet-400/40 bg-violet-500/5 p-3"
-                                >
-                                    <span class="text-xs font-semibold text-[var(--text-color)]">
-                                        2º passo — tendência (fora da carta)
-                                    </span>
-                                    <div
-                                        v-if="tendenciasSimilares[i]?.loading"
-                                        class="flex items-center gap-2 text-xs text-[var(--text-color-secondary)]"
-                                    >
-                                        <ProgressSpinner class="!h-5 !w-5" strokeWidth="6" />
-                                        Buscando tendências semelhantes…
+                                        </template>
                                     </div>
-                                    <template v-else>
-                                        <label class="text-xs font-medium text-[var(--text-color-secondary)]">
-                                            Título para registro
-                                        </label>
-                                        <InputText
-                                            v-model="tituloTendenciaForm[i]"
-                                            class="w-full"
-                                            :disabled="carregando"
-                                            placeholder="Ex.: Reserva em área não catalogada"
-                                        />
-                                        <label class="text-xs font-medium text-[var(--text-color-secondary)]">
-                                            {{
-                                                (tendenciasSimilares[i]?.items?.length || 0) > 0
-                                                    ? 'Vincular a tendência existente ou criar nova'
-                                                    : 'Nova tendência'
-                                            }}
-                                        </label>
-                                        <Select
-                                            v-model="escolhaTendenciaForm[i]"
-                                            :options="opcoesTendenciaSelect(i)"
-                                            option-label="label"
-                                            option-value="value"
-                                            placeholder="Tendência"
-                                            class="w-full"
-                                            :disabled="carregando"
-                                        />
-                                        <p
-                                            v-if="tendenciasSimilares[i]?.erro"
-                                            class="m-0 text-xs text-amber-600 dark:text-amber-400"
-                                        >
-                                            Busca indisponível; será criada uma nova tendência.
-                                        </p>
-                                        <Button
-                                            label="Confirmar tendência"
-                                            icon="pi pi-check"
-                                            size="small"
-                                            severity="secondary"
-                                            class="self-start"
-                                            :loading="carregando"
-                                            :disabled="!tituloTendenciaForm[i]?.trim()"
-                                            @click="aplicarTendenciaDemanda(i)"
-                                        />
-                                    </template>
-                                </div>
-                                <Button
-                                    v-if="!servicoConfirmado(d) && !escolheuNenhumaCarta(i)"
-                                    label="Confirmar serviço na carta"
-                                    icon="pi pi-check"
-                                    size="small"
-                                    class="self-start"
-                                    :disabled="escolhaServicoCarta[i] == null || carregando"
-                                    @click="aplicarServicoCarta(i)"
-                                />
+                                    <Button
+                                        v-if="!servicoConfirmado(d) && !escolheuNenhumaCarta(i)"
+                                        label="Confirmar serviço na carta"
+                                        icon="pi pi-check"
+                                        size="small"
+                                        class="self-start"
+                                        :disabled="escolhaServicoCarta[i] == null || carregando"
+                                        @click="aplicarServicoCarta(i)"
+                                    />
                                 </template>
                             </div>
                         </div>
 
-                        <div
-                            v-if="mostrarBlocoComplementoNoChat"
-                            data-copiloto-bloco="complemento"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-emerald-500/35 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
+                        <div v-if="mostrarBlocoComplementoNoChat" data-copiloto-bloco="complemento" class="mx-auto w-full max-w-3xl rounded-2xl border border-emerald-500/35 bg-[var(--surface-card)] p-4 shadow-sm">
                             <div class="mb-2">
                                 <span class="text-sm font-semibold text-[var(--text-color)]">
                                     <i class="pi pi-map-marker mr-1" aria-hidden="true" />
                                     Complementar informações
                                 </span>
-                                <p class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">
-                                    O serviço já está na carta. Descreva no campo abaixo rua, número, bairro, referência ou
-                                    detalhes adicionais do pedido.
-                                </p>
+                                <p class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">O serviço já está na carta. Descreva no campo abaixo rua, número, bairro, referência ou detalhes adicionais do pedido.</p>
                             </div>
-                            <div
-                                v-for="{ d, i } in demandasAguardandoComplemento"
-                                :key="`chat-comp-${i}`"
-                                class="mb-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2 last:mb-0"
-                            >
-                                <p class="m-0 text-sm font-medium text-[var(--text-color)]">
-                                    {{ i + 1 }}. {{ d.servico?.nome || d.titulo || 'Solicitação' }}
-                                </p>
-                                <p
-                                    v-if="d.servico?.orgao"
-                                    class="m-0 mt-0.5 text-xs text-[var(--text-color-secondary)]"
-                                >
+                            <div v-for="{ d, i } in demandasAguardandoComplemento" :key="`chat-comp-${i}`" class="mb-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2 last:mb-0">
+                                <p class="m-0 text-sm font-medium text-[var(--text-color)]">{{ i + 1 }}. {{ d.servico?.nome || d.titulo || 'Solicitação' }}</p>
+                                <p v-if="d.servico?.orgao" class="m-0 mt-0.5 text-xs text-[var(--text-color-secondary)]">
                                     {{ d.servico.orgao }}
                                 </p>
                             </div>
                         </div>
 
-                        <div
-                            v-if="false"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-violet-500/35 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
+                        <div v-if="false" class="mx-auto w-full max-w-3xl rounded-2xl border border-violet-500/35 bg-[var(--surface-card)] p-4 shadow-sm">
                             <div class="mb-3">
                                 <span class="text-sm font-semibold text-[var(--text-color)]">
                                     <i class="pi pi-compass mr-1" aria-hidden="true" />
                                     Solicitação fora da carta
                                 </span>
                                 <p class="m-0 mt-1 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                    Não encontramos serviço na carta com confiança suficiente (≥ 70%). Registre como
-                                    tendência para gestão interna; depois informe o endereço para seguir com o ofício.
+                                    Não encontramos serviço na carta com confiança suficiente (≥ 70%). Registre como tendência para gestão interna; depois informe o endereço para seguir com o ofício.
                                 </p>
                             </div>
-                            <div
-                                v-for="{ d, i } in demandasForaCartaNoChat"
-                                :key="`chat-tend-${i}`"
-                                class="mb-3 flex flex-col gap-3 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3 last:mb-0"
-                            >
+                            <div v-for="{ d, i } in demandasForaCartaNoChat" :key="`chat-tend-${i}`" class="mb-3 flex flex-col gap-3 rounded-xl border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3 last:mb-0">
                                 <span class="text-sm font-medium text-[var(--text-color)]">
                                     {{ d.titulo || `Solicitação ${i + 1}` }}
                                 </span>
-                                <div
-                                    v-if="tendenciasSimilares[i]?.loading"
-                                    class="flex items-center gap-2 text-xs text-[var(--text-color-secondary)]"
-                                >
+                                <div v-if="tendenciasSimilares[i]?.loading" class="flex items-center gap-2 text-xs text-[var(--text-color-secondary)]">
                                     <ProgressSpinner class="!h-5 !w-5" strokeWidth="6" />
                                     Buscando tendências semelhantes…
                                 </div>
                                 <template v-else>
+                                    <label class="text-xs font-medium text-[var(--text-color-secondary)]"> Título para registro </label>
+                                    <InputText v-model="tituloTendenciaForm[i]" class="w-full" :disabled="carregando" placeholder="Ex.: Buraco em via não catalogada" />
                                     <label class="text-xs font-medium text-[var(--text-color-secondary)]">
-                                        Título para registro
+                                        {{ (tendenciasSimilares[i]?.items?.length || 0) > 0 ? 'Vincular a tendência existente ou criar nova' : 'Nova tendência' }}
                                     </label>
-                                    <InputText
-                                        v-model="tituloTendenciaForm[i]"
-                                        class="w-full"
-                                        :disabled="carregando"
-                                        placeholder="Ex.: Buraco em via não catalogada"
-                                    />
-                                    <label class="text-xs font-medium text-[var(--text-color-secondary)]">
-                                        {{
-                                            (tendenciasSimilares[i]?.items?.length || 0) > 0
-                                                ? 'Vincular a tendência existente ou criar nova'
-                                                : 'Nova tendência'
-                                        }}
-                                    </label>
-                                    <Select
-                                        v-model="escolhaTendenciaForm[i]"
-                                        :options="opcoesTendenciaSelect(i)"
-                                        option-label="label"
-                                        option-value="value"
-                                        placeholder="Escolha"
-                                        class="w-full"
-                                        :disabled="carregando"
-                                    />
-                                    <p
-                                        v-if="tendenciasSimilares[i]?.erro"
-                                        class="m-0 text-xs text-amber-600 dark:text-amber-400"
-                                    >
-                                        Busca semântica indisponível; será criada uma nova tendência.
-                                    </p>
-                                    <Button
-                                        label="Confirmar tendência"
-                                        icon="pi pi-check"
-                                        size="small"
-                                        severity="secondary"
-                                        class="self-start"
-                                        :loading="carregando"
-                                        :disabled="!tituloTendenciaForm[i]?.trim()"
-                                        @click="aplicarTendenciaDemanda(i)"
-                                    />
+                                    <Select v-model="escolhaTendenciaForm[i]" :options="opcoesTendenciaSelect(i)" option-label="label" option-value="value" placeholder="Escolha" class="w-full" :disabled="carregando" />
+                                    <p v-if="tendenciasSimilares[i]?.erro" class="m-0 text-xs text-amber-600 dark:text-amber-400">Busca semântica indisponível; será criada uma nova tendência.</p>
+                                    <Button label="Confirmar tendência" icon="pi pi-check" size="small" severity="secondary" class="self-start" :loading="carregando" :disabled="!tituloTendenciaForm[i]?.trim()" @click="aplicarTendenciaDemanda(i)" />
                                 </template>
                             </div>
                         </div>
 
-                        <div
-                            v-if="mostrarBlocoEnderecoNoChat"
-                            data-copiloto-bloco="local"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--primary-color)]/30 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
+                        <div v-if="mostrarBlocoEnderecoNoChat" data-copiloto-bloco="local" class="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--primary-color)]/30 bg-[var(--surface-card)] p-4 shadow-sm">
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-map-marker mr-1" aria-hidden="true" />
                                 {{ isModoIndicacao ? 'Local da indicação (opcional)' : 'Local da solicitação' }}
-                                <span
-                                    v-if="revisaoAtiva?.etapa === 'local'"
-                                    class="ml-2 text-xs font-normal text-[var(--primary-color)]"
-                                >
-                                    (revisão — solicitação {{ revisaoAtiva.indiceDemanda + 1 }})
-                                </span>
+                                <span v-if="revisaoAtiva?.etapa === 'local'" class="ml-2 text-xs font-normal text-[var(--primary-color)]"> (revisão — solicitação {{ revisaoAtiva.indiceDemanda + 1 }}) </span>
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                <template v-if="isModoIndicacao">
-                                    Informe logradouro, bairro e CEP (recomendado), use a localização do aparelho
-                                    ou continue sem local se a indicação não tiver endereço específico.
-                                </template>
-                                <template v-else>
-                                    Use o formulário abaixo (CEP recomendado), a mensagem de chat,
-                                    GPS ou «Continuar sem local». O fluxo não trava se o mapa não
-                                    localizar o ponto com precisão.
-                                </template>
+                                <template v-if="isModoIndicacao"> Informe logradouro, bairro e CEP (recomendado), use a localização do aparelho ou continue sem local se a indicação não tiver endereço específico. </template>
+                                <template v-else> Use o formulário abaixo (CEP recomendado), a mensagem de chat, GPS ou «Continuar sem local». O fluxo não trava se o mapa não localizar o ponto com precisão. </template>
                             </p>
                             <div class="mb-3 flex flex-wrap gap-2">
-                                <Button
-                                    :label="labelGpsCopiloto"
-                                    icon="pi pi-map"
-                                    severity="secondary"
-                                    outlined
-                                    :disabled="carregando"
-                                    @click="usarLocalizacaoAtual(indiceDemandaGps)"
-                                />
-                                <Button
-                                    label="Continuar sem local"
-                                    severity="secondary"
-                                    text
-                                    :disabled="carregando"
-                                    @click="enviarMensagem('continuar sem local')"
-                                />
+                                <Button :label="labelGpsCopiloto" icon="pi pi-map" severity="secondary" outlined :disabled="carregando" @click="usarLocalizacaoAtual(indiceDemandaGps)" />
+                                <Button label="Continuar sem local" severity="secondary" text :disabled="carregando" @click="enviarMensagem('continuar sem local')" />
                             </div>
-                            <div
-                                v-for="{ d, i } in demandasEscopoLocal"
-                                :key="`endereco-${i}`"
-                                class="mb-3 flex flex-col gap-2"
-                            >
-                                <p
-                                    v-if="demandasEscopoLocal.length > 1"
-                                    class="m-0 text-xs font-medium text-[var(--text-color-secondary)]"
-                                >
-                                    Solicitação {{ i + 1 }}
-                                </p>
-                                <div
-                                    class="grid grid-cols-1 gap-3 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3 sm:grid-cols-12"
-                                >
+                            <div v-for="{ d, i } in demandasEscopoLocal" :key="`endereco-${i}`" class="mb-3 flex flex-col gap-2">
+                                <p v-if="demandasEscopoLocal.length > 1" class="m-0 text-xs font-medium text-[var(--text-color-secondary)]">Solicitação {{ i + 1 }}</p>
+                                <div class="grid grid-cols-1 gap-3 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3 sm:grid-cols-12">
                                     <div class="sm:col-span-3">
-                                        <label
-                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
-                                            :for="`copiloto-cep-${i}`"
-                                        >
-                                            CEP
-                                        </label>
+                                        <label class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]" :for="`copiloto-cep-${i}`"> CEP </label>
                                         <InputMask
                                             :id="`copiloto-cep-${i}`"
                                             v-model="obterFormEnderecoCopiloto(i).cep"
@@ -2594,16 +2149,12 @@ novaConversa();
                                             placeholder="99999-999"
                                             class="w-full"
                                             :disabled="carregando"
-                                            @blur="buscarCepCopiloto(i)"
+                                            @focus="marcarEnderecoEmEdicaoCopiloto(i)"
+                                            @blur="onBlurCepCopiloto(i)"
                                         />
                                     </div>
                                     <div class="sm:col-span-9">
-                                        <label
-                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
-                                            :for="`copiloto-logr-${i}`"
-                                        >
-                                            Logradouro
-                                        </label>
+                                        <label class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]" :for="`copiloto-logr-${i}`"> Logradouro </label>
                                         <AutoComplete
                                             :id="`copiloto-logr-${i}`"
                                             v-model="obterFormEnderecoCopiloto(i).logradouro"
@@ -2613,98 +2164,68 @@ novaConversa();
                                             placeholder="Mín. 3 letras (vias de Mogi das Cruzes)"
                                             class="w-full"
                                             inputClass="w-full"
+                                            :completeOnFocus="false"
                                             :disabled="carregando"
+                                            @focus="marcarEnderecoEmEdicaoCopiloto(i)"
+                                            @blur="desmarcarEnderecoEmEdicaoCopiloto(i)"
                                             @complete="searchLogradouroCopiloto($event, i)"
                                             @item-select="onLogradouroSelecionadoCopiloto($event, i)"
                                         />
                                     </div>
                                     <div class="sm:col-span-3">
-                                        <label
-                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
-                                            :for="`copiloto-num-${i}`"
-                                        >
-                                            Número
-                                        </label>
+                                        <label class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]" :for="`copiloto-num-${i}`"> Número </label>
                                         <InputText
                                             :id="`copiloto-num-${i}`"
                                             v-model="obterFormEnderecoCopiloto(i).numero"
                                             class="w-full"
                                             :disabled="carregando"
+                                            @focus="marcarEnderecoEmEdicaoCopiloto(i)"
+                                            @blur="desmarcarEnderecoEmEdicaoCopiloto(i)"
                                         />
                                     </div>
                                     <div class="sm:col-span-6">
-                                        <label
-                                            class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]"
-                                            :for="`copiloto-bairro-${i}`"
-                                        >
-                                            Bairro
-                                        </label>
+                                        <label class="mb-1 block text-xs font-medium text-[var(--text-color-secondary)]" :for="`copiloto-bairro-${i}`"> Bairro </label>
                                         <InputText
                                             :id="`copiloto-bairro-${i}`"
                                             v-model="obterFormEnderecoCopiloto(i).bairro"
                                             class="w-full"
                                             :disabled="carregando"
+                                            @focus="marcarEnderecoEmEdicaoCopiloto(i)"
+                                            @blur="desmarcarEnderecoEmEdicaoCopiloto(i)"
                                         />
                                     </div>
                                     <div class="flex items-end sm:col-span-3">
-                                        <Button
-                                            label="Aplicar endereço"
-                                            icon="pi pi-check"
-                                            size="small"
-                                            class="w-full"
-                                            :loading="carregando"
-                                            @click="aplicarEnderecoCopiloto(i)"
-                                        />
+                                        <Button label="Aplicar endereço" icon="pi pi-check" size="small" class="w-full" :loading="carregando" @click="aplicarEnderecoCopiloto(i)" />
                                     </div>
                                 </div>
-                                <div
-                                    v-if="d.endereco_resumo"
-                                    class="rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2 text-sm text-[var(--text-color)]"
-                                >
-                                    <span class="text-xs font-semibold text-[var(--text-color-secondary)]">
-                                        Endereço identificado:
-                                    </span>
+                                <div v-if="d.endereco_resumo" class="rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2 text-sm text-[var(--text-color)]">
+                                    <span class="text-xs font-semibold text-[var(--text-color-secondary)]"> Endereço identificado: </span>
                                     {{ d.endereco_resumo }}
                                 </div>
-                                <Message
-                                    v-if="d.geocode_alerta"
-                                    severity="warn"
-                                    :closable="false"
-                                    class="m-0 text-xs"
-                                >
+                                <Message v-if="d.geocode_alerta" severity="warn" :closable="false" class="m-0 text-xs">
                                     {{ d.geocode_alerta }}
                                 </Message>
-                                <p
-                                    v-else-if="d.coordenadas_observacao && d.latitude != null && d.longitude != null"
-                                    class="m-0 text-xs text-[var(--text-color-secondary)]"
-                                >
+                                <p v-else-if="d.coordenadas_observacao && d.latitude != null && d.longitude != null" class="m-0 text-xs text-[var(--text-color-secondary)]">
                                     {{ d.coordenadas_observacao }}
                                 </p>
-                                <p
-                                    v-if="d.latitude != null && d.longitude != null"
-                                    class="m-0 text-xs text-[var(--text-color-secondary)]"
-                                >
+                                <p v-if="d.latitude != null && d.longitude != null" class="m-0 text-xs text-[var(--text-color-secondary)]">
                                     Coordenadas: {{ Number(d.latitude).toFixed(6) }},
                                     {{ Number(d.longitude).toFixed(6) }}
                                 </p>
                                 <MapaLocalAjustavel
                                     v-if="d.latitude != null && d.longitude != null"
-                                    :key="`copiloto-mapa-${i}-${d.latitude}-${d.longitude}`"
+                                    :key="`copiloto-mapa-${i}`"
                                     :map-id="`copiloto-mapa-${i}`"
                                     :latitude="Number(d.latitude)"
                                     :longitude="Number(d.longitude)"
                                     height="9rem"
                                     :zoom="17"
-                                    :draggable="!carregando"
+                                    :draggable="mapaCopilotoArrastavel(i)"
                                     @ajustado="(coords) => ajustarMapaCopiloto(i, coords)"
                                 />
                                 <Button
                                     v-if="demandaPodeConfirmarLocal(d)"
-                                    :label="
-                                        demandasExtraidas.length > 1
-                                            ? `Confirmar local (solicitação ${i + 1})`
-                                            : 'Confirmar local'
-                                    "
+                                    :label="demandasExtraidas.length > 1 ? `Confirmar local (solicitação ${i + 1})` : 'Confirmar local'"
                                     icon="pi pi-check"
                                     class="self-start"
                                     :disabled="carregando"
@@ -2713,75 +2234,42 @@ novaConversa();
                             </div>
                         </div>
 
-                        <div
-                            v-if="mostrarBlocoAnexosNoChat"
-                            data-copiloto-bloco="anexos"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--primary-color)]/30 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
+                        <div v-if="mostrarBlocoAnexosNoChat" data-copiloto-bloco="anexos" class="mx-auto w-full max-w-3xl rounded-2xl border border-[var(--primary-color)]/30 bg-[var(--surface-card)] p-4 shadow-sm">
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-paperclip mr-1" aria-hidden="true" />
                                 {{ isModoIndicacao ? 'PDF da indicação' : 'Documentos complementares' }}
-                                <span
-                                    v-if="revisaoAtiva?.etapa === 'anexos'"
-                                    class="ml-2 text-xs font-normal text-[var(--primary-color)]"
-                                >
-                                    (revisão — solicitação {{ revisaoAtiva.indiceDemanda + 1 }})
-                                </span>
+                                <span v-if="revisaoAtiva?.etapa === 'anexos'" class="ml-2 text-xs font-normal text-[var(--primary-color)]"> (revisão — solicitação {{ revisaoAtiva.indiceDemanda + 1 }}) </span>
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                <template v-if="isModoIndicacao">
-                                    Anexe o PDF da indicação assinada pelos vereadores. O documento é obrigatório
-                                    para gerar o rascunho.
-                                </template>
+                                <template v-if="isModoIndicacao"> Anexe o PDF da indicação assinada pelos vereadores. O documento é obrigatório para gerar o rascunho. </template>
                                 <template v-else>
                                     Deseja anexar fotos ou PDFs?
-                                    <template v-if="demandasAtivasNoFluxo.length > 1">
-                                        Se forem vários arquivos, indique a qual solicitação cada um pertence.
-                                    </template>
+                                    <template v-if="demandasAtivasNoFluxo.length > 1"> Se forem vários arquivos, indique a qual solicitação cada um pertence. </template>
                                 </template>
                             </p>
                             <div
                                 v-if="demandasExtraidas.some((d, i) => anexosSalvosDemanda(i).length) && (indiceDemandaRevisaoAnexos == null || anexosSalvosDemanda(indiceDemandaRevisaoAnexos).length)"
                                 class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-2"
                             >
-                                <span class="text-xs font-medium text-[var(--text-color-secondary)]">
-                                    Arquivos já enviados
-                                </span>
-                                <template
-                                    v-for="(d, i) in demandasExtraidas"
-                                    :key="`anexos-salvos-${i}`"
-                                >
+                                <span class="text-xs font-medium text-[var(--text-color-secondary)]"> Arquivos já enviados </span>
+                                <template v-for="(d, i) in demandasExtraidas" :key="`anexos-salvos-${i}`">
                                     <template v-if="indiceDemandaRevisaoAnexos == null || i === indiceDemandaRevisaoAnexos">
-                                    <div
-                                        v-for="anexo in anexosSalvosDemanda(i)"
-                                        :key="`salvo-${i}-${anexo.indice_sessao}`"
-                                        class="flex items-center justify-between gap-2 rounded-md border border-[var(--surface-border)] bg-[var(--surface-card)] px-2 py-1.5 text-sm"
-                                    >
-                                        <span class="truncate">
-                                            <span class="text-xs text-[var(--text-color-secondary)]">
-                                                Sol. {{ i + 1 }}:
+                                        <div
+                                            v-for="anexo in anexosSalvosDemanda(i)"
+                                            :key="`salvo-${i}-${anexo.indice_sessao}`"
+                                            class="flex items-center justify-between gap-2 rounded-md border border-[var(--surface-border)] bg-[var(--surface-card)] px-2 py-1.5 text-sm"
+                                        >
+                                            <span class="truncate">
+                                                <span class="text-xs text-[var(--text-color-secondary)]"> Sol. {{ i + 1 }}: </span>
+                                                {{ anexo.nome }}
                                             </span>
-                                            {{ anexo.nome }}
-                                        </span>
-                                        <Button
-                                            icon="pi pi-trash"
-                                            text
-                                            rounded
-                                            size="small"
-                                            severity="danger"
-                                            :disabled="carregando"
-                                            @click="removerAnexoSalvo(anexo.indice_sessao)"
-                                        />
-                                    </div>
+                                            <Button icon="pi pi-trash" text rounded size="small" severity="danger" :disabled="carregando" @click="removerAnexoSalvo(anexo.indice_sessao)" />
+                                        </div>
                                     </template>
                                 </template>
                             </div>
                             <div v-if="anexosPendentes.length" class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-2">
-                                <div
-                                    v-for="(item, idx) in anexosPendentes"
-                                    :key="item.id"
-                                    class="flex flex-col gap-2 rounded-md border border-[var(--surface-border)] bg-[var(--surface-card)] p-2 sm:flex-row sm:items-center"
-                                >
+                                <div v-for="(item, idx) in anexosPendentes" :key="item.id" class="flex flex-col gap-2 rounded-md border border-[var(--surface-border)] bg-[var(--surface-card)] p-2 sm:flex-row sm:items-center">
                                     <div class="flex min-w-0 flex-1 items-center gap-2 text-sm">
                                         <i class="pi pi-file shrink-0 text-[var(--text-color-secondary)]" />
                                         <span class="truncate" :title="item.file.name">{{ item.file.name }}</span>
@@ -2802,28 +2290,12 @@ novaConversa();
                             <div class="flex flex-wrap gap-2">
                                 <Button type="button" label="Anexar arquivos" icon="pi pi-upload" :disabled="carregando" @click="abrirSeletorAnexos" />
                                 <Button v-if="anexosPendentes.length" label="Enviar anexos" icon="pi pi-send" :loading="carregando" :disabled="!podeEnviar" @click="enviar" />
-                                <Button
-                                    v-if="temAnexosSalvosNaSessao"
-                                    label="Confirmar documentos"
-                                    icon="pi pi-check"
-                                    :disabled="carregando"
-                                    @click="confirmarDocumentos"
-                                />
-                                <Button
-                                    v-if="!isModoIndicacao"
-                                    label="Continuar sem anexos"
-                                    severity="secondary"
-                                    text
-                                    :disabled="carregando || etapaAnexosConcluida"
-                                    @click="pularAnexos"
-                                />
+                                <Button v-if="temAnexosSalvosNaSessao" label="Confirmar documentos" icon="pi pi-check" :disabled="carregando" @click="confirmarDocumentos" />
+                                <Button v-if="!isModoIndicacao" label="Continuar sem anexos" severity="secondary" text :disabled="carregando || etapaAnexosConcluida" @click="pularAnexos" />
                             </div>
                         </div>
 
-                        <div
-                            v-if="mostrarMetadadosIndicacao"
-                            class="mx-auto w-full max-w-3xl flex flex-col gap-3"
-                        >
+                        <div v-if="mostrarMetadadosIndicacao" class="mx-auto w-full max-w-3xl flex flex-col gap-3">
                             <CopilotoIndicacaoCampos
                                 v-for="{ d, i } in demandasParaAprovacaoFinal"
                                 :key="`ind-campos-${i}`"
@@ -2836,61 +2308,28 @@ novaConversa();
                             />
                         </div>
 
-                        <div
-                            v-if="mostrarSimNaoValidacao"
-                            class="mx-auto w-full max-w-3xl rounded-2xl border border-primary/35 bg-[var(--surface-card)] p-4 shadow-sm"
-                        >
+                        <div v-if="mostrarSimNaoValidacao" class="mx-auto w-full max-w-3xl rounded-2xl border border-primary/35 bg-[var(--surface-card)] p-4 shadow-sm">
                             <p class="m-0 mb-1 text-sm font-semibold text-[var(--text-color)]">
                                 <i class="pi pi-file-edit mr-1" aria-hidden="true" />
                                 {{ isModoIndicacao ? 'Gerar rascunho da indicação' : 'Gerar ofícios em rascunho' }}
                             </p>
                             <p class="m-0 mb-3 text-xs leading-relaxed text-[var(--text-color-secondary)]">
-                                <template v-if="isModoIndicacao">
-                                    Revise o teor, vereadores, número e PDF. Confirme para registrar a indicação em rascunho.
-                                </template>
-                                <template v-else>
-                                    Revise cada solicitação. Com mais de um pedido, marque quais viram rascunho de ofício.
-                                </template>
+                                <template v-if="isModoIndicacao"> Revise o teor, vereadores, número e PDF. Confirme para registrar a indicação em rascunho. </template>
+                                <template v-else> Revise cada solicitação. Com mais de um pedido, marque quais viram rascunho de ofício. </template>
                             </p>
-                            <div
-                                v-if="demandasParaAprovacaoFinal.length > 1"
-                                class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3"
-                            >
-                                <div
-                                    v-for="{ d, i } in demandasParaAprovacaoFinal"
-                                    :key="`aprov-${i}`"
-                                    class="flex flex-wrap items-center gap-2 text-sm"
-                                >
+                            <div v-if="demandasParaAprovacaoFinal.length > 1" class="mb-3 flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] p-3">
+                                <div v-for="{ d, i } in demandasParaAprovacaoFinal" :key="`aprov-${i}`" class="flex flex-wrap items-center gap-2 text-sm">
                                     <label class="flex cursor-pointer items-center gap-2">
-                                        <input
-                                            v-model="aprovacaoFinal[i]"
-                                            type="checkbox"
-                                            class="rounded"
-                                        />
-                                        <span>
-                                            {{ i + 1 }}. {{ (d.titulo || 'Solicitação').slice(0, 56) }}
-                                        </span>
+                                        <input v-model="aprovacaoFinal[i]" type="checkbox" class="rounded" />
+                                        <span> {{ i + 1 }}. {{ (d.titulo || 'Solicitação').slice(0, 56) }} </span>
                                     </label>
                                     <Tag v-if="d.anexos?.length" :value="`${d.anexos.length} anexo(s)`" severity="info" class="!text-xs" />
                                 </div>
                             </div>
                             <div class="flex flex-wrap gap-2">
-                                <Button
-                                    label="Sim, gerar rascunhos"
-                                    icon="pi pi-check"
-                                    severity="success"
-                                    :disabled="carregando"
-                                    @click="demandasParaAprovacaoFinal.length > 1 ? finalizarComAprovacao() : enviarMensagem('sim')"
-                                />
+                                <Button label="Sim, gerar rascunhos" icon="pi pi-check" severity="success" :disabled="carregando" @click="demandasParaAprovacaoFinal.length > 1 ? finalizarComAprovacao() : enviarMensagem('sim')" />
 
-                                <Button
-                                    label="Não"
-                                    icon="pi pi-times"
-                                    severity="secondary"
-                                    outlined
-                                    :disabled="carregando"
-                                    @click="recusarGeracaoRascunhos"
-                                />
+                                <Button label="Não" icon="pi pi-times" severity="secondary" outlined :disabled="carregando" @click="recusarGeracaoRascunhos" />
                             </div>
                         </div>
 
@@ -2902,71 +2341,25 @@ novaConversa();
                 </div>
 
                 <!-- Compositor fixo no rodapé da coluna -->
-                <div
-                    class="shrink-0 border-t border-[var(--surface-border)] bg-[var(--surface-section)] px-3 py-3 sm:px-5 sm:py-4"
-                >
+                <div class="shrink-0 border-t border-[var(--surface-border)] bg-[var(--surface-section)] px-3 py-3 sm:px-5 sm:py-4">
                     <div class="mx-auto flex max-w-3xl flex-col gap-2">
-                        <input
-                            ref="inputAnexosRef"
-                            type="file"
-                            class="hidden"
-                            multiple
-                            accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.txt"
-                            @change="onSelecionarAnexos"
-                        />
-                        <div
-                            v-if="mostrarAtalhosTopTrends"
-                            class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2"
-                        >
-                            <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]">
-                                Pedidos frequentes
-                            </span>
-                            <p class="m-0 text-xs text-[var(--text-color-secondary)]">
-                                Escolha o tipo de pedido, em seguida selecione o serviço na carta, se necessário.
-                            </p>
+                        <input ref="inputAnexosRef" type="file" class="hidden" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.webp,.txt" @change="onSelecionarAnexos" />
+                        <div v-if="mostrarAtalhosTopTrends" class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2">
+                            <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]"> Pedidos frequentes </span>
+                            <p class="m-0 text-xs text-[var(--text-color-secondary)]">Escolha o tipo de pedido, em seguida selecione o serviço na carta, se necessário.</p>
                             <div class="flex flex-wrap gap-2">
-                                <Button
-                                    v-for="a in atalhosTopTrendsVisiveis"
-                                    :key="a.id || a.rotulo"
-                                    :label="rotuloAtalho(a)"
-                                    size="small"
-                                    outlined
-                                    severity="secondary"
-                                    class="text-left"
-                                    :disabled="carregando"
-                                    @click="usarAtalhoTopTrend(a)"
-                                />
+                                <Button v-for="a in atalhosTopTrendsVisiveis" :key="a.id || a.rotulo" :label="rotuloAtalho(a)" size="small" outlined severity="secondary" class="text-left" :disabled="carregando" @click="usarAtalhoTopTrend(a)" />
                             </div>
-                            <Button
-                                v-if="atalhosTopTrends.length > LIMITE_ATALHOS_VISIVEIS && !atalhosTopTrendsExpandido"
-                                label="Ver mais"
-                                size="small"
-                                text
-                                severity="secondary"
-                                class="self-start"
-                                @click="atalhosTopTrendsExpandido = true"
-                            />
+                            <Button v-if="atalhosTopTrends.length > LIMITE_ATALHOS_VISIVEIS && !atalhosTopTrendsExpandido" label="Ver mais" size="small" text severity="secondary" class="self-start" @click="atalhosTopTrendsExpandido = true" />
                         </div>
-                        <div
-                            v-if="mostrarDetalheAtalho"
-                            class="flex flex-col gap-2 rounded-lg border border-[var(--primary-color)]/35 bg-[var(--surface-ground)] px-3 py-2"
-                        >
+                        <div v-if="mostrarDetalheAtalho" class="flex flex-col gap-2 rounded-lg border border-[var(--primary-color)]/35 bg-[var(--surface-ground)] px-3 py-2">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color)]">
                                     {{ atalhoEmDetalhamento?.rotulo || 'Detalhe do pedido' }}
                                 </span>
-                                <Button
-                                    label="Voltar"
-                                    icon="pi pi-arrow-left"
-                                    size="small"
-                                    text
-                                    severity="secondary"
-                                    @click="cancelarDetalheAtalho"
-                                />
+                                <Button label="Voltar" icon="pi pi-arrow-left" size="small" text severity="secondary" @click="cancelarDetalheAtalho" />
                             </div>
-                            <p class="m-0 text-xs text-[var(--text-color-secondary)]">
-                                Escolha o serviço na carta. O mais comum aparece primeiro.
-                            </p>
+                            <p class="m-0 text-xs text-[var(--text-color-secondary)]">Escolha o serviço na carta. O mais comum aparece primeiro.</p>
                             <div v-if="carregandoDetalheAtalho" class="flex items-center gap-2 py-1 text-sm">
                                 <ProgressSpinner class="!h-5 !w-5" strokeWidth="6" />
                                 <span>Carregando serviços…</span>
@@ -2985,37 +2378,15 @@ novaConversa();
                                 />
                             </div>
                         </div>
-                        <Textarea
-                            v-model="inputTexto"
-                            class="copiloto-textarea w-full"
-                            rows="3"
-                            auto-resize
-                            :placeholder="placeholderCompositor"
-                            :disabled="carregando"
-                            @keydown="onTeclaInput"
-                        />
-                        <div
-                            v-if="anexosPendentes.length && !mostrarBlocoAnexosNoChat"
-                            class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2"
-                        >
-                            <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]">
-                                Anexos para enviar
-                            </span>
-                            <p
-                                v-if="mostrarVinculoAnexoDemanda"
-                                class="m-0 text-xs text-[var(--text-color-secondary)]"
-                            >
-                                Há mais de uma solicitação no rascunho — indique a qual cada arquivo pertence.
-                            </p>
-                            <div
-                                v-for="(item, idx) in anexosPendentes"
-                                :key="item.id"
-                                class="flex flex-col gap-2 rounded-md border border-[var(--surface-border)] bg-[var(--surface-card)] p-2 sm:flex-row sm:items-center"
-                            >
+                        <Textarea v-model="inputTexto" class="copiloto-textarea w-full" rows="3" auto-resize :placeholder="placeholderCompositor" :disabled="carregando" @keydown="onTeclaInput" />
+                        <div v-if="anexosPendentes.length && !mostrarBlocoAnexosNoChat" class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2">
+                            <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]"> Anexos para enviar </span>
+                            <p v-if="mostrarVinculoAnexoDemanda" class="m-0 text-xs text-[var(--text-color-secondary)]">Há mais de uma solicitação no rascunho — indique a qual cada arquivo pertence.</p>
+                            <div v-for="(item, idx) in anexosPendentes" :key="item.id" class="flex flex-col gap-2 rounded-md border border-[var(--surface-border)] bg-[var(--surface-card)] p-2 sm:flex-row sm:items-center">
                                 <div class="flex min-w-0 flex-1 items-center gap-2 text-sm">
                                     <i class="pi pi-paperclip shrink-0 text-[var(--text-color-secondary)]" aria-hidden="true" />
                                     <span class="truncate" :title="item.file.name">{{ item.file.name }}</span>
-                            </div>
+                                </div>
                                 <Select
                                     v-if="mostrarVinculoAnexoDemanda"
                                     v-model="item.indiceDemanda"
@@ -3027,27 +2398,12 @@ novaConversa();
                                     :disabled="carregando"
                                     :invalid="item.indiceDemanda === null"
                                 />
-                                <Button
-                                    icon="pi pi-times"
-                                    severity="secondary"
-                                    text
-                                    rounded
-                                    size="small"
-                                    class="shrink-0 self-end sm:self-center"
-                                    :disabled="carregando"
-                                    aria-label="Remover anexo"
-                                    @click="removerAnexoPendente(idx)"
-                                />
+                                <Button icon="pi pi-times" severity="secondary" text rounded size="small" class="shrink-0 self-end sm:self-center" :disabled="carregando" aria-label="Remover anexo" @click="removerAnexoPendente(idx)" />
                             </div>
                         </div>
                         <!-- Respostas rápidas no rodapé (opções numeradas / sim-não genérico) -->
-                        <div
-                            v-if="mostrarOpcoesSinapse || mostrarSimNaoBinario"
-                            class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2"
-                        >
-                            <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]">
-                                Resposta rápida
-                            </span>
+                        <div v-if="mostrarOpcoesSinapse || mostrarSimNaoBinario" class="flex flex-col gap-2 rounded-lg border border-[var(--surface-border)] bg-[var(--surface-ground)] px-3 py-2">
+                            <span class="text-xs font-medium uppercase tracking-wide text-[var(--text-color-secondary)]"> Resposta rápida </span>
                             <div v-if="mostrarOpcoesSinapse" class="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                                 <Button
                                     v-for="op in opcoesNumeradasDetectadas"
@@ -3067,34 +2423,15 @@ novaConversa();
                         </div>
 
                         <div class="copiloto-composer-actions flex gap-2">
-                            <Button
-                                v-if="mostrarAnexarNoCompositor"
-                                type="button"
-                                label="Anexar"
-                                icon="pi pi-paperclip"
-                                severity="secondary"
-                                outlined
-                                class="flex-1 sm:flex-none"
-                                :disabled="carregando"
-                                @click="abrirSeletorAnexos"
-                            />
-                            <Button
-                                label="Enviar"
-                                icon="pi pi-send"
-                                class="flex-[1.4] sm:ml-auto sm:flex-none sm:min-w-[8.5rem]"
-                                :loading="carregando"
-                                :disabled="!podeEnviar"
-                                @click="enviar"
-                            />
+                            <Button v-if="mostrarAnexarNoCompositor" type="button" label="Anexar" icon="pi pi-paperclip" severity="secondary" outlined class="flex-1 sm:flex-none" :disabled="carregando" @click="abrirSeletorAnexos" />
+                            <Button label="Enviar" icon="pi pi-send" class="flex-[1.4] sm:ml-auto sm:flex-none sm:min-w-[8.5rem]" :loading="carregando" :disabled="!podeEnviar" @click="enviar" />
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Painel desktop -->
-            <aside
-                class="hidden w-[min(100%,22rem)] shrink-0 flex-col overflow-y-auto border-l border-[var(--surface-border)] bg-[var(--surface-section)] lg:flex"
-            >
+            <aside class="hidden w-[min(100%,22rem)] shrink-0 flex-col overflow-y-auto border-l border-[var(--surface-border)] bg-[var(--surface-section)] lg:flex">
                 <div class="shrink-0 border-b border-[var(--surface-border)] px-4 py-3">
                     <span class="font-semibold text-[var(--text-color)]">Contexto</span>
                     <p class="m-0 mt-1 text-xs text-[var(--text-color-secondary)]">Resumo do que já foi coletado</p>
@@ -3114,11 +2451,7 @@ novaConversa();
         </div>
 
         <!-- Mobile: backdrop + gaveta -->
-        <div
-            v-if="painelContextoAberto"
-            class="fixed inset-0 z-[100] bg-black/40 lg:hidden"
-            @click="painelContextoAberto = false"
-        />
+        <div v-if="painelContextoAberto" class="fixed inset-0 z-[100] bg-black/40 lg:hidden" @click="painelContextoAberto = false" />
         <div
             v-if="painelContextoAberto"
             class="copiloto-drawer-mobile fixed bottom-0 right-0 top-0 z-[110] flex w-full max-w-sm flex-col overflow-hidden border-l border-[var(--surface-border)] bg-[var(--surface-card)] shadow-2xl lg:hidden"
