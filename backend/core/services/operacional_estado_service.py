@@ -1310,6 +1310,29 @@ class OperacionalEstadoService:
         meta["pernas"] = enriquecidas
         return meta
 
+    @staticmethod
+    def _dedupe_scatter_timeline(timeline: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """H-JUL-12: evita cards scatter idênticos (ex.: encerramento em lote)."""
+        from core.services.scatter_gather_visibilidade import ACOES_SCATTER_USUARIO
+
+        vistos: set[tuple] = set()
+        deduped: list[dict[str, Any]] = []
+        for item in timeline:
+            meta = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+            acao = str(meta.get("acao_no") or item.get("tipo") or "").upper()
+            if meta.get("scatter_gather") and acao in ACOES_SCATTER_USUARIO:
+                chave = (
+                    acao,
+                    (item.get("descricao") or "").strip(),
+                    item.get("responsavel"),
+                    (item.get("timestamp") or "")[:16],
+                )
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+            deduped.append(item)
+        return deduped
+
     def _demanda_ids_timeline(self, demanda: Demanda) -> list[int]:
         """Demandas cujas tramitações compõem a timeline (inclui cluster Super OS)."""
         lider = self.demanda_processo_lider(demanda)
@@ -1355,6 +1378,7 @@ class OperacionalEstadoService:
 
         eh_vereador = perfil_usuario(usuario) == "VEREADOR"
         conclusao_final_incluida = False
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
 
         for tram in trams_list:
             if (
@@ -1374,6 +1398,11 @@ class OperacionalEstadoService:
                 continue
             if not tramitacao_operacional_visivel(tram):
                 continue
+            if usuario is not None and not eh_vereador:
+                if not TramitacaoJanelaEdicaoService.usuario_pode_ver_tramitacao_timeline(
+                    usuario, tram
+                ):
+                    continue
             meta = dict(tram.metadata if isinstance(tram.metadata, dict) else {})
             if meta.get("espelhada_do_lider"):
                 continue
@@ -1462,23 +1491,19 @@ class OperacionalEstadoService:
                 ),
             }
             if usuario is not None and not eh_vereador:
-                from core.services.tramitacao_janela_edicao_service import (
-                    TramitacaoJanelaEdicaoService,
-                )
-
                 item_timeline["pode_editar"] = TramitacaoJanelaEdicaoService.usuario_pode_corrigir(
                     usuario, tram
                 )
                 item_timeline["segundos_restantes_edicao"] = (
                     TramitacaoJanelaEdicaoService.segundos_restantes(tram)
                 )
-                item_timeline["aguardando_validacao_gestor"] = bool(
-                    meta.get("aguardando_validacao_gestor")
+                item_timeline["aguardando_validacao_gestor"] = (
+                    TramitacaoJanelaEdicaoService.tramitacao_aguardando_gestor(tram)
                 )
                 if tram.editavel_ate:
                     item_timeline["editavel_ate"] = tram.editavel_ate.isoformat()
             timeline.append(item_timeline)
-        return timeline
+        return self._dedupe_scatter_timeline(timeline)
 
     def acoes_disponiveis(self, demanda: Demanda, usuario) -> list[str]:
         acoes: list[str] = []

@@ -428,6 +428,7 @@ class DemandaOperacionalConclusaoFinalAPIView(APIView):
 
         anexos_ids = _parse_ids(request.data.get("anexos_tramitacao_ids"))
         alerta_destinos = _parse_destinos(request.data.get("alerta_destinos"))
+        assinatura_apenas_gestor = bool(request.data.get("assinatura_apenas_gestor"))
 
         try:
             with transaction.atomic():
@@ -455,10 +456,52 @@ class DemandaOperacionalConclusaoFinalAPIView(APIView):
                     or request.data.get("declaracao_operador"),
                     gestor_usuario_id=request.data.get("gestor_protocolo_id"),
                     declaracao_gestor=request.data.get("declaracao_gestor"),
-                    assinatura_apenas_gestor=bool(request.data.get("assinatura_apenas_gestor")),
+                    assinatura_apenas_gestor=assinatura_apenas_gestor,
+                    validacao_id=request.data.get("validacao_id"),
                     contexto_operacao=contexto,
                     request=request,
                 )
+                if assinatura_apenas_gestor and not request.data.get("validacao_id"):
+                    from core.models import Tramitacao
+                    from core.services.devolutiva_protocolo_service import (
+                        DevolutivaProtocoloService,
+                    )
+                    from core.services.tramitacao_janela_edicao_service import (
+                        TramitacaoJanelaEdicaoService,
+                    )
+
+                    demanda = operacional.aplicar_conclusao_final(
+                        demanda,
+                        request.user,
+                        parecer=parecer,
+                        historico_compilado=historico,
+                    )
+                    tram = (
+                        demanda.tramitacoes.filter(tipo="CONCLUSAO_FINAL")
+                        .order_by("-timestamp")
+                        .first()
+                    )
+                    if tram is not None:
+                        arquivos_staging = None
+                        if staging_id:
+                            staging = Tramitacao.objects.filter(pk=int(staging_id)).first()
+                            if staging:
+                                arquivos_staging = list(staging.anexos.all())
+                        DevolutivaProtocoloService().complementar_tramitacao_devolutiva(
+                            tram,
+                            demanda,
+                            request.user,
+                            arquivos_anexos=arquivos or arquivos_staging,
+                            anexos_tramitacao_ids=anexos_ids or None,
+                            alerta_destinos=alerta_destinos or None,
+                        )
+                        DevolutivaProtocoloService().remover_devolutiva_redundante(demanda)
+                        if staging_id:
+                            Tramitacao.objects.filter(pk=int(staging_id)).delete()
+                        TramitacaoJanelaEdicaoService.abrir_janela(tram)
+                        if assinaturas:
+                            assinaturas[0].tramitacao = tram
+                            assinaturas[0].save(update_fields=["tramitacao"])
         except (OperacionalEstadoError, OperacionalPermissaoError, ValueError) as exc:
             return _resposta_erro(exc)
 
@@ -472,13 +515,11 @@ class DemandaOperacionalConclusaoFinalAPIView(APIView):
                     {"codigo_validacao": a.codigo_validacao, "papel": a.papel}
                     for a in assinaturas
                 ],
-                "aguardando_validacao_gestor": not bool(
-                    request.data.get("assinatura_apenas_gestor")
-                ),
+                "aguardando_validacao_gestor": not assinatura_apenas_gestor,
                 "mensagem": (
                     "Assinatura registrada. A conclusão final só será enviada ao vereador "
                     "após validação do gestor do protocolo em Assinaturas pendentes."
-                    if not request.data.get("assinatura_apenas_gestor")
+                    if not assinatura_apenas_gestor
                     else None
                 ),
             },

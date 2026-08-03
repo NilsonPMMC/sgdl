@@ -62,9 +62,9 @@
 |----|----------|------------|---------------|
 | **H-JUL-08** | Timeline despacho · **PROTOCOLO** · texto publicado com placeholders literais `{{demanda_titulo}}`, `{{orgao_destino}}`, `{{protocolo_executivo}}` · deveria substituir na publicação · **incômodo** | incômodo | `texto_padrao_despacho_service.resolver_descricao_tramitacao`, `demanda_despacho_service`, `TramitacaoViewSet` — **corrigido 2026-08-03** |
 | **H-JUL-09** | DescricaoTramitacaoEditor · **PROTOCOLO/SECRETARIA** · clicar placeholder insere token no model mas **corpo do Editor Quill permanece vazio/escuro** · **incômodo** | incômodo | `DescricaoTramitacaoEditor.vue` — ref local `editorHtml` + remount Quill após `nextTick` — **corrigido 2026-08-03** |
-| **H-JUL-10** | Timeline · **outros perfis** · tramitações **aguardando validação gestor** visíveis na timeline completa após janela 60s do autor · deveriam ficar ocultas ou com badge «pendente aprovação gestor» para não-autores · **incômodo** | incômodo | `operacional_estado_service.montar_timeline_operacional`, flag `aguardando_validacao_gestor` |
-| **H-JUL-11** | Conclusão final · **GESTOR DO PROTOCOLO** · POST `/demandas/4134/operacional/conclusao-final/` → **400** «Declaração do operador inválida. Use: ASSINO A CONCLUSAO FINAL» · gestor fechando nó não deveria exigir declaração de operador · **incômodo** | incômodo | `views.py` conclusão final, `assinatura_eletronica_service` |
-| **H-JUL-12** | Timeline · **GESTOR SECRETARIA** · operação scatter-gather duplicada (2 cards idênticos «Operação scatter-gather») · placeholders não resolvidos · R4.7 persiste · **incômodo** | incômodo | scatter + timeline + placeholders |
+| **H-JUL-10** | Timeline · **outros perfis** · tramitações **aguardando validação gestor** visíveis na timeline completa após janela 60s do autor · deveriam ficar ocultas ou com badge «pendente aprovação gestor» para não-autores · **incômodo** | incômodo | `tramitacao_janela_edicao_service.usuario_pode_ver_tramitacao_timeline`, `operacional_estado_service.montar_timeline_operacional` — **corrigido 2026-08-03** |
+| **H-JUL-11** | Conclusão final · **GESTOR DO PROTOCOLO** · POST `/demandas/4134/operacional/conclusao-final/` → **400** «Declaração do operador inválida…» · gestor fechando nó não deveria exigir declaração de operador · **incômodo** | incômodo | `registrar_assinaturas_conclusao_final` (ramo `gestor_apenas`), `views_operacional` — **corrigido 2026-08-03** |
+| **H-JUL-12** | Timeline · **GESTOR SECRETARIA** · operação scatter-gather duplicada (2 cards idênticos «Operação scatter-gather») · placeholders não resolvidos · R4.7 persiste · **incômodo** | incômodo | `scatter_gather_service._registrar_evento` + `resolver_descricao_tramitacao`; dedupe `_dedupe_scatter_timeline` / `operacionalEstado.js` — **corrigido 2026-08-03** |
 | **H-JUL-13** | CopilotoView / revisão rascunho · **VEREADOR** · mover pin **intermitente** — nem sempre atualiza CEP/logradouro (R1.3) · **incômodo** | incômodo | `CopilotoView.ajustarMapaCopiloto`, race reverse geocode |
 | **H-JUL-14** | Revisão rascunho · **VEREADOR** · busca logradouro (≥3 caracteres) **não aceita espaço** como caractere · impede buscas tipo «Rua Barão» · **incômodo** | incômodo | input/máscara logradouro em `CopilotoView.vue` ou `DemandaForm` |
 
@@ -96,8 +96,8 @@ Marque após deploy da correção P0/P1.
 - [x] Operador Protocolo — devolutiva/conclusão: modal **sem** checkbox gestor; só «ASSINO A DEVOLUTIVA» *(corrigido 2026-08-03 — retestar em homologação)*
 - [x] Após assinatura operador → Gestor Protocolo valida em Assinaturas pendentes com **login gestor** *(corrigido 2026-08-03 — retestar em homologação)*
 - [x] Gestor setorial secretaria: link da notificação abre demanda (**sem 404**) *(corrigido 2026-08-03 — retestar em homologação)*
-- [ ] Tramitação pendente gestor: **autor** vê na timeline na janela 60s; **outros** veem oculto ou «pendente aprovação»
-- [ ] Gestor Protocolo conclui nó direto → **sem** exigir declaração de operador
+- [ ] Tramitação pendente gestor: **autor** vê na timeline na janela 60s; **outros** veem oculto ou «pendente aprovação» *(corrigido 2026-08-03 — retestar em homologação)*
+- [ ] Gestor Protocolo conclui nó direto → **sem** exigir declaração de operador *(corrigido 2026-08-03 — retestar em homologação)*
 
 ### RT-SOS — Super OS (H-JUL-05, H-JUL-06, H-JUL-15–17)
 
@@ -135,8 +135,8 @@ Marque após deploy da correção P0/P1.
 | 5 | H-JUL-05, H-JUL-06 | Super OS: fila só líder + eliminar despacho duplicado seguidora | 1 d | **Concluído 2026-08-03** |
 | 6 | H-JUL-07 | Indicações: listagem/dashboard/mapa vereador vinculado | 0,5 d | **Concluído 2026-08-03** |
 | 7 | H-JUL-08, H-JUL-09 | Substituir placeholders na publicação + fix sync Editor | 0,5 d | **Concluído 2026-08-03** |
-| 8 | H-JUL-10, H-JUL-12 | Timeline pendente gestor + dedupe scatter/conclusão | 0,5 d |
-| 9 | H-JUL-11 | Conclusão final gestor protocolo sem declaração operador | 0,25 d |
+| 8 | H-JUL-10, H-JUL-12 | Timeline pendente gestor + dedupe scatter/conclusão | 0,5 d | **Concluído 2026-08-03** |
+| 9 | H-JUL-11 | Conclusão final gestor protocolo sem declaração operador | 0,25 d | **Concluído 2026-08-03** |
 | 10 | H-JUL-13–18 | Geo, cluster UI, status Super OS, notificações | 1 d |
 
 **Meta reteste:** fim do 1º dia útil após deploy P0 (itens 1–4).

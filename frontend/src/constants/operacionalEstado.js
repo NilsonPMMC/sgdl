@@ -162,6 +162,32 @@ function dedupeConclusaoFinalOperacional(items) {
     });
 }
 
+/** H-JUL-12: um card por operação scatter idêntica (ex.: encerramento em lote). */
+function dedupeScatterOperacional(items) {
+    const vistos = new Set();
+    return items.filter((item) => {
+        const meta = item?.metadata || {};
+        const acao = String(meta.acao_no || item?.tipo || '').toUpperCase();
+        const scatter = Boolean(meta.scatter_gather);
+        const acoesScatter = new Set([
+            'DESPACHAR',
+            'DESPACHAR_ENCERRAR',
+            'ENCERRAR',
+            'CONSOLIDAR'
+        ]);
+        if (!scatter || !acoesScatter.has(acao)) return true;
+        const chave = [
+            acao,
+            (item?.descricao || '').trim(),
+            item?.responsavel || '',
+            (item?.timestamp || '').slice(0, 16)
+        ].join('\0');
+        if (vistos.has(chave)) return false;
+        vistos.add(chave);
+        return true;
+    });
+}
+
 function dedupeDevolutivaConclusaoFinal(timeline) {
     if (!Array.isArray(timeline)) return [];
     const demandasComConclusaoFinal = new Set(
@@ -201,6 +227,7 @@ export function filtrarTimelineOperacional(timeline, opts = {}) {
     });
     items = dedupeConclusaoFinalOperacional(items);
     items = dedupeDevolutivaConclusaoFinal(items);
+    items = dedupeScatterOperacional(items);
     return items;
 }
 

@@ -445,6 +445,25 @@ class NoOperacionalService:
         metadata: dict[str, Any],
         no: NoOperacional | None = None,
     ) -> Tramitacao:
+        from core.services.texto_padrao_despacho_service import resolver_descricao_tramitacao
+
+        meta = dict(metadata or {})
+        orgao_destino = meta.get("destino_orgao_nome") or meta.get("orgao_nome") or ""
+        setor_destino = ""
+        if no is not None and no.unidade_administrativa:
+            setor_destino = no.unidade_administrativa.sigla or no.unidade_administrativa.nome
+        elif meta.get("setor_id"):
+            from core.models_unidade_administrativa import UnidadeAdministrativa
+
+            ua = UnidadeAdministrativa.objects.filter(pk=int(meta["setor_id"])).first()
+            if ua:
+                setor_destino = ua.sigla or ua.nome
+        descricao = resolver_descricao_tramitacao(
+            demanda,
+            descricao,
+            orgao_destino=str(orgao_destino),
+            setor_destino=str(setor_destino),
+        )
         unidade_destino = None
         if no is not None and no.unidade_administrativa_id:
             unidade_destino = no.unidade_administrativa
@@ -453,7 +472,7 @@ class NoOperacionalService:
             responsavel=usuario,
             tipo="OPERACAO_NO",
             descricao=descricao,
-            metadata=metadata,
+            metadata=meta,
             unidade_origem=self._unidade_origem_operador(usuario),
             unidade_destino=unidade_destino,
         )

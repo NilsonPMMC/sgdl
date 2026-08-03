@@ -205,6 +205,57 @@ class OperacionalEstadoAPITests(SinapseCatalogTestMixin, APITestCase):
             Tramitacao.objects.filter(demanda=self.demanda, tipo="DEVOLUTIVA_PROTOCOLO").exists()
         )
 
+    def test_conclusao_final_gestor_protocolo_sem_declaracao_operador_hjul11(self):
+        """Gestor SGAC conclui direto com declaracao_gestor — sem exigir operador."""
+        self.demanda.status = "AGUARDANDO_DEVOLUTIVA_PROTOCOLO"
+        self.demanda.fluxo_roteamento = FluxoRoteamento.FLUXO_DIRETO
+        self.demanda.sinapse_orgao_id = SINAPSE_ORGAO_A
+        self.demanda.sinapse_orgao_lider_id = SINAPSE_ORGAO_A
+        self.demanda.protocolo_executivo = "2026-0201"
+        self.demanda.save()
+        Tramitacao.objects.create(
+            demanda=self.demanda,
+            responsavel=self.sec_a,
+            tipo="CONCLUSAO_TECNICA",
+            descricao=f"Parecer:\n{PARECER}",
+            metadata={"parecer": PARECER},
+        )
+
+        self.client.force_authenticate(user=self.gestor_proto)
+        preview = self.client.post(
+            self._url("demanda-operacional-preview-conclusao-final"),
+            {"parecer_resposta": RESPOSTA_PROTOCOLO},
+            format="json",
+        )
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertEqual(preview.data.get("modo_assinatura"), "gestor_apenas")
+
+        resp = self.client.post(
+            self._url("demanda-operacional-conclusao-final"),
+            {
+                "parecer_resposta": RESPOSTA_PROTOCOLO,
+                "hash_documento": preview.data["hash_documento"],
+                "declaracao_gestor": DECLARACAO_GESTOR_PROTOCOLO,
+                "assinatura_apenas_gestor": True,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertFalse(resp.data.get("aguardando_validacao_gestor"))
+        self.demanda.refresh_from_db()
+        self.assertEqual(self.demanda.status, "FINALIZADO")
+        tram = Tramitacao.objects.filter(
+            demanda=self.demanda, tipo="CONCLUSAO_FINAL"
+        ).first()
+        self.assertIsNotNone(tram)
+        self.assertFalse((tram.metadata or {}).get("aguardando_validacao_gestor"))
+        self.assertFalse(
+            AssinaturaValidacaoGestor.objects.filter(
+                demanda=self.demanda,
+                status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
+            ).exists()
+        )
+
     def test_devolver_protocolo_secretaria(self):
         self.demanda.status = "PROTOCOLADO"
         self.demanda.fluxo_roteamento = FluxoRoteamento.FLUXO_DIRETO

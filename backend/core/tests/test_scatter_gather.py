@@ -725,3 +725,44 @@ class ScatterGatherServiceTests(SinapseCatalogTestMixin, TestCase):
                 gestor_c,
                 observacao="Tentativa fora do escopo.",
             )
+
+    def test_scatter_resolve_placeholders_hjul12(self):
+        texto = "Referente a {{demanda_titulo}} — protocolo {{protocolo_executivo}}."
+        self.demanda.protocolo_executivo = "2026-0500"
+        self.demanda.save(update_fields=["protocolo_executivo"])
+        self.sg.aplicar_despachar(
+            self.demanda,
+            self.no_a.pk,
+            self.sec_a,
+            destino_orgao_id=SINAPSE_ORGAO_C,
+            observacao=texto,
+        )
+        tram = Tramitacao.objects.filter(
+            demanda=self.demanda,
+            tipo="OPERACAO_NO",
+            metadata__acao_no=AcaoNoOperacional.DESPACHAR,
+        ).latest("pk")
+        self.assertNotIn("{{", tram.descricao)
+        self.assertIn("Scatter gather teste", tram.descricao)
+        self.assertIn("2026-0500", tram.descricao)
+
+    def test_timeline_dedupe_encerrar_lote_hjul12(self):
+        abertos_b = list(
+            NoOperacional.objects.filter(
+                demanda=self.demanda,
+                status=StatusNoOperacional.ABERTO,
+                sinapse_orgao_id=SINAPSE_ORGAO_B,
+            )
+        )
+        self.assertGreaterEqual(len(abertos_b), 2)
+        texto = "Encerramento unificado com texto idêntico para dedupe."
+        self.sg.encerrar_nos_lote(
+            self.demanda,
+            self.sec_b,
+            no_ids=[n.pk for n in abertos_b],
+            observacao=texto,
+        )
+        tl = self.op.montar_timeline_operacional(self.demanda, usuario=self.sec_b)
+        encerrar = [t for t in tl if t["tipo"] == AcaoNoOperacional.ENCERRAR]
+        self.assertEqual(len(encerrar), 1)
+        self.assertEqual(encerrar[0]["descricao"], texto)

@@ -55,7 +55,44 @@ class TramitacaoJanelaEdicaoService:
 
     @classmethod
     def tramitacao_aguardando_gestor(cls, tramitacao: Tramitacao) -> bool:
-        return bool(cls._meta(tramitacao).get("aguardando_validacao_gestor"))
+        if cls._meta(tramitacao).get("aguardando_validacao_gestor"):
+            return True
+        from core.models_assinatura_eletronica import AssinaturaValidacaoGestor
+
+        return AssinaturaValidacaoGestor.objects.filter(
+            tramitacao=tramitacao,
+            status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
+        ).exists()
+
+    @classmethod
+    def _validacao_pendente_tramitacao(cls, tramitacao: Tramitacao):
+        from core.models_assinatura_eletronica import AssinaturaValidacaoGestor
+
+        return (
+            AssinaturaValidacaoGestor.objects.filter(
+                tramitacao=tramitacao,
+                status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
+            )
+            .order_by("-criado_em")
+            .first()
+        )
+
+    @classmethod
+    def usuario_pode_ver_tramitacao_timeline(cls, usuario, tramitacao: Tramitacao) -> bool:
+        """H-JUL-10: oculta tramitação pendente de gestor para perfis sem papel na validação."""
+        if not cls.tramitacao_aguardando_gestor(tramitacao):
+            return True
+        if cls.usuario_pode_corrigir_pendente_gestor(usuario, tramitacao):
+            return True
+        validacao = cls._validacao_pendente_tramitacao(tramitacao)
+        if validacao is not None:
+            from core.services.assinatura_eletronica_service import AssinaturaEletronicaService
+
+            if AssinaturaEletronicaService().usuario_pode_validar_assinatura_gestor(
+                usuario, validacao
+            ):
+                return True
+        return cls._usuario_admin_suporte(usuario)
 
     @classmethod
     def deve_abrir_janela(cls, tramitacao: Tramitacao) -> bool:

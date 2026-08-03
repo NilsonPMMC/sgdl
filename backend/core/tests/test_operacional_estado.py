@@ -561,3 +561,58 @@ class OperacionalEstadoServiceTests(SinapseCatalogTestMixin, TestCase):
             sum(1 for t in tl_seg if t["tipo"] == "ENVIO_OFICIAL"),
             1,
         )
+
+    def test_timeline_oculta_pendente_gestor_para_terceiros_hjul10(self):
+        from core.models_assinatura_eletronica import (
+            AssinaturaEletronica,
+            AssinaturaValidacaoGestor,
+        )
+        from core.models_unidade_administrativa import UnidadeAdministrativaResponsavel
+        from core.services.usuario_vinculo_service import PROTOCOLO_UNIDADE_PK
+
+        gestor = Usuario.objects.create_user(
+            username="gest_hjul10", password="x", perfil="GESTOR"
+        )
+        UnidadeAdministrativaResponsavel.objects.create(
+            unidade_id=PROTOCOLO_UNIDADE_PK, usuario=gestor, ativo=True
+        )
+        demanda = Demanda.objects.create(
+            titulo="Pendente gestor timeline",
+            descricao="x",
+            autor=self.vereador,
+            status="AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            protocolo_executivo="2026-0400",
+        )
+        tram = Tramitacao.objects.create(
+            demanda=demanda,
+            responsavel=self.protocolo,
+            tipo="CONCLUSAO_FINAL",
+            descricao="Parecer confidencial aguardando gestor",
+            metadata={
+                "aguardando_validacao_gestor": True,
+                "etapa": AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
+            },
+        )
+        AssinaturaValidacaoGestor.objects.create(
+            demanda=demanda,
+            tramitacao=tram,
+            etapa=AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
+            tipo_gestor=AssinaturaValidacaoGestor.TIPO_GESTOR_PROTOCOLO,
+            hash_documento="hash-teste",
+            payload={"parecer_resposta": "Parecer confidencial aguardando gestor"},
+            operador=self.protocolo,
+            status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
+        )
+
+        tl_autor = self.svc.montar_timeline_operacional(demanda, usuario=self.protocolo)
+        tl_terceiro = self.svc.montar_timeline_operacional(demanda, usuario=self.sec_b)
+        tl_gestor = self.svc.montar_timeline_operacional(demanda, usuario=gestor)
+
+        ids_autor = {t["id"] for t in tl_autor}
+        ids_terceiro = {t["id"] for t in tl_terceiro}
+        ids_gestor = {t["id"] for t in tl_gestor}
+
+        self.assertIn(tram.pk, ids_autor)
+        self.assertNotIn(tram.pk, ids_terceiro)
+        self.assertIn(tram.pk, ids_gestor)

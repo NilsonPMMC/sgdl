@@ -328,6 +328,18 @@ class AssinaturaEletronicaService:
             sinapse_orgao_id=sinapse_orgao_id,
             status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
         )
+        if tramitacao is not None:
+            meta = (
+                tramitacao.metadata
+                if isinstance(tramitacao.metadata, dict)
+                else {}
+            )
+            if not meta.get("aguardando_validacao_gestor"):
+                meta = dict(meta)
+                meta["aguardando_validacao_gestor"] = True
+                meta.setdefault("etapa", etapa)
+                tramitacao.metadata = meta
+                tramitacao.save(update_fields=["metadata"])
         from core.services.notificacao_service import NotificacaoService
 
         NotificacaoService().notificar_assinatura_pendente_gestor(validacao)
@@ -1540,6 +1552,27 @@ class AssinaturaEletronicaService:
         if contexto_operacao:
             payload.update(contexto_operacao)
         payload["acao_executiva"] = ACAO_CONCLUSAO_FINAL
+
+        if assinatura_apenas_gestor:
+            if (declaracao_gestor or "").strip().upper() != DECLARACAO_GESTOR_PROTOCOLO:
+                raise ValueError(
+                    f'Declaração do gestor inválida. Use: "{DECLARACAO_GESTOR_PROTOCOLO}".'
+                )
+            if not self._usuario_eh_gestor_protocolo_sgac(operador):
+                raise ValueError("Apenas o gestor setorial do SGAC pode assinar nesta etapa.")
+            assinatura = self._criar_assinatura(
+                demanda,
+                operador,
+                etapa=AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
+                papel=AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
+                hash_documento=hash_doc,
+                declaracao=declaracao_gestor,
+                request=request,
+            )
+            self._remover_pending_acao(
+                int(demanda.pk), AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL
+            )
+            return [assinatura]
 
         if (declaracao_operador or "").strip().upper() != DECLARACAO_CONCLUSAO_FINAL:
             raise ValueError(
