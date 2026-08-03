@@ -2,7 +2,7 @@
 
 > **Data dos testes:** 31/jul/2026 (tarde)  
 > **Ambiente:** https://sgdl.mogidascruzes.sp.gov.br  
-> **Deploy validado:** pacote commit `e9638c1` (correções reunião 31/jul)  
+> **Deploy validado:** pacote commit `18208f0` (H-JUL-01…18) · pendente deploy H-JUL-19/20  
 > **Formato H2:** `tela · perfil · esperado · obtido · severidade`  
 > **Índice:** [apontamentos-reuniao-jul2026.md](apontamentos-reuniao-jul2026.md) · [homologacao-e2e-registro.md](homologacao-e2e-registro.md)
 
@@ -12,8 +12,8 @@
 
 | Gate | Resultado | Motivo |
 |------|-----------|--------|
-| **Piloto contínuo** | **NO-GO** | 2 bloqueantes de segurança/RBAC + regressões em assinaturas e Super OS |
-| **Reteste mínimo** | Pendente | Após correção P0 — ver § Plano próximo dia útil |
+| **Piloto contínuo** | **NO-GO** | Reteste homologação pendente (pacote H-JUL-01…20 em dev) |
+| **Reteste mínimo** | **Em andamento** | Ver § Foco reteste homologação |
 
 **Participação:** operador(es) homologação (Protocolo, Secretaria, Gestor, Vereador).  
 **Evidências visuais:** screenshots anexados na sessão de teste (despacho inicial, editor placeholders, scatter duplicado, Super OS, cluster, modal devolutiva, status final).
@@ -32,7 +32,7 @@
 | 6 | Despacho final — operador assina, gestor valida | **Parcial → corrigido dev** | H-JUL-03 *(reteste pendente)*; H-JUL-10, H-JUL-11 |
 | 7 | Indicações — vereador vinculado | **Falhou** → **corrigido dev** | H-JUL-07 |
 | 8 | Copiloto — CEP após pin | **Parcial → corrigido dev** | H-JUL-13, H-JUL-14 *(reteste pendente)* |
-| — | Mapa analítico = pinos | **Não retestado** | — |
+| — | Mapa analítico = pinos | **Corrigido dev** | H-JUL-19 *(reteste pendente)* |
 | — | Janela CRUD 60 s (tarefa 1 backlog) | **Corrigido dev** | H-JUL-01, H-JUL-02 *(reteste pendente)* |
 
 ---
@@ -76,8 +76,8 @@
 | **H-JUL-16** | ClustersView detalhe · **PROTOCOLO** · metadados (bairro, serviço, órgão) refletem **última demanda vinculada**, não a **líder #4134** · **incômodo** | incômodo | `metadata_cluster` deriva bairro/serviço/órgão/descrição da demanda líder — **corrigido 2026-08-03** |
 | **H-JUL-17** | DemandasView · **PROTOCOLO** · Super OS finalizada SUPER-2026-0011: demandas com status secundário divergente («Ofício assinado» vs «Devolutiva assinada») · **incômodo** | incômodo | `resumo_assinaturas_demanda` delega ao líder quando seguidora integrada — **corrigido 2026-08-03** |
 | **H-JUL-18** | Notificações · **VEREADOR** · encerramento Super OS gera **notificações duplicadas** (uma por demanda vinculada) · **incômodo** | incômodo | `signals.py` ignora `_propagando_cluster_status`; `notificar_conclusao_final` dedupe Super OS — **corrigido 2026-08-03** |
-| **H-JUL-19** | MapaCalorView · **PROTOCOLO/SECRETARIA/GESTOR** · solicitar **filtro de demandas atrasadas** no mapa operacional/analítico · **melhoria** | melhoria | backlog UX mapa |
-| **H-JUL-20** | DescricaoTramitacaoEditor · **PROTOCOLO** · «não notei Quill carregar» — toolbar Heading/Sans Serif visível = editor ativo; corpo vazio = bug H-JUL-09 · **ok (esclarecimento)** | — | documentação operador |
+| **H-JUL-19** | MapaCalorView · **PROTOCOLO/SECRETARIA/GESTOR** · solicitar **filtro de demandas atrasadas** no mapa operacional/analítico · **melhoria** | melhoria | `mapa_demanda_service` (`consulta=atrasadas`); toggle + card clicável em `MapaCalorView` — **corrigido 2026-08-03** |
+| **H-JUL-20** | DescricaoTramitacaoEditor · **PROTOCOLO** · «não notei Quill carregar» — toolbar Heading/Sans Serif visível = editor ativo; corpo vazio = bug H-JUL-09 · **ok (esclarecimento)** | — | dica inline no editor + este roteiro — **corrigido 2026-08-03** |
 
 ---
 
@@ -117,10 +117,39 @@ Marque após deploy da correção P0/P1.
 - [ ] Mover pin 5× seguidas → CEP/logradouro atualizam sempre *(corrigido 2026-08-03 — retestar em homologação)*
 - [ ] Busca logradouro aceita espaços («Rua Barão») *(corrigido 2026-08-03 — retestar em homologação)*
 
-### RT-PLC — Placeholders (H-JUL-08, H-JUL-09)
+### RT-PLC — Placeholders (H-JUL-08, H-JUL-09, H-JUL-20)
 
 - [x] Clicar placeholder → texto visível no editor *(corrigido 2026-08-03 — retestar em homologação)*
 - [x] Publicar despacho → texto **sem** `{{...}}` na timeline *(corrigido 2026-08-03 — retestar em homologação)*
+- [ ] Toolbar Quill visível = editor carregado; corpo vazio após chip = falha (H-JUL-09) — dica exibida abaixo do editor *(H-JUL-20)*
+
+### RT-MAP — Mapa operacional (H-JUL-19)
+
+- [ ] Toggle **Somente atrasadas (SLA vencido)** reduz pinos ao subconjunto atrasado *(corrigido 2026-08-03 — retestar em homologação)*
+- [ ] Card **Atrasadas** ativa o filtro ao clicar; contador bate com pinos vermelhos exibidos
+- [ ] URL `/mapa-calor?consulta=atrasadas` abre com filtro pré-ativo (Protocolo/Gestor/Secretaria)
+
+---
+
+## Foco reteste homologação
+
+**Pré-requisito:** deploy do commit mais recente (`18208f0` + H-JUL-19/20) em https://sgdl.mogidascruzes.sp.gov.br
+
+**Ordem sugerida (1 sessão por perfil ou roteiro único com logins alternados):**
+
+| # | Bloco | Perfis | Prioridade | Itens |
+|---|-------|--------|------------|-------|
+| 1 | RT-SEC | Protocolo + Secretaria | **P0** | H-JUL-01, H-JUL-02 |
+| 2 | RT-ASS | Protocolo + Gestor protocolo + Gestor setorial | **P0/P1** | H-JUL-03, H-JUL-04, H-JUL-10, H-JUL-11 |
+| 3 | RT-SOS | Protocolo + Vereador | **P1/P3** | H-JUL-05…06, H-JUL-15…18 |
+| 4 | RT-PLC | Protocolo + Secretaria | P2 | H-JUL-08, H-JUL-09, H-JUL-20 |
+| 5 | RT-GEO | Vereador | P2 | H-JUL-13, H-JUL-14 |
+| 6 | RT-IND | Vereador vinculado | P1 | H-JUL-07 |
+| 7 | RT-MAP | Protocolo / Gestor / Secretaria | P3 | H-JUL-19 |
+
+**Critério GO piloto:** todos os itens **P0 e P1** marcados OK em homologação; P2/P3 sem regressão bloqueante.
+
+**Registro:** marcar checkboxes neste arquivo e evidências (screenshot + protocolo/demanda) em [homologacao-e2e-registro.md](homologacao-e2e-registro.md).
 
 ---
 
@@ -139,9 +168,10 @@ Marque após deploy da correção P0/P1.
 | 9 | H-JUL-11 | Conclusão final gestor protocolo sem declaração operador | 0,25 d | **Concluído 2026-08-03** |
 | 10 | H-JUL-13, H-JUL-14 | Pin mapa + busca logradouro com espaço | 0,5 d | **Concluído 2026-08-03** |
 | 11 | H-JUL-15–18 | Cluster UI, status Super OS, notificações | 1 d | **Concluído 2026-08-03** |
-| 12 | H-JUL-19 | Filtro demandas atrasadas no mapa | backlog | Pendente |
+| 12 | H-JUL-19 | Filtro demandas atrasadas no mapa | 0,25 d | **Concluído 2026-08-03** |
+| 13 | H-JUL-20 | Esclarecimento editor Quill (operador) | — | **Concluído 2026-08-03** |
 
-**Meta reteste:** fim do 1º dia útil após deploy P0 (itens 1–4).
+**Meta reteste:** após deploy pacote completo H-JUL-01…20 — ver § Foco reteste homologação.
 
 ---
 
@@ -159,4 +189,4 @@ Marque após deploy da correção P0/P1.
 
 ---
 
-*Registrado em 2026-07-31 · atualizado 2026-08-03 (correções H-JUL-01/02/03/04/05/06 em dev) · próxima revisão após reteste P0/P1 em homologação.*
+*Registrado em 2026-07-31 · atualizado 2026-08-03 (H-JUL-01…20 em dev) · foco: reteste homologação.*

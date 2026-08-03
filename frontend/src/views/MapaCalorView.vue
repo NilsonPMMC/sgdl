@@ -70,7 +70,8 @@ const filtros = ref({
     vereador_id: null,
     data_inicio: null,
     data_fim: null,
-    super_os: false
+    super_os: false,
+    somente_atrasadas: false
 });
 
 const opcoes = ref({
@@ -185,6 +186,7 @@ const montarParams = () => {
         data_inicio: formatarDataParaAPI(filtros.value.data_inicio),
         data_fim: formatarDataParaAPI(filtros.value.data_fim),
         super_os: filtros.value.super_os ? '1' : undefined,
+        consulta: !ocultarSlaVereador.value && filtros.value.somente_atrasadas ? 'atrasadas' : undefined,
         demanda_id: route.query.demanda_id || undefined
     };
     if (filtros.value.status?.length) {
@@ -306,11 +308,9 @@ const montarAgregacaoLocal = (lista, limitBairros = 12) => {
     const coordValida = (loc) => {
         const lat = parseFloat(loc.lat);
         const lng = parseFloat(loc.lng);
-        return Number.isFinite(lat) && Number.isFinite(lng)
-            && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+        return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
     };
-    const nomeServico = (loc) =>
-        loc.servico_nome || (loc.sinapse_servico_id ? `Serviço ${loc.sinapse_servico_id}` : 'Sem serviço');
+    const nomeServico = (loc) => loc.servico_nome || (loc.sinapse_servico_id ? `Serviço ${loc.sinapse_servico_id}` : 'Sem serviço');
 
     const pontos = (lista || []).filter(coordValida);
     const porBairroCounter = {};
@@ -366,7 +366,7 @@ const carregarLocalizacoes = async () => {
     try {
         const params = montarParams();
         const { data } = await ApiService.getDemandaLocations(params);
-        const lista = Array.isArray(data) ? data : data?.results ?? [];
+        const lista = Array.isArray(data) ? data : (data?.results ?? []);
         ultimaLista.value = lista;
         agregacao.value = montarAgregacaoLocal(lista);
         resumo.value = data?.resumo || {
@@ -422,17 +422,22 @@ const limparFiltros = () => {
         vereador_id: null,
         data_inicio: null,
         data_fim: null,
-        super_os: false
+        super_os: false,
+        somente_atrasadas: false
     };
+    carregarLocalizacoes();
+};
+
+const aplicarFiltroAtrasadas = () => {
+    if (ocultarSlaVereador.value) return;
+    filtros.value.somente_atrasadas = true;
     carregarLocalizacoes();
 };
 
 const servicosFiltrados = computed(() => {
     if (!filtros.value.sinapse_orgao_id) return opcoes.value.servicos;
     const orgaoId = filtros.value.sinapse_orgao_id;
-    return opcoes.value.servicos.filter(
-        (s) => !s.secretaria_responsavel?.id || s.secretaria_responsavel.id === orgaoId
-    );
+    return opcoes.value.servicos.filter((s) => !s.secretaria_responsavel?.id || s.secretaria_responsavel.id === orgaoId);
 });
 
 const extrairListaApi = (resultado) => {
@@ -443,10 +448,7 @@ const extrairListaApi = (resultado) => {
 
 const carregarOpcoesFiltros = async () => {
     try {
-        const [secRes, srvRes] = await Promise.allSettled([
-            ApiService.getSecretarias(),
-            ApiService.getServicos()
-        ]);
+        const [secRes, srvRes] = await Promise.allSettled([ApiService.getSecretarias(), ApiService.getServicos()]);
         opcoes.value.secretarias = extrairListaApi(secRes);
         opcoes.value.servicos = extrairListaApi(srvRes);
         if (podeFiltrarVereador.value) {
@@ -475,11 +477,13 @@ const initMapaSeguro = () => {
     }
 };
 
-const maxBairroTotal = computed(() =>
-    Math.max(1, ...(agregacao.value.por_bairro || []).map((b) => b.total))
-);
+const maxBairroTotal = computed(() => Math.max(1, ...(agregacao.value.por_bairro || []).map((b) => b.total)));
 
 onMounted(async () => {
+    if (route.query.consulta === 'atrasadas' && !ocultarSlaVereador.value) {
+        filtros.value.somente_atrasadas = true;
+    }
+
     await nextTick();
     await new Promise((resolve) => {
         requestAnimationFrame(() => {
@@ -504,17 +508,9 @@ onUnmounted(() => {
         <div class="flex flex-wrap items-start justify-between gap-3">
             <div>
                 <h1 class="text-2xl font-semibold m-0">Mapa operacional</h1>
-                <p class="text-muted-color m-0 mt-1">
-                    Demandas georreferenciadas — pinos por status, heatmap de densidade e análise bairro × serviço × mês.
-                </p>
+                <p class="text-muted-color m-0 mt-1">Demandas georreferenciadas — pinos por status, heatmap de densidade e análise bairro × serviço × mês.</p>
             </div>
-            <SelectButton
-                v-model="modoVisualizacao"
-                :options="modosVisualizacao"
-                optionLabel="label"
-                optionValue="value"
-                aria-label="Modo de visualização do mapa"
-            />
+            <SelectButton v-model="modoVisualizacao" :options="modosVisualizacao" optionLabel="label" optionValue="value" aria-label="Modo de visualização do mapa" />
         </div>
 
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -526,11 +522,12 @@ onUnmounted(() => {
                     </div>
                 </template>
             </Card>
-            <Card v-if="!ocultarSlaVereador">
+            <Card v-if="!ocultarSlaVereador" class="cursor-pointer" @click="aplicarFiltroAtrasadas">
                 <template #content>
                     <div class="text-center py-1">
                         <div class="text-2xl font-bold text-red-500">{{ resumo.atrasadas }}</div>
                         <div class="text-sm text-muted-color">Atrasadas</div>
+                        <div v-if="filtros.somente_atrasadas" class="text-xs text-primary mt-1">Filtro ativo</div>
                     </div>
                 </template>
             </Card>
@@ -545,9 +542,7 @@ onUnmounted(() => {
             <Card>
                 <template #content>
                     <div class="text-center py-1">
-                        <div class="text-sm text-muted-color mt-2">
-                            Perfil: <Tag :value="perfil || '—'" severity="info" />
-                        </div>
+                        <div class="text-sm text-muted-color mt-2">Perfil: <Tag :value="perfil || '—'" severity="info" /></div>
                     </div>
                 </template>
             </Card>
@@ -559,45 +554,11 @@ onUnmounted(() => {
                 <div class="flex flex-wrap gap-3 mb-3">
                     <IconField class="flex-1 min-w-[14rem]">
                         <InputIcon class="pi pi-search" />
-                        <InputText
-                            v-model="filtros.q"
-                            placeholder="Buscar protocolo, título, bairro..."
-                            fluid
-                            @keyup.enter="carregarLocalizacoes"
-                        />
+                        <InputText v-model="filtros.q" placeholder="Buscar protocolo, título, bairro..." fluid @keyup.enter="carregarLocalizacoes" />
                     </IconField>
-                    <MultiSelect
-                        v-model="filtros.status"
-                        :options="opcoesStatusMapa"
-                        optionLabel="label"
-                        optionValue="value"
-                        placeholder="Status"
-                        filter
-                        showClear
-                        class="min-w-[12rem]"
-                    />
-                    <Select
-                        v-if="podeFiltrarOrgao"
-                        v-model="filtros.sinapse_orgao_id"
-                        :options="opcoes.secretarias"
-                        optionLabel="nome"
-                        optionValue="id"
-                        placeholder="Órgão"
-                        filter
-                        showClear
-                        class="min-w-[12rem]"
-                        @change="filtros.servico_id = null"
-                    />
-                    <Select
-                        v-model="filtros.servico_id"
-                        :options="servicosFiltrados"
-                        optionLabel="nome"
-                        optionValue="id"
-                        placeholder="Serviço Sinapse"
-                        filter
-                        showClear
-                        class="min-w-[12rem]"
-                    />
+                    <MultiSelect v-model="filtros.status" :options="opcoesStatusMapa" optionLabel="label" optionValue="value" placeholder="Status" filter showClear class="min-w-[12rem]" />
+                    <Select v-if="podeFiltrarOrgao" v-model="filtros.sinapse_orgao_id" :options="opcoes.secretarias" optionLabel="nome" optionValue="id" placeholder="Órgão" filter showClear class="min-w-[12rem]" @change="filtros.servico_id = null" />
+                    <Select v-model="filtros.servico_id" :options="servicosFiltrados" optionLabel="nome" optionValue="id" placeholder="Serviço Sinapse" filter showClear class="min-w-[12rem]" />
                 </div>
                 <div class="flex flex-wrap gap-3 items-end">
                     <div class="flex flex-col gap-1">
@@ -608,20 +569,14 @@ onUnmounted(() => {
                         <label class="text-sm font-medium">Até</label>
                         <DatePicker v-model="filtros.data_fim" dateFormat="dd/mm/yy" showIcon />
                     </div>
-                    <Select
-                        v-if="podeFiltrarVereador"
-                        v-model="filtros.vereador_id"
-                        :options="opcoes.vereadores"
-                        optionLabel="nome_formatado"
-                        optionValue="id"
-                        placeholder="Vereador"
-                        filter
-                        showClear
-                        class="min-w-[12rem]"
-                    />
+                    <Select v-if="podeFiltrarVereador" v-model="filtros.vereador_id" :options="opcoes.vereadores" optionLabel="nome_formatado" optionValue="id" placeholder="Vereador" filter showClear class="min-w-[12rem]" />
                     <div class="flex items-center gap-2 pb-1">
                         <ToggleSwitch v-model="filtros.super_os" inputId="filtro-super-os" />
                         <label for="filtro-super-os" class="text-sm">Somente Super OS</label>
+                    </div>
+                    <div v-if="!ocultarSlaVereador" class="flex items-center gap-2 pb-1">
+                        <ToggleSwitch v-model="filtros.somente_atrasadas" inputId="filtro-atrasadas" />
+                        <label for="filtro-atrasadas" class="text-sm">Somente atrasadas (SLA vencido)</label>
                     </div>
                     <Button label="Aplicar" icon="pi pi-filter" :loading="loading" @click="carregarLocalizacoes" />
                     <Button label="Limpar" icon="pi pi-times" severity="secondary" outlined @click="limparFiltros" />
@@ -639,37 +594,17 @@ onUnmounted(() => {
                     <template #content>
                         <div class="text-xs font-semibold mb-2">Legenda — pinos</div>
                         <div class="flex flex-col gap-1">
-                            <div
-                                v-for="(item, idx) in legendaItens"
-                                :key="idx"
-                                class="flex items-center gap-2 text-xs"
-                            >
-                                <span
-                                    class="legenda-amostra"
-                                    :class="{ 'legenda-amostra--super': item.superOs }"
-                                    :style="item.superOs ? {} : { background: item.cor }"
-                                />
+                            <div v-for="(item, idx) in legendaItens" :key="idx" class="flex items-center gap-2 text-xs">
+                                <span class="legenda-amostra" :class="{ 'legenda-amostra--super': item.superOs }" :style="item.superOs ? {} : { background: item.cor }" />
                                 {{ item.rotulo }}
                             </div>
                         </div>
-                        <div v-if="modoVisualizacao !== 'pinos'" class="text-xs text-muted-color mt-2 pt-2 border-t border-surface-200 dark:border-surface-700">
-                            Heatmap: azul (baixa) → laranja → vermelho (alta densidade/atraso)
-                        </div>
+                        <div v-if="modoVisualizacao !== 'pinos'" class="text-xs text-muted-color mt-2 pt-2 border-t border-surface-200 dark:border-surface-700">Heatmap: azul (baixa) → laranja → vermelho (alta densidade/atraso)</div>
                     </template>
                 </Card>
-                <Message
-                    v-if="!loading && resumo.total === 0"
-                    severity="info"
-                    :closable="false"
-                    class="absolute top-3 right-3 z-[1000] max-w-xs"
-                >
-                    <template v-if="isCamara">
-                        Nenhuma indicação georreferenciada no mapa. Indicações precisam de endereço ou
-                        ponto confirmado no Copiloto para aparecer aqui.
-                    </template>
-                    <template v-else>
-                        Nenhuma demanda com coordenadas para os filtros selecionados.
-                    </template>
+                <Message v-if="!loading && resumo.total === 0" severity="info" :closable="false" class="absolute top-3 right-3 z-[1000] max-w-xs">
+                    <template v-if="isCamara"> Nenhuma indicação georreferenciada no mapa. Indicações precisam de endereço ou ponto confirmado no Copiloto para aparecer aqui. </template>
+                    <template v-else> Nenhuma demanda com coordenadas para os filtros selecionados. </template>
                 </Message>
             </div>
 
@@ -678,14 +613,7 @@ onUnmounted(() => {
                     <template #title>Hotspots (bairro × serviço)</template>
                     <template #content>
                         <div v-if="loading" class="text-center py-6 text-sm text-muted-color">Carregando…</div>
-                        <DataTable
-                            v-else-if="agregacao.hotspots?.length"
-                            :value="agregacao.hotspots"
-                            size="small"
-                            stripedRows
-                            scrollable
-                            scrollHeight="220px"
-                        >
+                        <DataTable v-else-if="agregacao.hotspots?.length" :value="agregacao.hotspots" size="small" stripedRows scrollable scrollHeight="220px">
                             <Column header="Bairro" field="bairro" />
                             <Column header="Serviço">
                                 <template #body="{ data }">
@@ -694,9 +622,7 @@ onUnmounted(() => {
                             </Column>
                             <Column header="Qtd" field="total" style="width: 3rem" />
                         </DataTable>
-                        <Message v-else severity="secondary" :closable="false" class="text-sm">
-                            Sem hotspots para os filtros atuais.
-                        </Message>
+                        <Message v-else severity="secondary" :closable="false" class="text-sm"> Sem hotspots para os filtros atuais. </Message>
                     </template>
                 </Card>
 
@@ -711,14 +637,9 @@ onUnmounted(() => {
                                     <span>{{ b.total }}</span>
                                 </div>
                                 <div class="h-2 rounded-full bg-surface-200 dark:bg-surface-700 overflow-hidden">
-                                    <div
-                                        class="h-full rounded-full bg-primary"
-                                        :style="{ width: `${(b.total / maxBairroTotal) * 100}%` }"
-                                    />
+                                    <div class="h-full rounded-full bg-primary" :style="{ width: `${(b.total / maxBairroTotal) * 100}%` }" />
                                 </div>
-                                <div v-if="b.atrasadas && !ocultarSlaVereador" class="text-xs text-red-500 mt-0.5">
-                                    {{ b.atrasadas }} atrasada(s)
-                                </div>
+                                <div v-if="b.atrasadas && !ocultarSlaVereador" class="text-xs text-red-500 mt-0.5">{{ b.atrasadas }} atrasada(s)</div>
                             </li>
                         </ul>
                         <Message v-else severity="secondary" :closable="false" class="text-sm">Sem dados por bairro.</Message>
@@ -732,9 +653,7 @@ onUnmounted(() => {
                         <div v-else-if="agregacao.por_mes?.length" class="chart-meses-host">
                             <Chart type="bar" :data="chartMeses" :options="chartOptions" />
                         </div>
-                        <Message v-else severity="secondary" :closable="false" class="text-sm">
-                            Sem série temporal para o período.
-                        </Message>
+                        <Message v-else severity="secondary" :closable="false" class="text-sm"> Sem série temporal para o período. </Message>
                     </template>
                 </Card>
             </div>

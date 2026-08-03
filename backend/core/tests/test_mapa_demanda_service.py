@@ -127,6 +127,33 @@ class MapaDemandaServiceTests(TestCase):
         req.user = camara
         qs = filtrar_demandas_mapa(req)
         self.assertEqual(qs.count(), 1)
+
+    def test_filtrar_consulta_atrasadas_hjul19(self):
+        agora = timezone.now()
+        atrasada = Demanda.objects.create(
+            titulo='Demanda atrasada mapa',
+            descricao='Teste',
+            status='PROTOCOLADO',
+            latitude=-23.519,
+            longitude=-46.179,
+            bairro='Centro',
+            data_inicio_prazo=agora - timedelta(days=20),
+            prazo_efetivo_dias=5,
+        )
+        Demanda.objects.create(
+            titulo='Demanda no prazo mapa',
+            descricao='Teste',
+            status='PROTOCOLADO',
+            latitude=-23.518,
+            longitude=-46.178,
+            bairro='Centro',
+            data_inicio_prazo=agora - timedelta(days=2),
+            prazo_efetivo_dias=30,
+        )
+        qs = filtrar_demandas_mapa(self._request(consulta='atrasadas'))
+        ids = set(qs.values_list('pk', flat=True))
+        self.assertIn(atrasada.pk, ids)
+        self.assertEqual(len(ids), 1)
         self.assertEqual(qs.first().status, 'RASCUNHO')
 
     @patch('core.services.geocoding_service.GeocodingService')

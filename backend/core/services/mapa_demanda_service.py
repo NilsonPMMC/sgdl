@@ -104,6 +104,12 @@ def filtrar_demandas_mapa(request) -> QuerySet:
     if params.get('super_os') in ('1', 'true', 'True'):
         queryset = queryset.filter(cluster__isnull=False)
 
+    consulta = (params.get('consulta') or '').strip().lower()
+    if consulta == 'atrasadas':
+        from core.services.demanda_sla_service import filtrar_demandas_atrasadas
+
+        queryset = filtrar_demandas_atrasadas(queryset)
+
     return queryset
 
 

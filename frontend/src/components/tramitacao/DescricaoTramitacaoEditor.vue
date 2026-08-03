@@ -3,16 +3,14 @@ import Button from 'primevue/button';
 import Dialog from 'primevue/dialog';
 import Editor from 'primevue/editor';
 import InputText from 'primevue/inputtext';
+import Message from 'primevue/message';
 import MultiSelect from 'primevue/multiselect';
 import Select from 'primevue/select';
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useToast } from 'primevue/usetoast';
 import ApiService from '@/service/ApiService';
 import PlaceholdersTextoPadraoChips from '@/components/tramitacao/PlaceholdersTextoPadraoChips.vue';
-import {
-    aplicarPlaceholdersTextoPadrao,
-    inserirPlaceholderNoHtml
-} from '@/constants/textoPadraoDespacho';
+import { aplicarPlaceholdersTextoPadrao, inserirPlaceholderNoHtml } from '@/constants/textoPadraoDespacho';
 
 const props = defineProps({
     modelValue: { type: String, default: '' },
@@ -86,9 +84,7 @@ const exibirSelecaoSetores = computed(() => {
     return setoresOpcoes.value.length > 0;
 });
 
-const exigeSelecaoSetores = computed(
-    () => Boolean(metaEscopo.value?.exige_selecao_setores) && exibirSelecaoSetores.value
-);
+const exigeSelecaoSetores = computed(() => Boolean(metaEscopo.value?.exige_selecao_setores) && exibirSelecaoSetores.value);
 
 const opcoesModelos = computed(() =>
     modelos.value.map((m) => ({
@@ -201,10 +197,7 @@ async function salvarComoModelo() {
         toast.add({ severity: 'warn', summary: 'Informe um título', life: 2500 });
         return;
     }
-    if (
-        exigeSelecaoSetores.value &&
-        !(formModelo.value.unidades_administrativas_ids || []).length
-    ) {
+    if (exigeSelecaoSetores.value && !(formModelo.value.unidades_administrativas_ids || []).length) {
         toast.add({
             severity: 'warn',
             summary: 'Selecione setor(es)',
@@ -319,23 +312,11 @@ watch(
         <div class="flex align-items-center justify-content-between gap-2 flex-wrap">
             <label class="font-medium m-0">{{ label }}</label>
             <div class="flex align-items-center gap-2 flex-wrap">
-                <Button
-                    type="button"
-                    label="Otimizar com IA"
-                    icon="pi pi-sparkles"
-                    size="small"
-                    severity="help"
-                    outlined
-                    :loading="carregandoIa"
-                    @click="otimizarComIa"
-                />
+                <Button type="button" label="Otimizar com IA" icon="pi pi-sparkles" size="small" severity="help" outlined :loading="carregandoIa" @click="otimizarComIa" />
             </div>
         </div>
 
-        <div
-            v-if="exibirTextosPadrao"
-            class="flex flex-wrap align-items-end gap-2 p-3 surface-50 border-round border-1 surface-border"
-        >
+        <div v-if="exibirTextosPadrao" class="flex flex-wrap align-items-end gap-2 p-3 surface-50 border-round border-1 surface-border">
             <div class="flex flex-col gap-1 flex-1 min-w-0" style="min-width: 12rem">
                 <span class="text-xs font-medium text-muted-color">Modelo padrão</span>
                 <Select
@@ -360,36 +341,24 @@ watch(
                     </template>
                 </Select>
             </div>
-            <Button
-                type="button"
-                label="Salvar como modelo"
-                icon="pi pi-bookmark"
-                size="small"
-                severity="secondary"
-                outlined
-                @click="abrirSalvarModelo"
-            />
+            <Button type="button" label="Salvar como modelo" icon="pi pi-bookmark" size="small" severity="secondary" outlined @click="abrirSalvarModelo" />
             <router-link to="/textos-padrao-despacho" class="text-sm no-underline">
                 <Button type="button" label="Gerenciar" icon="pi pi-cog" size="small" text />
             </router-link>
         </div>
 
-        <Editor
-            :key="editorEpoch"
-            :model-value="editorHtml"
-            :editor-style="editorStyle"
-            @update:model-value="patch"
-        />
+        <Editor :key="editorEpoch" :model-value="editorHtml" :editor-style="editorStyle" @update:model-value="patch" />
+
+        <Message severity="secondary" :closable="false" class="text-xs m-0">
+            A barra de formatação (Heading, Sans Serif, negrito…) indica que o editor está ativo. Se você clicar em um
+            placeholder e o texto não aparecer no corpo, digite ou selecione o modelo novamente — isso indica falha de
+            sincronização (corrigida na versão atual).
+        </Message>
 
         <PlaceholdersTextoPadraoChips v-if="exibirPlaceholders" @inserir="inserirPlaceholder" />
     </div>
 
-    <Dialog
-        v-model:visible="dialogSalvarModelo"
-        header="Salvar como modelo"
-        :modal="true"
-        style="width: min(560px, 96vw)"
-    >
+    <Dialog v-model:visible="dialogSalvarModelo" header="Salvar como modelo" :modal="true" style="width: min(560px, 96vw)">
         <p class="text-sm text-muted-color mt-0">
             Categoria: <strong>{{ categoriaPadrao === 'PROTOCOLO' ? 'Protocolo' : 'Operacional' }}</strong>
             — conforme seu perfil. O modelo ficará disponível para operadores do seu escopo.
@@ -404,19 +373,8 @@ watch(
                     Setor(es) de disponibilidade
                     <span v-if="exigeSelecaoSetores" class="text-red-500">*</span>
                 </label>
-                <MultiSelect
-                    v-model="formModelo.unidades_administrativas_ids"
-                    :options="setoresOpcoes"
-                    option-label="label"
-                    option-value="value"
-                    placeholder="Selecione um ou mais setores"
-                    display="chip"
-                    class="w-full"
-                    :max-selected-labels="4"
-                />
-                <p class="text-xs text-muted-color mt-1 mb-0">
-                    O texto ficará visível apenas para operadores dos setores escolhidos.
-                </p>
+                <MultiSelect v-model="formModelo.unidades_administrativas_ids" :options="setoresOpcoes" option-label="label" option-value="value" placeholder="Selecione um ou mais setores" display="chip" class="w-full" :max-selected-labels="4" />
+                <p class="text-xs text-muted-color mt-1 mb-0">O texto ficará visível apenas para operadores dos setores escolhidos.</p>
             </div>
         </div>
         <template #footer>
@@ -425,30 +383,16 @@ watch(
         </template>
     </Dialog>
 
-    <Dialog
-        v-model:visible="dialogIa"
-        header="Revisar texto sugerido pela IA"
-        :modal="true"
-        style="width: min(640px, 96vw)"
-    >
-        <p class="text-sm text-muted-color mt-0">
-            Compare a sugestão com o original. Você pode aceitar a otimização ou manter seu texto.
-        </p>
+    <Dialog v-model:visible="dialogIa" header="Revisar texto sugerido pela IA" :modal="true" style="width: min(640px, 96vw)">
+        <p class="text-sm text-muted-color mt-0">Compare a sugestão com o original. Você pode aceitar a otimização ou manter seu texto.</p>
         <div class="grid grid-cols-12 gap-3">
             <div class="col-span-12 md:col-span-6">
                 <span class="font-medium text-sm block mb-2">Original</span>
-                <div
-                    class="p-3 border-1 surface-border border-round text-sm overflow-auto"
-                    style="max-height: 220px"
-                    v-html="textoOriginal"
-                />
+                <div class="p-3 border-1 surface-border border-round text-sm overflow-auto" style="max-height: 220px" v-html="textoOriginal" />
             </div>
             <div class="col-span-12 md:col-span-6">
                 <span class="font-medium text-sm block mb-2">Sugestão IA</span>
-                <div
-                    class="p-3 border-1 border-primary border-round text-sm overflow-auto surface-ground"
-                    style="max-height: 220px"
-                >
+                <div class="p-3 border-1 border-primary border-round text-sm overflow-auto surface-ground" style="max-height: 220px">
                     {{ textoSugerido }}
                 </div>
             </div>

@@ -270,6 +270,6 @@ DJANGO_SETTINGS_MODULE=config.settings_test python manage.py test \
 
 ---
 
-**Próximo passo:** Deploy + reteste RT-SEC … RT-SOS (incl. H-JUL-15–18) após pacote H-JUL-01…18. Gate piloto: **NO-GO** até reteste em homologação.
+**Próximo passo:** Deploy pacote H-JUL-19/20 + **reteste homologação** conforme [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md) § Foco reteste. Gate piloto: **NO-GO** até RT-SEC/ASS OK.
 
-**Última atualização:** 2026-08-03 — correções H-JUL-01…18 em dev; rodada browser pós-deploy `e9638c1` permanece NO-GO até reteste.
+**Última atualização:** 2026-08-03 — H-JUL-01…20 em dev; backlog jul/2026 encerrado (exceto melhorias futuras).
