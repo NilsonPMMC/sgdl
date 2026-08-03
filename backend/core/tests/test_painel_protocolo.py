@@ -3,7 +3,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from core.models import Demanda, Usuario
+from core.models import ClusterExecucao, Demanda, Usuario
 import importlib.util
 
 _spec = importlib.util.spec_from_file_location("core_tests_legacy", "core/tests.py")
@@ -76,6 +76,103 @@ class PainelProtocoloFilterTests(SinapseCatalogTestMixin, APITestCase):
         self.assertGreaterEqual(row["tempo_parado_segundos"], 0)
         self.assertIn("data_entrada_etapa", row)
         self.assertIsNotNone(row["data_entrada_etapa"])
+
+
+class PainelProtocoloSuperOsTests(SinapseCatalogTestMixin, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.protocolo = Usuario.objects.create_user(
+            username="prot_super_os", password="x", perfil="PROTOCOLO"
+        )
+        self.vereador = Usuario.objects.create_user(
+            username="ver_super_os", password="x", perfil="VEREADOR"
+        )
+        self.client.force_authenticate(self.protocolo)
+        self.cluster = ClusterExecucao.objects.create(
+            titulo="Super OS teste",
+            status="EM_ANDAMENTO",
+        )
+        self.lider = Demanda.objects.create(
+            titulo="Líder Super OS",
+            descricao="x",
+            autor=self.vereador,
+            status="AGUARDANDO_PROTOCOLO",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            cluster=self.cluster,
+        )
+        self.seguidora = Demanda.objects.create(
+            titulo="Seguidora Super OS",
+            descricao="x",
+            autor=self.vereador,
+            status="AGUARDANDO_PROTOCOLO",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            cluster=self.cluster,
+        )
+
+    def test_fila_protocolados_lista_apenas_lider_super_os_hjul05(self):
+        r = self.client.get("/api/demandas/", {"fila": "protocolados"})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        ids = [d["id"] for d in _rows(r)]
+        self.assertEqual(ids, [self.lider.id])
+
+    def test_resumo_hub_protocolados_conta_apenas_lider(self):
+        from core.services.consulta_hub_service import ConsultaHubService
+
+        resumo = ConsultaHubService().resumo_painel_protocolo(self.protocolo)
+        self.assertEqual(resumo["protocolados"], 1)
+
+
+class PainelProtocoloSuperOsDespachoTimelineTests(SinapseCatalogTestMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        self.protocolo = Usuario.objects.create_user(
+            username="prot_super_tl", password="x", perfil="PROTOCOLO"
+        )
+        self.vereador = Usuario.objects.create_user(
+            username="ver_super_tl", password="x", perfil="VEREADOR"
+        )
+        self.vetor = [1.0] + [0.0] * 1023
+        self.cluster = ClusterExecucao.objects.create(
+            titulo="Super OS timeline",
+            status="ABERTO",
+            centroide=self.vetor,
+        )
+        self.lider = Demanda.objects.create(
+            titulo="Líder timeline",
+            descricao="x",
+            autor=self.vereador,
+            status="AGUARDANDO_PROTOCOLO",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            cluster=self.cluster,
+            embedding=self.vetor,
+        )
+        self.seguidora = Demanda.objects.create(
+            titulo="Seguidora timeline",
+            descricao="x",
+            autor=self.vereador,
+            status="AGUARDANDO_PROTOCOLO",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            cluster=self.cluster,
+            embedding=self.vetor,
+        )
+
+    def test_timeline_seguidora_um_despacho_inicial_apos_super_os_hjul06(self):
+        from core.services.cluster_despacho_service import ClusterDespachoService
+        from core.services.operacional_estado_service import OperacionalEstadoService
+
+        ClusterDespachoService().despachar_super_os(
+            self.cluster,
+            secretaria_id=SINAPSE_ORGAO_A,
+            usuario=self.protocolo,
+        )
+        svc = OperacionalEstadoService()
+        tl_lider = svc.montar_timeline_operacional(self.lider, usuario=self.protocolo)
+        tl_seg = svc.montar_timeline_operacional(self.seguidora, usuario=self.protocolo)
+        despachos_lider = [t for t in tl_lider if t["tipo"] == "DESPACHO"]
+        despachos_seg = [t for t in tl_seg if t["tipo"] == "DESPACHO"]
+        self.assertEqual(len(despachos_lider), 1)
+        self.assertEqual(len(despachos_seg), 1)
+        self.assertEqual(despachos_lider[0]["id"], despachos_seg[0]["id"])
 
 
 class DataEntradaEtapaSignalTests(SinapseCatalogTestMixin, TestCase):

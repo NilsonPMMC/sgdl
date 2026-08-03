@@ -71,7 +71,7 @@ class ClusterDespachoService:
 
         with transaction.atomic():
             from core.services.carta_setor_service import CartaSetorService
-            from core.services.cluster_aderencia_service import ClusterAderenciaService
+            from core.services.cluster_aderencia_service import demanda_integrada_ao_lider
             from core.services.demanda_despacho_service import DemandaDespachoService
 
             unidade = CartaSetorService().resolver_unidade_demanda(lider)
@@ -92,10 +92,12 @@ class ClusterDespachoService:
                 texto_despacho=texto if not automatico else None,
             )
             lider._notificacao_super_os_lote = True  # noqa: SLF001
-
-            integradas = ClusterAderenciaService().integrar_seguidoras_sem_protocolo_ao_operacional(
-                lider, usuario=usuario
-            )
+            lider.refresh_from_db()
+            integradas = [
+                int(s.pk)
+                for s in Demanda.objects.filter(cluster=cluster).exclude(pk=lider.pk)
+                if demanda_integrada_ao_lider(s)
+            ]
 
             cluster.protocolo_super_os = protocolo_super
             cluster.despachado_em = agora

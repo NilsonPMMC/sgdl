@@ -77,6 +77,9 @@
 | **Pendente (fase 2)** | Despacho personalizado com dados por demanda (ex. nome do solicitante) — requer evolução de template |
 | **Validar** | Super OS: só líder na fila Protocolo; seguidoras espelhadas ao processo líder |
 | **Reteste 31/jul** | **Falhou** — fila lista todas; seguidora com 2 despachos iniciais; detalhe cluster HTML cru e metadados da última vinculada (H-JUL-05, H-JUL-06, H-JUL-15, H-JUL-16) |
+| **Correção 2026-08-03 (H-JUL-05)** | `cluster_service.filtrar_listagem_apenas_lideres` na fila `protocolados`; hub e frontend alinhados |
+| **Correção 2026-08-03 (H-JUL-06)** | Timeline deduplica DESPACHO do líder; `mesclarTramitacoesProtocoloEditaveis` não reintroduz espelho na seguidora; integração única no despacho Super OS |
+| **Reteste** | Pendente em homologação (RT-SOS) |
 
 ---
 

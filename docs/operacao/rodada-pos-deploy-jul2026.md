@@ -52,8 +52,8 @@
 |----|----------|------------|---------------|
 | **H-JUL-03** | Modal assinatura devolutiva/conclusão · **PROTOCOLO** · ainda exibe checkbox **«ASSINO COMO GESTOR DO PROTOCOLO»** · operador deve assinar **somente por si**; gestor valida depois com login próprio · **bloqueante funcional** | bloqueante | `assinatura_eletronica_service`, `assinatura_etapa_executor_service`, `DemandaDetailView.vue` — **corrigido 2026-08-03** (modo `operador_apenas`; validação gestor assíncrona na devolutiva) |
 | **H-JUL-04** | Assinaturas pendentes / link pós-assinatura · **GESTOR SETORIAL (secretaria)** · **404** ao abrir demanda após operador assinar · hipótese: gestor setorial sem acesso à fila **devolutivas** / escopo de demanda · **bloqueante** | bloqueante | `demanda_visibilidade.py` — **corrigido 2026-08-03** (`aplicar_escopo_perfil` inclui `demanda_ids_com_validacao_gestor_pendente` no queryset) |
-| **H-JUL-05** | DemandasView / Super OS · **PROTOCOLO** · fila despacho lote ainda lista **todas** demandas vinculadas ao cluster, não só líder (R3.4) · **incômodo → bloqueante operacional** | bloqueante | `cluster_despacho_service.py`, `ClustersView.vue`, filtro fila protocolados |
-| **H-JUL-06** | Timeline Super OS · **PROTOCOLO** · demanda **seguidora** recebe **dois** «Despacho inicial (Protocolo)» idênticos; **líder** permanece com um (correto) · evidência: SUPER-2026-0011 · **bloqueante** | bloqueante | propagação cluster em `cluster_despacho_service` / integração seguidoras |
+| **H-JUL-05** | DemandasView / Super OS · **PROTOCOLO** · fila despacho lote ainda lista **todas** demandas vinculadas ao cluster, não só líder (R3.4) · **incômodo → bloqueante operacional** | bloqueante | `cluster_service.filtrar_listagem_por_perfil`, `DemandaViewSet`, `consulta_hub_service` — **corrigido 2026-08-03** |
+| **H-JUL-06** | Timeline Super OS · **PROTOCOLO** · demanda **seguidora** recebe **dois** «Despacho inicial (Protocolo)» idênticos; **líder** permanece com um (correto) · evidência: SUPER-2026-0011 · **bloqueante** | bloqueante | `operacional_estado_service.montar_timeline_operacional`, `operacionalEstado.js` (`mesclarTramitacoesProtocoloEditaveis`), `DemandaDetailView.vue`, `cluster_despacho_service` — **corrigido 2026-08-03** (dedupe DESPACHO na timeline; integração única no despacho Super OS) |
 | **H-JUL-07** | Indicação · **VEREADOR (autor vinculado)** · notificação recebida **OK** · demanda **não** aparece em `/demandas`, dashboard nem mapa operacional/calor (R5.3, R5.5) · **bloqueante** | bloqueante | `demanda_visibilidade.py`, `filtro_demandas_por_vereador`, `mapa_demanda_service`, materialização `DemandaVereadorVinculo` |
 
 ### P2 — Média
@@ -101,8 +101,8 @@ Marque após deploy da correção P0/P1.
 
 ### RT-SOS — Super OS (H-JUL-05, H-JUL-06, H-JUL-15–17)
 
-- [ ] `/clusters` despacho Super OS: fila Protocolo mostra **só líder**
-- [ ] Após despacho: seguidora com **1** despacho inicial espelhado (não 2)
+- [x] `/clusters` despacho Super OS: fila Protocolo mostra **só líder** *(corrigido 2026-08-03 — retestar em homologação)*
+- [x] Após despacho: seguidora com **1** despacho inicial espelhado (não 2) *(corrigido 2026-08-03 — retestar em homologação)*
 - [ ] Detalhe cluster: descrição legível (sem HTML cru); metadados da **demanda líder**
 - [ ] Pós-finalização: status secundário **consistente** entre líder e seguidoras
 - [ ] Vereador: **1** notificação de encerramento por Super OS
@@ -132,7 +132,7 @@ Marque após deploy da correção P0/P1.
 | 2 | H-JUL-02 | Desfazer despacho inicial: reverter nó + cancelar notificações pendentes | 0,5 d | **Concluído 2026-08-03** |
 | 3 | H-JUL-03 | Modal devolutiva/conclusão: modo `operador_apenas` sem checkbox gestor | 0,25 d | **Concluído 2026-08-03** |
 | 4 | H-JUL-04 | Visibilidade gestor setorial + fila devolutivas / deep link notificação | 0,5 d | **Concluído 2026-08-03** |
-| 5 | H-JUL-05, H-JUL-06 | Super OS: fila só líder + eliminar despacho duplicado seguidora | 1 d |
+| 5 | H-JUL-05, H-JUL-06 | Super OS: fila só líder + eliminar despacho duplicado seguidora | 1 d | **Concluído 2026-08-03** |
 | 6 | H-JUL-07 | Indicações: listagem/dashboard/mapa vereador vinculado | 0,5 d |
 | 7 | H-JUL-08, H-JUL-09 | Substituir placeholders na publicação + fix sync Editor | 0,5 d |
 | 8 | H-JUL-10, H-JUL-12 | Timeline pendente gestor + dedupe scatter/conclusão | 0,5 d |
@@ -150,11 +150,11 @@ Marque após deploy da correção P0/P1.
 | CRUD cross-perfil | `backend/core/services/tramitacao_janela_edicao_service.py` (L100–149) |
 | Desfazer / nó | `tramitacao_janela_edicao_service` desfazer, `DemandaDespachoService` |
 | Modal assinatura | `frontend/src/views/DemandaDetailView.vue`, `assinatura_eletronica_service.py`, `assinatura_etapa_executor_service.py` |
-| Super OS | `backend/core/services/cluster_despacho_service.py`, `ClustersView.vue` |
+| Super OS | `backend/core/services/cluster_despacho_service.py`, `operacional_estado_service.py`, `operacionalEstado.js` |
 | Vereador indicação | `demanda_visibilidade.py`, `mapa_demanda_service.py` |
 | Placeholders | `DescricaoTramitacaoEditor.vue`, serviço textos padrão |
 | Timeline | `operacional_estado_service.py` |
 
 ---
 
-*Registrado em 2026-07-31 · atualizado 2026-08-03 (correções H-JUL-01/02/03 em dev) · próxima revisão após reteste P0 em homologação.*
+*Registrado em 2026-07-31 · atualizado 2026-08-03 (correções H-JUL-01/02/03/04/05/06 em dev) · próxima revisão após reteste P0/P1 em homologação.*

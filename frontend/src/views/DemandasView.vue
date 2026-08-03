@@ -314,7 +314,8 @@ const podeDespacharSuperOs = (demanda) =>
     demanda?.cluster?.id &&
     (demanda.cluster.demandas_count ?? 0) >= 2 &&
     !demanda.cluster.protocolo_super_os &&
-    demanda.status === 'AGUARDANDO_PROTOCOLO';
+    demanda.status === 'AGUARDANDO_PROTOCOLO' &&
+    demanda.super_os?.eh_lider !== false;
 
 const podeGerirTendencia = (demanda) =>
     userStore.currentUser?.perfil === 'PROTOCOLO' && Boolean(demanda?.tendencia_id);

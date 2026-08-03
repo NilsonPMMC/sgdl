@@ -210,25 +210,25 @@ Deploy do pacote `e9638c1` em homologação. Rodadas R1–R5 executadas conforme
 | **Melhoria** | 1 | H-JUL-19 |
 | **Esclarecimento** | 1 | H-JUL-20 |
 
-### Correções P0 em dev (2026-08-03)
+### Correções P0/P1 em dev (2026-08-03)
 
-Pacote **H-JUL-01 / H-JUL-02 / H-JUL-03** — CRUD 60s restrito ao autor, desfazer despacho inicial reverte fluxo completo, devolutiva com assinatura assíncrona (operador → gestor SGAC).
+Pacote **H-JUL-01 … H-JUL-06** — CRUD 60s, desfazer despacho, devolutiva assíncrona, visibilidade gestor setorial, Super OS fila só líder, dedupe despacho inicial na seguidora.
 
 | ID | Entrega | Evidência dev |
 |----|---------|---------------|
 | H-JUL-01 | CRUD cross-perfil bloqueado | `test_tramitacao_janela_edicao.py` |
 | H-JUL-02 | Desfazer despacho inicial | `test_delete_reverte_nos_pernas_e_notificacoes_hjul02` |
 | H-JUL-03 | Modal devolutiva operador-only | `test_devolutiva_protocolo`, `modo_assinatura_protocolo` |
+| H-JUL-04 | Gestor setorial — queryset com validação pendente | `test_gestor_escopo.py` |
+| H-JUL-05 | Fila protocolados só líder Super OS | `test_painel_protocolo.py` |
+| H-JUL-06 | Timeline seguidora — 1 despacho inicial | `test_timeline_seguidora_um_despacho_inicial_apos_super_os_hjul06` |
 
-**Reteste homologação:** RT-SEC + RT-ASS em [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md).
+**Reteste homologação:** RT-SEC + RT-ASS + RT-SOS em [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md).
 
 ### Bloqueantes prioritários restantes (P0)
 
 | ID | Registro resumido |
 |----|-------------------|
-| **H-JUL-04** | Gestor setorial — 404 ao abrir demanda após assinatura operador |
-| **H-JUL-05** | Super OS — fila lista todas demandas, não só líder |
-| **H-JUL-06** | Super OS — seguidora com despacho inicial duplicado |
 | **H-JUL-07** | Indicações — vereador vinculado não vê lista/dashboard/mapa |
 
 ### Bloqueantes corrigidos em dev (aguardando reteste)
@@ -238,6 +238,9 @@ Pacote **H-JUL-01 / H-JUL-02 / H-JUL-03** — CRUD 60s restrito ao autor, desfaz
 | **H-JUL-01** | Protocolo vê e edita despacho da Secretaria na janela 60s (falha RBAC) |
 | **H-JUL-02** | Desfazer despacho inicial não reverte nó; Secretaria notificada e acessa link |
 | **H-JUL-03** | Modal devolutiva ainda permitia operador assinar como gestor |
+| **H-JUL-04** | Gestor setorial — 404 ao abrir demanda após assinatura operador |
+| **H-JUL-05** | Super OS — fila lista todas demandas, não só líder |
+| **H-JUL-06** | Super OS — seguidora com despacho inicial duplicado |
 
 ### Checklist reteste (marcar após correção)
 
@@ -265,6 +268,6 @@ DJANGO_SETTINGS_MODULE=config.settings_test python manage.py test \
 
 ---
 
-**Próximo passo:** Reteste RT-SEC + RT-ASS após deploy das correções H-JUL-01/02/03; em seguida **H-JUL-04** (gestor setorial 404). Gate piloto: **NO-GO** até reteste P0 e correção dos bloqueantes restantes.
+**Próximo passo:** Reteste RT-SEC + RT-ASS + RT-SOS após deploy H-JUL-01…06; em seguida **H-JUL-07** (indicações). Gate piloto: **NO-GO** até reteste P0/P1 e correção de H-JUL-07.
 
-**Última atualização:** 2026-08-03 — correções H-JUL-01/02/03 em dev; rodada browser pós-deploy `e9638c1` permanece NO-GO até reteste.
+**Última atualização:** 2026-08-03 — correções H-JUL-01…06 em dev; rodada browser pós-deploy `e9638c1` permanece NO-GO até reteste.

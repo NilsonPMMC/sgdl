@@ -269,13 +269,31 @@ const TIPOS_TRAMITACAO_PROTOCOLO_TIMELINE = new Set([
 ]);
 
 /** Inclui despachos do Protocolo ausentes na timeline operacional (ex.: filtro por líder). */
-export function mesclarTramitacoesProtocoloEditaveis(timeline, demandaId, tramitacoes) {
+export function mesclarTramitacoesProtocoloEditaveis(timeline, demandaId, tramitacoes, opts = {}) {
     const base = Array.isArray(timeline) ? [...timeline] : [];
     if (!Array.isArray(tramitacoes) || !tramitacoes.length) return base;
+    const demandaLiderId = opts.demandaLiderId ?? null;
     const ids = new Set(base.map((i) => String(i?.id ?? '')));
+    const temDespachoLider = base.some((item) => {
+        if (String(item?.tipo || '').toUpperCase() !== 'DESPACHO') return false;
+        if (demandaLiderId == null) return true;
+        return String(item?.demanda_id) === String(demandaLiderId);
+    });
     const extras = tramitacoesParaTimelineOperacional(tramitacoes, demandaId).filter((t) => {
         const tipo = String(t?.tipo || '').toUpperCase();
-        return TIPOS_TRAMITACAO_PROTOCOLO_TIMELINE.has(tipo) && !ids.has(String(t.id));
+        if (!TIPOS_TRAMITACAO_PROTOCOLO_TIMELINE.has(tipo) || ids.has(String(t.id))) {
+            return false;
+        }
+        if (tipo === 'DESPACHO') {
+            if (temDespachoLider) return false;
+            if (
+                demandaLiderId != null &&
+                String(demandaId) !== String(demandaLiderId)
+            ) {
+                return false;
+            }
+        }
+        return true;
     });
     return extras.length ? [...base, ...extras] : base;
 }

@@ -849,6 +849,19 @@ class ClusterService:
             qs = qs.exclude(pk__in=ids)
         return qs
 
+    def filtrar_listagem_por_perfil(
+        self, qs: QuerySet, *, perfil: str | None, fila: str = ""
+    ) -> QuerySet:
+        """Regras de listagem Super OS — secretaria e protocolo (fila protocolados)."""
+        fila_norm = (fila or "").strip().lower()
+        if perfil == "SECRETARIA":
+            return self.filtrar_listagem_apenas_lideres(qs)
+        if perfil == "PROTOCOLO":
+            if fila_norm == "protocolados":
+                return self.filtrar_listagem_apenas_lideres(qs)
+            return self.filtrar_seguidoras_integradas(qs)
+        return qs
+
     def exigir_lider_super_os(self, demanda: Demanda) -> None:
         """Levanta ValueError se a demanda não é a líder de um grupo Super OS ativo."""
         if self.grupo_super_os_ativo(demanda) and not self.eh_lider_super_os(demanda):

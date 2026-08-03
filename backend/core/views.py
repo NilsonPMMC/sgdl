@@ -546,16 +546,11 @@ class DemandaViewSet(viewsets.ModelViewSet):
 
     def _aplicar_filtros_cluster_listagem(self, qs):
         """Oculta seguidoras na listagem; retrieve/detalhe mantém escopo completo."""
+        from core.services.cluster_service import ClusterService
+
         perfil = getattr(self.request.user, "perfil", None)
-        if perfil == "SECRETARIA":
-            from core.services.cluster_service import ClusterService
-
-            return ClusterService().filtrar_listagem_apenas_lideres(qs)
-        if perfil == "PROTOCOLO":
-            from core.services.cluster_service import ClusterService
-
-            return ClusterService().filtrar_seguidoras_integradas(qs)
-        return qs
+        fila = (self.request.query_params.get("fila") or "").strip().lower()
+        return ClusterService().filtrar_listagem_por_perfil(qs, perfil=perfil, fila=fila)
 
     def get_queryset(self):
         qs = Demanda.objects.select_related(

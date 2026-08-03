@@ -53,7 +53,16 @@ class ConsultaHubService:
 
         req = _Req()
         req.user = user
-        filt = DemandaFilter(data=params, queryset=self._base_qs(user), request=req)
+        qs = aplicar_escopo_demanda(Demanda.objects.all(), user)
+        perfil = getattr(user, "perfil", None)
+        if perfil in ("SECRETARIA", "PROTOCOLO"):
+            from core.services.cluster_service import ClusterService
+
+            fila = (params.get("fila") or "").strip().lower()
+            qs = ClusterService().filtrar_listagem_por_perfil(
+                qs, perfil=perfil, fila=fila
+            )
+        filt = DemandaFilter(data=params, queryset=qs, request=req)
         if not filt.is_valid():
             return 0
         return filt.qs.count()
@@ -72,39 +81,98 @@ class ConsultaHubService:
         if perfil == "PROTOCOLO":
             from core.services.cluster_service import ClusterService
 
-            qs = ClusterService().filtrar_seguidoras_integradas(qs)
+            svc = ClusterService()
+            qs_protocolados = svc.filtrar_listagem_apenas_lideres(qs)
+            qs_demais = svc.filtrar_seguidoras_integradas(qs)
+            agg_prot = qs_protocolados.aggregate(
+                protocolados=Count("pk", filter=Q(status="AGUARDANDO_PROTOCOLO")),
+            )
+            agg_demais = qs_demais.aggregate(
+                operacionais=Count(
+                    "pk",
+                    filter=Q(
+                        status__in=(
+                            "PROTOCOLADO",
+                            "EM_EXECUCAO",
+                            "AGUARDANDO_TRANSFERENCIA",
+                        )
+                    ),
+                ),
+                devolutivas=Count(
+                    "pk",
+                    filter=Q(
+                        status__in=(
+                            "AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+                            "DEVOLVIDO_VEREADOR",
+                        )
+                    ),
+                ),
+                finalizados=Count("pk", filter=Q(status="FINALIZADO")),
+            )
+            protocolados = int(agg_prot["protocolados"] or 0)
+            operacionais = int(agg_demais["operacionais"] or 0)
+            devolutivas = int(agg_demais["devolutivas"] or 0)
+            finalizados = int(agg_demais["finalizados"] or 0)
         elif perfil == "SECRETARIA":
             from core.services.cluster_service import ClusterService
 
             qs = ClusterService().filtrar_listagem_apenas_lideres(qs)
+            agg = qs.aggregate(
+                protocolados=Count("pk", filter=Q(status="AGUARDANDO_PROTOCOLO")),
+                operacionais=Count(
+                    "pk",
+                    filter=Q(
+                        status__in=(
+                            "PROTOCOLADO",
+                            "EM_EXECUCAO",
+                            "AGUARDANDO_TRANSFERENCIA",
+                        )
+                    ),
+                ),
+                devolutivas=Count(
+                    "pk",
+                    filter=Q(
+                        status__in=(
+                            "AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+                            "DEVOLVIDO_VEREADOR",
+                        )
+                    ),
+                ),
+                finalizados=Count("pk", filter=Q(status="FINALIZADO")),
+            )
+            protocolados = int(agg["protocolados"] or 0)
+            operacionais = int(agg["operacionais"] or 0)
+            devolutivas = int(agg["devolutivas"] or 0)
+            finalizados = int(agg["finalizados"] or 0)
+        else:
+            agg = qs.aggregate(
+                protocolados=Count("pk", filter=Q(status="AGUARDANDO_PROTOCOLO")),
+                operacionais=Count(
+                    "pk",
+                    filter=Q(
+                        status__in=(
+                            "PROTOCOLADO",
+                            "EM_EXECUCAO",
+                            "AGUARDANDO_TRANSFERENCIA",
+                        )
+                    ),
+                ),
+                devolutivas=Count(
+                    "pk",
+                    filter=Q(
+                        status__in=(
+                            "AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
+                            "DEVOLVIDO_VEREADOR",
+                        )
+                    ),
+                ),
+                finalizados=Count("pk", filter=Q(status="FINALIZADO")),
+            )
+            protocolados = int(agg["protocolados"] or 0)
+            operacionais = int(agg["operacionais"] or 0)
+            devolutivas = int(agg["devolutivas"] or 0)
+            finalizados = int(agg["finalizados"] or 0)
 
-        agg = qs.aggregate(
-            protocolados=Count("pk", filter=Q(status="AGUARDANDO_PROTOCOLO")),
-            operacionais=Count(
-                "pk",
-                filter=Q(
-                    status__in=(
-                        "PROTOCOLADO",
-                        "EM_EXECUCAO",
-                        "AGUARDANDO_TRANSFERENCIA",
-                    )
-                ),
-            ),
-            devolutivas=Count(
-                "pk",
-                filter=Q(
-                    status__in=(
-                        "AGUARDANDO_DEVOLUTIVA_PROTOCOLO",
-                        "DEVOLVIDO_VEREADOR",
-                    )
-                ),
-            ),
-            finalizados=Count("pk", filter=Q(status="FINALIZADO")),
-        )
-        protocolados = int(agg["protocolados"] or 0)
-        operacionais = int(agg["operacionais"] or 0)
-        devolutivas = int(agg["devolutivas"] or 0)
-        finalizados = int(agg["finalizados"] or 0)
         atrasados = contar_demandas_atrasadas(
             qs.filter(
                 status__in=(

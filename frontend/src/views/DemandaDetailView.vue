@@ -47,6 +47,7 @@ import {
     aplicarAtualizacaoTramitacaoLocal,
     mesclarTramitacoesProtocoloEditaveis,
     sincronizarTramitacoesNaTimeline,
+    timelineOperacionalOrdenada,
     tramitacoesParaTimelineOperacional
 } from '@/constants/operacionalEstado';
 import OperacionalTimeline from '@/components/demanda/OperacionalTimeline.vue';
@@ -499,6 +500,13 @@ const usaTimelineOperacional = computed(() => {
 });
 
 /** Timeline operacional — estado API (cluster unificado) ou tramitações locais / fallback vereador. */
+const demandaLiderOperacionalId = computed(
+    () =>
+        estadoOperacional.value?.demanda_lider_id ||
+        demanda.value?.super_os?.lider_id ||
+        demanda.value?.id
+);
+
 const timelineOperacionalExibicao = computed(() => {
     const estado = estadoOperacional.value?.timeline;
     let base = [];
@@ -532,13 +540,17 @@ const timelineOperacionalExibicao = computed(() => {
         base = mesclarTramitacoesProtocoloEditaveis(
             base,
             demanda.value.id,
-            demanda.value.tramitacoes
+            demanda.value.tramitacoes,
+            { demandaLiderId: demandaLiderOperacionalId.value }
         );
     }
     if (!isVereador.value && demanda.value?.tramitacoes?.length && base.length) {
         base = sincronizarTramitacoesNaTimeline(base, demanda.value.tramitacoes);
     }
-    return base;
+    return timelineOperacionalOrdenada(base, {
+        demandaAtualId: demanda.value?.id,
+        demandaLiderId: demandaLiderOperacionalId.value
+    });
 });
 
 /** Despachos do Protocolo editáveis que ainda não entraram na timeline exibida. */

@@ -1391,8 +1391,7 @@ class OperacionalEstadoService:
             ):
                 continue
             if tram.tipo == EventoOperacional.DESPACHO and tram.demanda_id != lider.pk:
-                if perfil_usuario(usuario) not in ("PROTOCOLO", "GESTOR", "ADMIN"):
-                    continue
+                continue
             if tram.tipo == EventoOperacional.CONCLUSAO_FINAL:
                 if conclusao_final_incluida:
                     continue
