@@ -2,6 +2,7 @@
 
 from django.test import SimpleTestCase
 
+from core.services.scatter_gather_service import _resumo_texto
 from core.services.tramitacao_texto import descricao_tramitacao_para_exibicao
 
 
@@ -20,3 +21,15 @@ class TramitacaoTextoTests(SimpleTestCase):
 
     def test_vazio(self):
         self.assertEqual(descricao_tramitacao_para_exibicao(""), {"modo": "vazio"})
+
+
+class ResumoTextoScatterTests(SimpleTestCase):
+    def test_resumo_texto_curto(self):
+        self.assertEqual(_resumo_texto("Despacho inicial"), "Despacho inicial")
+
+    def test_resumo_texto_longo_nao_retorna_none(self):
+        longo = "x" * 250
+        resumo = _resumo_texto(longo)
+        self.assertIsNotNone(resumo)
+        self.assertLessEqual(len(resumo), 200)
+        self.assertTrue(resumo.endswith("…"))

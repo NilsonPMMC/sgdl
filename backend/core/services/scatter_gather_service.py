@@ -114,7 +114,7 @@ def _resumo_texto(descricao: str, max_len: int = 200) -> str:
     texto = re.sub(r"\s+", " ", texto).strip()
     if len(texto) <= max_len:
         return texto
-        return texto[: max_len - 1].rstrip() + "…"
+    return texto[: max_len - 1].rstrip() + "…"
 
 
 def _nome_setor_unidade(uid: int | None) -> str | None:
@@ -482,7 +482,7 @@ class NoOperacionalService:
             demanda.tramitacoes.filter(tipo="DESPACHO").order_by("-timestamp").first()
         )
         if tram_despacho and (tram_despacho.descricao or "").strip():
-            resumo = _resumo_texto(tram_despacho.descricao)
+            resumo = _resumo_texto(tram_despacho.descricao) or ""
             if len(resumo) >= 10:
                 return resumo
         orgao = sinapse_catalog.get_orgao_nome(int(no.sinapse_orgao_id)) or str(no.sinapse_orgao_id)
