@@ -687,12 +687,16 @@ const modoAssinaturaDespachoInicial = computed(() =>
 );
 
 const modoAssinaturaDevolutiva = computed(() => {
-    const previewModo = devolutivaPreview.value?.modo_assinatura;
-    if (previewModo) return previewModo;
     const ctx = demandaParaDevolutiva.value?.fluxo_roteamento
         ? CONTEXTO_ASSINATURA.CONCLUSAO_FINAL
         : CONTEXTO_ASSINATURA.DEVOLUTIVA;
-    return modoPainelAssinaturaProtocolo(ctx, userStore.currentUser, userStore);
+    const painel = modoPainelAssinaturaProtocolo(ctx, userStore.currentUser, userStore);
+    const previewModo = devolutivaPreview.value?.modo_assinatura;
+    if (previewModo === 'dual_protocolo' && painel === MODO_PAINEL_ASSINATURA.OPERADOR_APENAS) {
+        return painel;
+    }
+    if (previewModo && previewModo !== 'dual_protocolo') return previewModo;
+    return painel;
 });
 
 const extrairMensagemErro = (error) => {
@@ -1566,10 +1570,10 @@ const executarDevolutivaComAssinatura = async (payloadAssinatura) => {
         }
         toast.add({
             severity: 'success',
-            summary: usaConclusaoFinal ? 'Conclusão final registrada' : 'Devolutiva enviada',
+            summary: usaConclusaoFinal ? 'Conclusão final registrada' : 'Devolutiva registrada',
             detail: usaConclusaoFinal
                 ? 'Assinatura registrada. Após validação do gestor do protocolo, a demanda será finalizada.'
-                : 'Demanda finalizada e vereador notificado.',
+                : 'Assinatura registrada. A devolutiva só será enviada ao vereador após validação do gestor.',
             life: 4000
         });
         assinaturaDevolutivaDialogVisible.value = false;

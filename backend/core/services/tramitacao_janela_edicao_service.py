@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.utils import timezone
 
 from core.models import Tramitacao
@@ -97,24 +97,38 @@ class TramitacaoJanelaEdicaoService:
         tramitacao.save(update_fields=["editavel_ate"])
 
     @classmethod
+    def _usuario_e_autor(cls, usuario, tramitacao: Tramitacao) -> bool:
+        uid = getattr(usuario, "id", None)
+        if uid is None:
+            return False
+        return tramitacao.responsavel_id == uid
+
+    @classmethod
+    def _usuario_admin_suporte(cls, usuario) -> bool:
+        return bool(getattr(usuario, "is_superuser", False)) or getattr(
+            usuario, "perfil", None
+        ) == "ADMIN"
+
+    @classmethod
     def _usuario_pode_acessar_correcao(cls, usuario, tramitacao: Tramitacao) -> bool:
         from core.services.demanda_visibilidade import usuario_pode_acessar_demanda
 
         if not usuario_pode_acessar_demanda(usuario, tramitacao.demanda):
             return False
-        perfil = getattr(usuario, "perfil", None)
-        if perfil in ("PROTOCOLO", "GESTOR", "SECRETARIA", "ADMIN") or getattr(
-            usuario, "is_staff", False
-        ):
+        if cls._usuario_e_autor(usuario, tramitacao):
             return True
-        return tramitacao.responsavel_id == getattr(usuario, "id", None)
+        return cls._usuario_admin_suporte(usuario)
 
     @classmethod
     def usuario_pode_corrigir_pendente_gestor(cls, usuario, tramitacao: Tramitacao) -> bool:
         if not cls.tramitacao_aguardando_gestor(tramitacao):
             return False
+        if cls._usuario_e_autor(usuario, tramitacao):
+            return True
+
         from core.models_assinatura_eletronica import AssinaturaValidacaoGestor
 
+        uid = getattr(usuario, "id", None)
         validacao = (
             AssinaturaValidacaoGestor.objects.filter(
                 tramitacao=tramitacao,
@@ -132,13 +146,9 @@ class TramitacaoJanelaEdicaoService:
                 .order_by("-criado_em")
                 .first()
             )
-        if validacao is None:
-            if cls._meta(tramitacao).get("aguardando_validacao_gestor"):
-                return cls._usuario_pode_acessar_correcao(usuario, tramitacao)
-            return False
-        if validacao.operador_id == getattr(usuario, "id", None):
+        if validacao is not None and validacao.operador_id == uid:
             return True
-        return cls._usuario_pode_acessar_correcao(usuario, tramitacao)
+        return cls._usuario_admin_suporte(usuario)
 
     @classmethod
     def usuario_pode_corrigir(cls, usuario, tramitacao: Tramitacao) -> bool:
@@ -308,7 +318,7 @@ class TramitacaoJanelaEdicaoService:
         cls._reverter_efeitos_protocolo(tramitacao)
         cls.remover_copias_cluster(tramitacao)
         tramitacao.delete()
-        cls._reverter_estado_demanda(demanda, tipo=tipo, meta=meta)
+        cls._reverter_estado_demanda(demanda, tipo=tipo, meta=meta, tramitacao_id=tramitacao_id)
 
     @staticmethod
     def _limpar_assinaturas(tramitacao_id: int | None) -> None:
@@ -421,6 +431,57 @@ class TramitacaoJanelaEdicaoService:
         tram.delete()
 
     @classmethod
+    def _excluir_no_bootstrap(cls, no, tramitacao_origem_id: int) -> None:
+        abertura_id = no.abertura_tramitacao_id
+        if abertura_id and abertura_id != tramitacao_origem_id:
+            cls._limpar_assinaturas(abertura_id)
+            Tramitacao.objects.filter(pk=abertura_id).delete()
+        no.delete()
+
+    @classmethod
+    def _reverter_despacho_inicial_protocolo(cls, tramitacao: Tramitacao) -> None:
+        """Desfaz efeitos do despacho inicial: nós bootstrap, assinaturas e notificações."""
+        from core.models_assinatura_eletronica import AssinaturaEletronica
+        from core.models_no_operacional import NoOperacional
+        from core.models_perna_operacional import PernaOperacional
+        from core.services.notificacao_service import NotificacaoService
+        from core.services.scatter_gather_service import NoOperacionalService
+
+        demanda = tramitacao.demanda
+        tramitacao_id = tramitacao.pk
+        perna_ids = list(
+            PernaOperacional.objects.filter(despacho_tramitacao_id=tramitacao_id).values_list(
+                "pk", flat=True
+            )
+        )
+
+        nos = NoOperacional.objects.filter(demanda_id=demanda.pk)
+        if perna_ids:
+            nos = nos.filter(
+                models.Q(perna_operacional_id__in=perna_ids)
+                | models.Q(metadata__origem__in=("bootstrap_perna", "bootstrap_sem_pernas"))
+            )
+        else:
+            nos = nos.filter(
+                metadata__origem__in=("bootstrap_perna", "bootstrap_sem_pernas")
+            )
+
+        for no in list(nos):
+            cls._excluir_no_bootstrap(no, tramitacao_id)
+
+        NoOperacionalService().sincronizar_contador_nos(demanda)
+
+        AssinaturaEletronica.objects.filter(
+            demanda=demanda,
+            etapa=AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+        ).delete()
+
+        NotificacaoService().cancelar_notificacoes_pos_despacho_inicial(
+            demanda,
+            referencia=tramitacao.timestamp,
+        )
+
+    @classmethod
     def _reverter_efeitos_protocolo(cls, tramitacao: Tramitacao) -> None:
         from core.models_perna_operacional import PernaOperacional, StatusPernaOperacional
 
@@ -428,6 +489,7 @@ class TramitacaoJanelaEdicaoService:
         meta = tramitacao.metadata if isinstance(tramitacao.metadata, dict) else {}
 
         if tramitacao.tipo == "DESPACHO" and meta.get("etapa") == "DESPACHO_PROTOCOLO":
+            cls._reverter_despacho_inicial_protocolo(tramitacao)
             PernaOperacional.objects.filter(despacho_tramitacao_id=tramitacao_id).delete()
 
         if tramitacao.tipo == "CONCLUSAO_FINAL":
@@ -466,13 +528,37 @@ class TramitacaoJanelaEdicaoService:
         )
 
     @staticmethod
-    def _reverter_estado_demanda(demanda, *, tipo: str, meta: dict) -> None:
+    def _reverter_estado_demanda(
+        demanda,
+        *,
+        tipo: str,
+        meta: dict,
+        tramitacao_id: int | None = None,
+    ) -> None:
+        del tramitacao_id
         update_fields: list[str] = []
 
         if tipo == "DESPACHO" and meta.get("etapa") == "DESPACHO_PROTOCOLO":
             if demanda.status in ("PROTOCOLADO", "EM_EXECUCAO", "EM_OPERACAO"):
                 demanda.status = "AGUARDANDO_PROTOCOLO"
                 update_fields.append("status")
+            for campo, valor in (
+                ("fluxo_roteamento", ""),
+                ("sinapse_orgao_lider_id", None),
+                ("modo_entrada_processo", ""),
+                ("orquestrador_conclusao", ""),
+                ("inicio_execucao_automatico", False),
+                ("protocolo_executivo", None),
+                ("data_inicio_prazo", None),
+                ("prazo_efetivo_dias", None),
+                ("prazo_origem", ""),
+                ("sinapse_orgao_id", None),
+                ("unidade_administrativa", None),
+                ("nos_ativos", 0),
+            ):
+                if getattr(demanda, campo) != valor:
+                    setattr(demanda, campo, valor)
+                    update_fields.append(campo)
 
         if tipo == "CONCLUSAO_FINAL":
             if demanda.status == "FINALIZADO":

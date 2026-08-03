@@ -17,6 +17,7 @@ ACAO_DESPACHO_INICIAL = "DESPACHO_INICIAL"
 ACAO_CONCLUSAO_SECRETARIA = "CONCLUSAO_SECRETARIA"
 ACAO_CONCLUSAO_SECRETARIA_FLUXO_DIRETO = "CONCLUSAO_SECRETARIA_FLUXO_DIRETO"
 ACAO_CONCLUSAO_FINAL = "CONCLUSAO_FINAL"
+ACAO_DESPACHO_DEVOLUTIVA = "DESPACHO_DEVOLUTIVA"
 ACAO_SCATTER_ENCERRAR = "SCATTER_ENCERRAR"
 ACAO_SCATTER_DESPACHAR_ENCERRAR = "SCATTER_DESPACHAR_ENCERRAR"
 
@@ -42,6 +43,8 @@ class AssinaturaEtapaExecutorService:
             ACAO_CONCLUSAO_SECRETARIA_FLUXO_DIRETO: self._executar_conclusao_secretaria_fluxo_direto,
             ACAO_CONCLUSAO_FINAL: self._executar_conclusao_final,
             AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL: self._executar_conclusao_final,
+            ACAO_DESPACHO_DEVOLUTIVA: self._executar_despacho_devolutiva,
+            AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA: self._executar_despacho_devolutiva,
             ACAO_SCATTER_ENCERRAR: self._executar_scatter_encerrar,
             ACAO_SCATTER_DESPACHAR_ENCERRAR: self._executar_scatter_despachar_encerrar,
             AssinaturaEletronica.ETAPA_OPERACAO_SCATTER: self._executar_scatter_encerrar,
@@ -174,6 +177,88 @@ class AssinaturaEtapaExecutorService:
                 parecer=parecer,
                 payload=payload["resultado_operacional"],
             )
+        return {"demanda_id": demanda.pk, "status": demanda.status}
+
+    def _executar_despacho_devolutiva(
+        self,
+        validacao: AssinaturaValidacaoGestor,
+        payload: dict[str, Any],
+        *,
+        request=None,
+    ) -> dict[str, Any]:
+        from core.services.devolutiva_protocolo_service import (
+            DevolutivaProtocoloService,
+            _parse_destinos,
+            _parse_ids,
+        )
+
+        demanda = self._demanda(validacao)
+        operador = validacao.operador
+        parecer = str(payload.get("parecer_resposta") or "")
+        tram_pendente = validacao.tramitacao
+
+        if demanda.fluxo_roteamento:
+            raise ValueError(
+                "Devolutiva clássica não se aplica a demandas com fluxo operacional roteado."
+            )
+        if demanda.status != "AGUARDANDO_DEVOLUTIVA_PROTOCOLO":
+            raise ValueError("Demanda não está aguardando devolutiva no Protocolo.")
+
+        svc = DevolutivaProtocoloService()
+        tram = tram_pendente
+        if not tram:
+            autor = demanda.autor.get_full_name() or demanda.autor.username
+            tram = Tramitacao.objects.create(
+                demanda=demanda,
+                responsavel=operador,
+                tipo="DEVOLUTIVA_PROTOCOLO",
+                descricao=(
+                    f"Protocolo despachou devolutiva ao vereador ({autor}).\n"
+                    f"Resposta:\n{parecer}"
+                ),
+                metadata={"parecer": parecer},
+            )
+        else:
+            meta = dict(tram.metadata or {})
+            meta.pop("aguardando_validacao_gestor", None)
+            meta.setdefault("parecer", parecer)
+            tram.metadata = meta
+            tram.save(update_fields=["metadata"])
+
+        anexos_ids = _parse_ids(payload.get("anexos_tramitacao_ids"))
+        alerta_destinos = _parse_destinos(payload.get("alerta_destinos"))
+        staging_id = payload.get("tramitacao_staging_id")
+        arquivos = None
+        if tram_pendente:
+            arquivos = list(tram_pendente.anexos.all())
+        elif staging_id:
+            staging = Tramitacao.objects.filter(pk=int(staging_id)).first()
+            if staging:
+                arquivos = list(staging.anexos.all())
+
+        svc.complementar_tramitacao_devolutiva(
+            tram,
+            demanda,
+            operador,
+            arquivos_anexos=arquivos or None,
+            anexos_tramitacao_ids=anexos_ids or None,
+            alerta_destinos=alerta_destinos or None,
+        )
+        if staging_id and not tram_pendente:
+            Tramitacao.objects.filter(pk=int(staging_id)).delete()
+
+        svc.finalizar_apos_despacho_protocolo(demanda, operador)
+
+        from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
+
+        TramitacaoJanelaEdicaoService.finalizar_apos_validacao_gestor(tram)
+
+        demanda.refresh_from_db()
+        logger.info(
+            "Devolutiva executada após gestor demanda=%s validacao=%s",
+            demanda.pk,
+            validacao.pk,
+        )
         return {"demanda_id": demanda.pk, "status": demanda.status}
 
     def _executar_conclusao_final(

@@ -5,24 +5,27 @@
 
 **Data do registro:** 2026-07-31  
 **Ambiente:** homologação operacional  
-**Commit de referência:** ver `git log` após push deste pacote
+**Commit de referência:** `e9638c1` (push 31/jul/2026) · correções P0 **H-JUL-01/02/03** em dev (2026-08-03, commit pendente de tag após push)  
+**Reteste pós-deploy:** [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md) — **NO-GO** (31/jul tarde); reteste RT-SEC + RT-ASS pendente após deploy 2026-08-03
 
 ---
 
 ## Resumo executivo
 
-| # | Tema | Status | Commit |
-|---|------|--------|--------|
-| 1 | Gestor setorial — visibilidade pós-assinatura (fechar nó) | **Concluído** | neste pacote |
-| 2 | Duplicidade tramitação no despacho final | **Concluído** | neste pacote |
-| 3 | Placeholders nos formulários de tramitação | **Concluído** | neste pacote |
-| 4 | Despacho Super OS — só líder + integração seguidoras | **Concluído** (fase 1) | neste pacote |
-| 5 | Despacho inicial — sem validação gestor | **Concluído** | neste pacote |
-| 6 | Despacho final — operador assina; gestor valida depois | **Concluído** | neste pacote |
-| 7 | Indicações — vereadores vinculados acompanham processo | **Parcial** | neste pacote |
-| 8 | Copiloto / mapa — CEP após ajuste de pin | **Concluído** | neste pacote |
+| # | Tema | Status dev | Reteste 31/jul | Commit |
+|---|------|------------|----------------|--------|
+| 1 | Gestor setorial — visibilidade pós-assinatura (fechar nó) | Entregue | **Falhou** (404) — H-JUL-04 | `e9638c1` |
+| 2 | Duplicidade tramitação no despacho final | Entregue | **Falhou** — H-JUL-12, H-JUL-18 | `e9638c1` |
+| 3 | Placeholders nos formulários de tramitação | Entregue | **Falhou** — H-JUL-08, H-JUL-09 | `e9638c1` |
+| 4 | Despacho Super OS — só líder + integração seguidoras | Entregue (fase 1) | **Falhou** — H-JUL-05, H-JUL-06 | `e9638c1` |
+| 5 | Despacho inicial — sem validação gestor | Entregue | **Corrigido dev** — H-JUL-02 *(reteste)* | 2026-08-03 |
+| 6 | Despacho final — operador assina; gestor valida depois | Entregue | **Corrigido dev** — H-JUL-03 *(reteste)*; H-JUL-10/11 pendentes | 2026-08-03 |
+| 7 | Indicações — vereadores vinculados acompanham processo | Parcial | **Falhou** — só notificação OK (H-JUL-07) | `e9638c1` |
+| 8 | Copiloto / mapa — CEP após ajuste de pin | Entregue | **Parcial** — intermitente + busca logradouro (H-JUL-13/14) | `e9638c1` |
 
-**Extras no mesmo pacote (sessão anterior):** analítico do mapa operacional alinhado aos pinos georreferenciados (`MapaCalorView` + `mapa_demanda_service`).
+**Extras no mesmo pacote:** mapa analítico alinhado aos pinos — **não retestado** nesta rodada.
+
+**Bloqueante adicional (janela CRUD 60 s):** Protocolo edita/desfaz despacho de Secretaria — **H-JUL-01** — **corrigido dev 2026-08-03** *(reteste pendente)*.
 
 ---
 
@@ -34,6 +37,7 @@
 | **Causa** | Assimetria entre quem recebe `ASSINATURA_PENDENTE` e regras de `usuario_pode_acessar_demanda` / fila operacional |
 | **Correção** | `demanda_visibilidade.py`: grant explícito via `demanda_ids_com_validacao_gestor_pendente` (usa `usuario_pode_validar_assinatura_gestor`) |
 | **Validar** | Gestor setorial: notificação → abrir demanda → validar em Assinaturas pendentes |
+| **Reteste 31/jul** | **Falhou** — 404 após assinatura operador; verificar escopo fila devolutivas + deep link (H-JUL-04) |
 
 ---
 
@@ -45,6 +49,7 @@
 | **Causa** | `CONCLUSAO_FINAL` + `ENCERRAMENTO_DEVOLUTIVA` automático exibidos em sequência |
 | **Correção** | `operacional_estado_service.montar_timeline_operacional`: ocultar `ENCERRAMENTO_DEVOLUTIVA` quando já existe `CONCLUSAO_FINAL` |
 | **Validar** | Demanda com fluxo operacional finalizado — uma conclusão final visível na timeline |
+| **Reteste 31/jul** | **Falhou** — scatter-gather duplicado; placeholders literais na timeline (H-JUL-12) |
 
 ---
 
@@ -56,6 +61,8 @@
 | **Causa** | PrimeVue `Editor` não sincroniza `modelValue` programático |
 | **Correção** | `DescricaoTramitacaoEditor.vue`: remount via `editorEpoch` após inserir placeholder ou aplicar modelo |
 | **Validar** | Formulário de tramitação → clicar placeholder → texto aparece; aplicar modelo → corpo substituído |
+| **Reteste 31/jul** | **Falhou** — editor vazio ao inserir chip; publicação mantém `{{...}}` (H-JUL-08, H-JUL-09) |
+| **Nota operador** | Toolbar Quill (Heading, B/I/U) visível = editor carregado; corpo escuro/vazio = bug de sync |
 
 ---
 
@@ -67,6 +74,7 @@
 | **Correção** | `cluster_despacho_service.py`: protocola **apenas o líder**; seguidoras integradas via `ClusterAderenciaService.integrar_seguidoras_sem_protocolo_ao_operacional` |
 | **Pendente (fase 2)** | Despacho personalizado com dados por demanda (ex. nome do solicitante) — requer evolução de template |
 | **Validar** | Super OS: só líder na fila Protocolo; seguidoras espelhadas ao processo líder |
+| **Reteste 31/jul** | **Falhou** — fila lista todas; seguidora com 2 despachos iniciais; detalhe cluster HTML cru e metadados da última vinculada (H-JUL-05, H-JUL-06, H-JUL-15, H-JUL-16) |
 
 ---
 
@@ -77,6 +85,9 @@
 | **Regra acordada** | Apenas operador Protocolo assina; despacho executado na hora |
 | **Correção** | `registrar_assinaturas_despacho_inicial`: execução imediata via `DemandaDespachoService.despachar_multiplo`; preview com `requer_validacao_gestor: false` |
 | **Validar** | Despacho manual: operador assina → demanda protocolada sem fila de gestor SGAC |
+| **Reteste 31/jul** | **Parcial** — assinatura OK; **Desfazer** não revertia nó *(H-JUL-02)* |
+| **Correção 2026-08-03** | `tramitacao_janela_edicao_service._reverter_despacho_inicial_protocolo`: remove nós bootstrap, pernas, assinaturas e cancela notificações pós-despacho |
+| **Reteste** | Pendente em homologação (RT-SEC) |
 
 ---
 
@@ -85,8 +96,11 @@
 | Campo | Valor |
 |-------|-------|
 | **Regra acordada** | Operador Protocolo assina → tramitação pendente → gestor SGAC valida em fila separada |
-| **Correção** | Frontend: `modoPainelAssinaturaProtocolo` → `operador_apenas` para devolutiva/conclusão; `DemandasView` usa `conclusaoFinalOperacional` quando `fluxo_roteamento`; `buildDevolutivaPayload` com modo operador |
+| **Correção** | Frontend: `modoPainelAssinaturaProtocolo` → `operador_apenas`; backend: `registrar_assinaturas_despacho_devolutiva` com validação gestor assíncrona (padrão conclusão final); executor `_executar_despacho_devolutiva` |
 | **Validar** | Lista e detalhe: operador assina → pendente gestor → validação em Assinaturas pendentes |
+| **Reteste 31/jul** | **Falhou** — modal ainda permitia operador assinar como gestor *(H-JUL-03)*; pendente visível a todos na timeline (H-JUL-10); gestor protocolo erro 400 na conclusão (H-JUL-11) |
+| **Correção 2026-08-03** | Backend devolve `operador_apenas`; devolutiva não executa imediatamente — `aguardando_validacao_gestor: true` até gestor SGAC validar |
+| **Reteste** | Pendente em homologação (RT-ASS) |
 
 ---
 
@@ -98,6 +112,7 @@
 | **Já existia** | `DemandaVereadorVinculo`, escopo VEREADOR, `filtro_demandas_por_vereador`, `interessados_legislativos` |
 | **Ajuste neste pacote** | `notificar_despacho_inicial_super_os` passa a usar `interessados_legislativos` (Câmara + vereadores vinculados) |
 | **Validar** | Indicação protocolada: vereador vinculado vê demanda, recebe notificação de andamento, aparece no dashboard/mapa |
+| **Reteste 31/jul** | **Falhou** — notificação OK; lista, dashboard e mapa **sem** indicação (H-JUL-07) |
 | **Risco** | Vínculos não materializados no Copiloto → vereador não acompanha; conferir `sincronizar_vinculos_vereador` na criação |
 
 ---
@@ -110,6 +125,7 @@
 | **Causa** | Cache local `enderecoFormCopiloto` desatualizado após reverse geocode |
 | **Correção** | `CopilotoView.ajustarMapaCopiloto`: sincroniza formulário com resposta da API; GPS avança fluxo para anexos (`chatbot_service` + frontend) |
 | **Validar** | Copiloto: ajustar pin → CEP/endereço atualizam; GPS → etapa anexos |
+| **Reteste 31/jul** | **Parcial** — atualização intermitente; busca logradouro na revisão não aceita espaço (H-JUL-13, H-JUL-14) |
 
 ---
 
@@ -120,6 +136,8 @@
 | **Sintoma** | Painel analítico incluía demandas sem geocoordenadas («Sem bairro») |
 | **Correção** | Agregação somente a partir de `serializar_locations`; frontend calcula analítico da mesma lista dos pinos |
 | **Validar** | Total analítico = quantidade de pinos no mapa |
+| **Reteste 31/jul** | Não executado nesta rodada |
+| **Backlog UX** | Filtro «demandas atrasadas» no mapa operacional (H-JUL-19) |
 
 ---
 

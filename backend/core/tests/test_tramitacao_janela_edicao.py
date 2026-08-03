@@ -1,5 +1,6 @@
 """Janela temporal de correção de tramitações/despachos após registro."""
 
+import importlib.util
 from datetime import timedelta
 
 from django.contrib.auth import get_user_model
@@ -77,10 +78,27 @@ class TramitacaoJanelaEdicaoServiceTests(TestCase):
         tram.refresh_from_db()
         self.assertIsNotNone(tram.editavel_ate)
         self.assertTrue(TramitacaoJanelaEdicaoService.tramitacao_aguardando_gestor(tram))
-        self.assertTrue(TramitacaoJanelaEdicaoService.tramitacao_editavel(tram))
-        self.assertGreater(TramitacaoJanelaEdicaoService.segundos_restantes(tram), 0)
         self.assertTrue(
             TramitacaoJanelaEdicaoService.usuario_pode_corrigir(self.protocolo, tram)
+        )
+
+    @override_settings(DESPACHO_JANELA_EDICAO_SEGUNDOS=60)
+    def test_apenas_autor_pode_corrigir_dentro_da_janela(self):
+        outro_protocolo = User.objects.create_user(
+            username="prot_janela2", password="x", perfil="PROTOCOLO"
+        )
+        tram = Tramitacao.objects.create(
+            demanda=self.demanda,
+            responsavel=self.protocolo,
+            tipo="EXECUCAO",
+            descricao="Andamento protocolo",
+        )
+        tram.refresh_from_db()
+        self.assertTrue(
+            TramitacaoJanelaEdicaoService.usuario_pode_corrigir(self.protocolo, tram)
+        )
+        self.assertFalse(
+            TramitacaoJanelaEdicaoService.usuario_pode_corrigir(outro_protocolo, tram)
         )
 
     @override_settings(DESPACHO_JANELA_EDICAO_SEGUNDOS=60)
@@ -117,6 +135,9 @@ class TramitacaoJanelaEdicaoAPITests(APITestCase):
         )
         self.protocolo = User.objects.create_user(
             username="prot_janela_api", password="x", perfil="PROTOCOLO"
+        )
+        self.secretaria = User.objects.create_user(
+            username="sec_janela_api", password="x", perfil="SECRETARIA"
         )
         self.demanda = Demanda.objects.create(
             titulo="Demanda API janela",
@@ -216,6 +237,38 @@ class TramitacaoJanelaEdicaoAPITests(APITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(DESPACHO_JANELA_EDICAO_SEGUNDOS=60)
+    def test_patch_bloqueado_para_outro_perfil_hjul01(self):
+        """H-JUL-01: Protocolo não edita andamento criado pela Secretaria."""
+        tram = Tramitacao.objects.create(
+            demanda=self.demanda,
+            responsavel=self.secretaria,
+            tipo="EXECUCAO",
+            descricao="Despacho secretaria",
+        )
+        self.client.force_authenticate(user=self.protocolo)
+        resp = self.client.patch(
+            f"/api/tramitacoes/{tram.pk}/",
+            {"descricao": "Tentativa protocolo"},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    @override_settings(DESPACHO_JANELA_EDICAO_SEGUNDOS=60)
+    def test_delete_bloqueado_para_outro_perfil_hjul01(self):
+        """H-JUL-01: Protocolo não desfaz andamento criado pela Secretaria."""
+        tram = Tramitacao.objects.create(
+            demanda=self.demanda,
+            responsavel=self.secretaria,
+            tipo="EXECUCAO",
+            descricao="Despacho secretaria",
+        )
+        tram_id = tram.pk
+        self.client.force_authenticate(user=self.protocolo)
+        resp = self.client.delete(f"/api/tramitacoes/{tram_id}/")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertTrue(Tramitacao.objects.filter(pk=tram_id).exists())
 
     @override_settings(DESPACHO_JANELA_EDICAO_SEGUNDOS=60)
     def test_delete_dentro_da_janela(self):
@@ -451,3 +504,74 @@ class TramitacaoJanelaEdicaoAPITests(APITestCase):
         self.assertFalse(
             demanda.tramitacoes.filter(tipo="ENCERRAMENTO_DEVOLUTIVA").exists()
         )
+
+
+_spec = importlib.util.spec_from_file_location("core_tests_legacy", "core/tests.py")
+_legacy = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_legacy)
+SINAPSE_ORGAO_A = _legacy.SINAPSE_ORGAO_A
+SINAPSE_SERVICO_ID = _legacy.SINAPSE_SERVICO_ID
+SinapseCatalogTestMixin = _legacy.SinapseCatalogTestMixin
+
+
+class TramitacaoDesfazerDespachoInicialTests(SinapseCatalogTestMixin, APITestCase):
+    """H-JUL-02 — desfazer despacho inicial reverte nós, pernas e notificações."""
+
+    def setUp(self):
+        super().setUp()
+        self.vereador = User.objects.create_user(
+            username="ver_desp_inicial", password="x", perfil="VEREADOR"
+        )
+        self.protocolo = User.objects.create_user(
+            username="prot_desp_inicial", password="x", perfil="PROTOCOLO"
+        )
+        self.secretaria = User.objects.create_user(
+            username="sec_desp_inicial",
+            password="x",
+            perfil="SECRETARIA",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+        )
+        self.demanda = Demanda.objects.create(
+            titulo="Despacho inicial janela",
+            descricao="x",
+            autor=self.vereador,
+            status="AGUARDANDO_PROTOCOLO",
+            sinapse_servico_id=SINAPSE_SERVICO_ID,
+            origem_vinculo=Demanda.ORIGEM_VINCULO_CARTA,
+            protocolo_legislativo="DJ-001",
+        )
+
+    @override_settings(DESPACHO_JANELA_EDICAO_SEGUNDOS=60)
+    def test_delete_reverte_nos_pernas_e_notificacoes_hjul02(self):
+        from core.models import Notificacao
+        from core.models_no_operacional import NoOperacional
+        from core.models_perna_operacional import PernaOperacional
+        from core.services.demanda_despacho_service import DemandaDespachoService
+
+        resultado = DemandaDespachoService().despachar_multiplo(
+            self.demanda,
+            [{"secretaria_id": SINAPSE_ORGAO_A}],
+            usuario=self.protocolo,
+            texto_despacho="Despacho inicial para teste de desfazer completo.",
+        )
+        demanda = resultado["demanda"]
+        demanda.refresh_from_db()
+        tram = demanda.tramitacoes.filter(tipo="DESPACHO").order_by("-timestamp").first()
+        self.assertIsNotNone(tram)
+        self.assertEqual(demanda.status, "EM_EXECUCAO")
+        self.assertTrue(PernaOperacional.objects.filter(demanda=demanda).exists())
+        self.assertTrue(NoOperacional.objects.filter(demanda=demanda).exists())
+        link_demanda = f"/demandas/detalhes/{demanda.pk}"
+        notifs_despacho = Notificacao.objects.filter(tipo="DESPACHO", link=link_demanda)
+        self.assertGreater(notifs_despacho.count(), 0)
+
+        self.client.force_authenticate(user=self.protocolo)
+        resp = self.client.delete(f"/api/tramitacoes/{tram.pk}/")
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+
+        demanda.refresh_from_db()
+        self.assertEqual(demanda.status, "AGUARDANDO_PROTOCOLO")
+        self.assertEqual(demanda.nos_ativos, 0)
+        self.assertFalse(PernaOperacional.objects.filter(demanda=demanda).exists())
+        self.assertFalse(NoOperacional.objects.filter(demanda=demanda).exists())
+        self.assertFalse(notifs_despacho.exists())

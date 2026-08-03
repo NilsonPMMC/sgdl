@@ -1550,32 +1550,42 @@ class DemandaViewSet(viewsets.ModelViewSet):
         arquivos = request.FILES.getlist("arquivos_anexos") or request.FILES.getlist("anexos")
         anexos_ids = _parse_ids(request.data.get("anexos_tramitacao_ids"))
         alerta_destinos = _parse_destinos(request.data.get("alerta_destinos"))
+        assinatura_apenas_gestor = bool(request.data.get("assinatura_apenas_gestor"))
         try:
             with transaction.atomic():
                 assinatura_svc = AssinaturaEletronicaService()
-                pending = assinatura_svc._validar_hash_pending(
-                    int(demanda.pk),
-                    "DESPACHO_DEVOLUTIVA",
-                    request.data.get("hash_documento"),
+                contexto = {
+                    "parecer_resposta": parecer,
+                    "anexos_tramitacao_ids": anexos_ids,
+                    "alerta_destinos": alerta_destinos,
+                }
+                staging_id = assinatura_svc._criar_tramitacao_staging_anexos(
+                    demanda, request.user, arquivos or None
                 )
+                if staging_id:
+                    contexto["tramitacao_staging_id"] = staging_id
+
                 assinaturas = assinatura_svc.registrar_assinaturas_despacho_devolutiva(
                     demanda,
                     request.user,
-                    hash_documento=pending["hash_documento"],
+                    hash_documento=request.data.get("hash_documento"),
                     declaracao_operador=request.data.get("declaracao") or request.data.get("declaracao_operador"),
                     gestor_usuario_id=request.data.get("gestor_protocolo_id"),
                     declaracao_gestor=request.data.get("declaracao_gestor"),
-                    assinatura_apenas_gestor=bool(request.data.get("assinatura_apenas_gestor")),
+                    assinatura_apenas_gestor=assinatura_apenas_gestor,
+                    validacao_id=request.data.get("validacao_id"),
+                    contexto_operacao=contexto,
                     request=request,
                 )
-                DevolutivaProtocoloService().despachar_devolutiva(
-                    demanda,
-                    request.user,
-                    parecer_resposta=parecer,
-                    arquivos_anexos=arquivos or None,
-                    anexos_tramitacao_ids=anexos_ids or None,
-                    alerta_destinos=alerta_destinos or None,
-                )
+                if assinatura_apenas_gestor and not request.data.get("validacao_id"):
+                    DevolutivaProtocoloService().despachar_devolutiva(
+                        demanda,
+                        request.user,
+                        parecer_resposta=parecer,
+                        arquivos_anexos=arquivos or None,
+                        anexos_tramitacao_ids=anexos_ids or None,
+                        alerta_destinos=alerta_destinos or None,
+                    )
         except ValueError as exc:
             return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1584,6 +1594,12 @@ class DemandaViewSet(viewsets.ModelViewSet):
         data["assinaturas_registradas"] = [
             {"codigo_validacao": a.codigo_validacao, "papel": a.papel} for a in assinaturas
         ]
+        if not assinatura_apenas_gestor:
+            data["aguardando_validacao_gestor"] = True
+            data["mensagem"] = (
+                "Assinatura registrada. A devolutiva só será enviada ao vereador "
+                "após validação do gestor do protocolo em Assinaturas pendentes."
+            )
         return Response(data)
 
     @action(

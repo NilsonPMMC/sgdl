@@ -7,6 +7,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from core.models import Demanda, Tramitacao, Usuario
+from core.models_assinatura_eletronica import AssinaturaValidacaoGestor
+from core.models_unidade_administrativa import UnidadeAdministrativaResponsavel
 from core.services.assinatura_eletronica_service import (
     DECLARACAO_CONCLUSAO,
     DECLARACAO_DEVOLUTIVA,
@@ -14,6 +16,7 @@ from core.services.assinatura_eletronica_service import (
     AssinaturaEletronicaService,
 )
 from core.services.devolutiva_protocolo_service import DevolutivaProtocoloService
+from core.services.usuario_vinculo_service import PROTOCOLO_UNIDADE_PK
 
 PARECER_SECRETARIA = "Operação concluída com sucesso no local."
 PARECER_PROTOCOLO = "Segue devolutiva da secretaria para conhecimento."
@@ -137,6 +140,13 @@ class DevolutivaProtocoloAPITests(SinapseCatalogTestMixin, APITestCase):
             protocolo_executivo="2026-0100",
         )
 
+    def test_modo_assinatura_devolutiva_operador_apenas(self):
+        svc = AssinaturaEletronicaService()
+        self.assertEqual(
+            svc.modo_assinatura_protocolo(self.protocolo, contexto="devolutiva"),
+            "operador_apenas",
+        )
+
     def test_api_solicitar_e_despachar_devolutiva(self):
         svc = AssinaturaEletronicaService()
         preview_sec = svc.preparar_assinatura_conclusao_secretaria(
@@ -155,11 +165,16 @@ class DevolutivaProtocoloAPITests(SinapseCatalogTestMixin, APITestCase):
         self.assertEqual(r1.status_code, status.HTTP_200_OK)
         self.assertEqual(r1.data["status"], "AGUARDANDO_DEVOLUTIVA_PROTOCOLO")
 
-        gestor = Usuario.objects.create_user(
+        gestor_proto = Usuario.objects.create_user(
             username="gest_prot_dev_api",
             password="x",
-            perfil="PROTOCOLO",
+            perfil="GESTOR",
             sinapse_orgao_id=PROTOCOLO_ORGAO_ID,
+        )
+        UnidadeAdministrativaResponsavel.objects.create(
+            unidade_id=PROTOCOLO_UNIDADE_PK,
+            usuario=gestor_proto,
+            ativo=True,
         )
         preview_prot = svc.preparar_assinatura_despacho_devolutiva(
             self.demanda, parecer_resposta=PARECER_PROTOCOLO
@@ -171,13 +186,30 @@ class DevolutivaProtocoloAPITests(SinapseCatalogTestMixin, APITestCase):
                 "parecer_resposta": PARECER_PROTOCOLO,
                 "hash_documento": preview_prot["hash_documento"],
                 "declaracao": DECLARACAO_DEVOLUTIVA,
-                "declaracao_gestor": DECLARACAO_GESTOR_PROTOCOLO,
-                "gestor_protocolo_id": gestor.pk,
             },
             format="json",
         )
         self.assertEqual(r2.status_code, status.HTTP_200_OK)
-        self.assertEqual(r2.data["status"], "FINALIZADO")
+        self.assertTrue(r2.data.get("aguardando_validacao_gestor"))
+        self.demanda.refresh_from_db()
+        self.assertEqual(self.demanda.status, "AGUARDANDO_DEVOLUTIVA_PROTOCOLO")
+        tram_pendente = self.demanda.tramitacoes.filter(tipo="DEVOLUTIVA_PROTOCOLO").first()
+        self.assertIsNotNone(tram_pendente)
+        self.assertTrue((tram_pendente.metadata or {}).get("aguardando_validacao_gestor"))
+
+        validacao = AssinaturaValidacaoGestor.objects.get(demanda=self.demanda)
+        self.client.force_authenticate(gestor_proto)
+        r2b = self.client.post(
+            f"/api/assinaturas-validacao/{validacao.pk}/validar/",
+            {
+                "hash_documento": preview_prot["hash_documento"],
+                "declaracao_gestor": DECLARACAO_GESTOR_PROTOCOLO,
+            },
+            format="json",
+        )
+        self.assertEqual(r2b.status_code, status.HTTP_200_OK)
+        self.demanda.refresh_from_db()
+        self.assertEqual(self.demanda.status, "FINALIZADO")
 
         self.client.force_authenticate(self.vereador)
         r3 = self.client.post(

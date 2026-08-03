@@ -386,7 +386,7 @@ class DemandaOperacionalPreviewConclusaoFinalAPIView(APIView):
             request.user, AssinaturaEletronica.PAPEL_OPERADOR
         )
         preview["modo_assinatura"] = AssinaturaEletronicaService().modo_assinatura_protocolo(
-            request.user
+            request.user, contexto="conclusao_final"
         )
         if preview["modo_assinatura"] == "gestor_apenas":
             preview["signatario_gestor"] = AssinaturaEletronicaService().resumo_signatario(

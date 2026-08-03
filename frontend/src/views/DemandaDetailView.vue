@@ -548,7 +548,7 @@ const tramitacoesCorrecaoProtocoloForaTimeline = computed(() => {
     const tipos = new Set(['DESPACHO', 'CONCLUSAO_FINAL', 'DEVOLUTIVA_PROTOCOLO', 'TRIAGEM_PROTOCOLO']);
     return demanda.value.tramitacoes.filter(
         (t) =>
-            (t.pode_editar || t.aguardando_validacao_gestor) &&
+            t.pode_editar &&
             tipos.has(String(t.tipo || '').toUpperCase()) &&
             !idsTimeline.has(String(t.id))
     );
@@ -641,9 +641,13 @@ const modoAssinaturaDevolutiva = computed(() => {
     const ctx = usaEndpointConclusaoFinal.value
         ? CONTEXTO_ASSINATURA.CONCLUSAO_FINAL
         : CONTEXTO_ASSINATURA.DEVOLUTIVA;
+    const painel = modoPainelAssinaturaProtocolo(ctx, userStore.currentUser, userStore);
     const previewModo = devolutivaPreview.value?.modo_assinatura;
-    if (previewModo) return previewModo;
-    return modoPainelAssinaturaProtocolo(ctx, userStore.currentUser, userStore);
+    if (previewModo === 'dual_protocolo' && painel === MODO_PAINEL_ASSINATURA.OPERADOR_APENAS) {
+        return painel;
+    }
+    if (previewModo && previewModo !== 'dual_protocolo') return previewModo;
+    return painel;
 });
 
 const exibirDescricaoTramitacao = (item) => descricaoTramitacaoParaExibicao(item?.descricao);
@@ -1858,10 +1862,10 @@ const executarDevolutivaComAssinatura = async (payloadAssinatura) => {
         }
         toast.add({
             severity: 'success',
-            summary: usaEndpointConclusaoFinal.value ? 'Conclusão final registrada' : 'Devolutiva enviada',
+            summary: usaEndpointConclusaoFinal.value ? 'Conclusão final registrada' : 'Devolutiva registrada',
             detail: usaEndpointConclusaoFinal.value
                 ? 'Assinatura registrada. Após validação do gestor, você terá cerca de 60 segundos para corrigir ou desfazer na timeline.'
-                : 'Demanda finalizada e vereador notificado. Você tem cerca de 60 segundos para corrigir ou desfazer na timeline.',
+                : 'Assinatura registrada. A devolutiva só será enviada ao vereador após validação do gestor. Você terá cerca de 60 segundos para corrigir ou desfazer na timeline.',
             life: 5000
         });
         assinaturaDevolutivaDialogVisible.value = false;

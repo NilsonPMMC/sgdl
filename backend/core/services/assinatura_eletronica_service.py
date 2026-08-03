@@ -18,6 +18,7 @@ from core.services.assinatura_etapa_executor_service import (
     ACAO_CONCLUSAO_FINAL,
     ACAO_CONCLUSAO_SECRETARIA,
     ACAO_CONCLUSAO_SECRETARIA_FLUXO_DIRETO,
+    ACAO_DESPACHO_DEVOLUTIVA,
     ACAO_DESPACHO_INICIAL,
     ACAO_SCATTER_DESPACHAR_ENCERRAR,
     ACAO_SCATTER_ENCERRAR,
@@ -59,6 +60,7 @@ CARGO_PADRAO_POR_PAPEL = {
 ETAPAS_VALIDACAO_GESTOR_PROTOCOLO = frozenset(
     {
         AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+        AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
         AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
     }
 )
@@ -72,6 +74,7 @@ ETAPAS_VALIDACAO_GESTOR_SETOR = frozenset(
 
 PAPEL_GESTOR_POR_ETAPA = {
     AssinaturaEletronica.ETAPA_DESPACHO_INICIAL: AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
+    AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA: AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
     AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL: AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
     AssinaturaEletronica.ETAPA_CONCLUSAO_SECRETARIA: AssinaturaEletronica.PAPEL_GESTOR_SETOR,
     AssinaturaEletronica.ETAPA_OPERACAO_SCATTER: AssinaturaEletronica.PAPEL_GESTOR_SETOR,
@@ -79,6 +82,7 @@ PAPEL_GESTOR_POR_ETAPA = {
 
 DECLARACAO_GESTOR_POR_ETAPA = {
     AssinaturaEletronica.ETAPA_DESPACHO_INICIAL: DECLARACAO_GESTOR_PROTOCOLO,
+    AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA: DECLARACAO_GESTOR_PROTOCOLO,
     AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL: DECLARACAO_GESTOR_PROTOCOLO,
     AssinaturaEletronica.ETAPA_CONCLUSAO_SECRETARIA: DECLARACAO_GESTOR_SETOR,
     AssinaturaEletronica.ETAPA_OPERACAO_SCATTER: DECLARACAO_GESTOR_SETOR,
@@ -228,6 +232,7 @@ class AssinaturaEletronicaService:
     def _papel_operador_para_etapa(self, etapa: str) -> str:
         if etapa in (
             AssinaturaEletronica.ETAPA_DESPACHO_INICIAL,
+            AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
             AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,
         ):
             return AssinaturaEletronica.PAPEL_OPERADOR
@@ -824,6 +829,7 @@ class AssinaturaEletronicaService:
         payload = {
             "demanda_id": demanda.pk,
             "etapa": AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
+            "acao_executiva": ACAO_DESPACHO_DEVOLUTIVA,
             "parecer_resposta": parecer_resposta.strip(),
             "protocolo_executivo": demanda.protocolo_executivo,
         }
@@ -835,6 +841,7 @@ class AssinaturaEletronicaService:
             "declaracao_operador": DECLARACAO_DEVOLUTIVA,
             "declaracao_gestor": DECLARACAO_GESTOR_PROTOCOLO,
             "requer_gestor_protocolo": True,
+            "requer_validacao_gestor": True,
         }
 
     def preparar_assinatura_conclusao_final(
@@ -1396,13 +1403,37 @@ class AssinaturaEletronicaService:
         gestor_usuario_id: int | None = None,
         declaracao_gestor: str | None = None,
         assinatura_apenas_gestor: bool = False,
+        validacao_id: int | None = None,
+        contexto_operacao: dict[str, Any] | None = None,
         request=None,
     ) -> list[AssinaturaEletronica]:
+        if assinatura_apenas_gestor and validacao_id:
+            try:
+                validacao = AssinaturaValidacaoGestor.objects.get(
+                    pk=int(validacao_id),
+                    demanda=demanda,
+                    etapa=AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
+                    status=AssinaturaValidacaoGestor.STATUS_PENDENTE,
+                )
+            except (AssinaturaValidacaoGestor.DoesNotExist, TypeError, ValueError):
+                raise ValueError("Validação pendente inválida.")
+            assinatura = self.registrar_validacao_gestor(
+                validacao,
+                operador,
+                hash_documento=hash_documento,
+                declaracao_gestor=declaracao_gestor or "",
+                request=request,
+            )
+            return [assinatura]
+
         pending = self._validar_hash_pending(
             int(demanda.pk), AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA, hash_documento
         )
         hash_doc = pending["hash_documento"]
-        assinaturas: list[AssinaturaEletronica] = []
+        payload = dict(pending.get("payload") or {})
+        if contexto_operacao:
+            payload.update(contexto_operacao)
+        payload["acao_executiva"] = ACAO_DESPACHO_DEVOLUTIVA
 
         if assinatura_apenas_gestor:
             if (declaracao_gestor or "").strip().upper() != DECLARACAO_GESTOR_PROTOCOLO:
@@ -1411,57 +1442,62 @@ class AssinaturaEletronicaService:
                 )
             if not self._usuario_eh_gestor_protocolo_sgac(operador):
                 raise ValueError("Apenas o gestor setorial do SGAC pode assinar nesta etapa.")
-            assinaturas.append(
-                self._criar_assinatura(
-                    demanda,
-                    operador,
-                    etapa=AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
-                    papel=AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
-                    hash_documento=hash_doc,
-                    declaracao=declaracao_gestor,
-                    request=request,
-                )
+            assinatura = self._criar_assinatura(
+                demanda,
+                operador,
+                etapa=AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
+                papel=AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
+                hash_documento=hash_doc,
+                declaracao=declaracao_gestor,
+                request=request,
             )
-        else:
-            if (declaracao_operador or "").strip().upper() != DECLARACAO_DEVOLUTIVA:
-                raise ValueError(
-                    f'Declaração do operador inválida. Use: "{DECLARACAO_DEVOLUTIVA}".'
-                )
-            if (declaracao_gestor or "").strip().upper() != DECLARACAO_GESTOR_PROTOCOLO:
-                raise ValueError(
-                    f'Declaração do gestor inválida. Use: "{DECLARACAO_GESTOR_PROTOCOLO}".'
-                )
-            try:
-                gestor = Usuario.objects.get(pk=int(gestor_usuario_id))
-            except (Usuario.DoesNotExist, TypeError, ValueError):
-                raise ValueError("Gestor do protocolo inválido.")
-            if not self._usuario_eh_gestor_protocolo_sgac(gestor):
-                raise ValueError("O gestor indicado não é gestor setorial do SGAC.")
-            if gestor.pk == operador.pk:
-                raise ValueError("O gestor do protocolo deve ser diferente do operador.")
-            assinaturas = [
-                self._criar_assinatura(
-                    demanda,
-                    operador,
-                    etapa=AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
-                    papel=AssinaturaEletronica.PAPEL_OPERADOR,
-                    hash_documento=hash_doc,
-                    declaracao=declaracao_operador,
-                    request=request,
-                ),
-                self._criar_assinatura(
-                    demanda,
-                    gestor,
-                    etapa=AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
-                    papel=AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
-                    hash_documento=hash_doc,
-                    declaracao=declaracao_gestor,
-                    request=request,
-                ),
-            ]
+            self._remover_pending_acao(
+                int(demanda.pk), AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA
+            )
+            return [assinatura]
 
+        if (declaracao_operador or "").strip().upper() != DECLARACAO_DEVOLUTIVA:
+            raise ValueError(
+                f'Declaração do operador inválida. Use: "{DECLARACAO_DEVOLUTIVA}".'
+            )
+
+        texto = str(payload.get("parecer_resposta") or "").strip()
+        autor = demanda.autor.get_full_name() or demanda.autor.username
+        tram_pendente = self._criar_tramitacao_pendente_gestor(
+            demanda,
+            operador,
+            tipo="DEVOLUTIVA_PROTOCOLO",
+            descricao=(
+                f"Protocolo despachou devolutiva ao vereador ({autor}).\n"
+                f"Resposta:\n{texto}"
+            ),
+            etapa="DESPACHO_DEVOLUTIVA",
+            metadata_extra={"parecer": texto},
+            staging_id=payload.get("tramitacao_staging_id"),
+        )
+
+        assinatura = self._criar_assinatura(
+            demanda,
+            operador,
+            etapa=AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
+            papel=AssinaturaEletronica.PAPEL_OPERADOR,
+            hash_documento=hash_doc,
+            declaracao=declaracao_operador,
+            request=request,
+        )
+        assinatura.tramitacao = tram_pendente
+        assinatura.save(update_fields=["tramitacao"])
+        self._criar_validacao_gestor_pendente(
+            demanda,
+            operador,
+            etapa=AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA,
+            hash_documento=hash_doc,
+            payload=payload,
+            tramitacao=tram_pendente,
+            sinapse_orgao_id=PROTOCOLO_ORGAO_ID,
+        )
         self._remover_pending_acao(int(demanda.pk), AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA)
-        return assinaturas
+        return [assinatura]
 
     def registrar_assinaturas_conclusao_final(
         self,
@@ -1655,22 +1691,18 @@ class AssinaturaEletronicaService:
         return resumo_signatario(usuario, papel)
 
     def modo_assinatura_protocolo(self, usuario, *, contexto: str | None = None) -> str:
-        """operador_apenas | gestor_apenas | dual_protocolo (somente devolutiva legada)."""
+        """operador_apenas | gestor_apenas."""
         from core.services.gestor_escopo import gestor_admin_pleno
 
-        if contexto == "devolutiva":
-            perfil = getattr(usuario, "perfil", None)
-            if perfil == "PROTOCOLO":
-                return "dual_protocolo"
-            if perfil == "GESTOR":
-                if gestor_admin_pleno(usuario):
-                    return "dual_protocolo"
-                if self._usuario_eh_gestor_protocolo_sgac(usuario):
-                    return "gestor_apenas"
-            return "dual_protocolo"
-
         perfil = getattr(usuario, "perfil", None)
-        if perfil == "GESTOR" and self._usuario_eh_gestor_protocolo_sgac(usuario):
+        eh_gestor_sgac = self._usuario_eh_gestor_protocolo_sgac(usuario)
+
+        if contexto in ("devolutiva", "conclusao_final", None):
+            if perfil == "GESTOR" and eh_gestor_sgac:
+                return "gestor_apenas"
+            return "operador_apenas"
+
+        if perfil == "GESTOR" and eh_gestor_sgac:
             return "gestor_apenas"
         if perfil == "GESTOR" and gestor_admin_pleno(usuario):
             return "gestor_apenas"
@@ -1802,6 +1834,9 @@ class AssinaturaEletronicaService:
                     AssinaturaEletronica.PAPEL_OPERADOR,
                     AssinaturaEletronica.PAPEL_GESTOR_PROTOCOLO,
                 ),
+            ),
+            "devolutiva_pendente_gestor": pendente_gestor(
+                AssinaturaEletronica.ETAPA_DESPACHO_DEVOLUTIVA
             ),
             "conclusao_final_assinada": etapa_completa(
                 AssinaturaEletronica.ETAPA_CONCLUSAO_FINAL,

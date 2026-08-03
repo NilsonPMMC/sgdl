@@ -153,3 +153,19 @@
 | [fluxo-auto-manual.md](operacao/fluxo-auto-manual.md) | Despacho AUTO × manual |
 
 **Configuração janela de correção:** `DESPACHO_JANELA_EDICAO_SEGUNDOS` (default 60) em `settings.py` / `.env`.
+
+---
+
+## Rodada pós-deploy jul/2026 — correções urgentes
+
+**Reteste homologação (31/jul tarde):** **NO-GO** — ver [operacao/rodada-pos-deploy-jul2026.md](operacao/rodada-pos-deploy-jul2026.md).
+
+| Prioridade | Entrega | IDs | Status dev |
+|------------|---------|-----|------------|
+| **P0** | CRUD 60s só para autor; desfazer reverte nó + notificações | H-JUL-01, H-JUL-02 | **Concluído 2026-08-03** |
+| **P0** | Assinatura devolutiva operador-only; gestor setorial sem 404 | H-JUL-03, H-JUL-04 | H-JUL-03 **concluído**; H-JUL-04 pendente |
+| **P1** | Super OS fila só líder; eliminar despacho duplicado seguidora | H-JUL-05, H-JUL-06 |
+| **P1** | Indicações visíveis em lista/dashboard/mapa vereador | H-JUL-07 |
+| **P2** | Placeholders substituídos na publicação; fix Editor Quill | H-JUL-08, H-JUL-09 |
+
+Atualização de status dos itens 1–8 da reunião jul/2026: [operacao/apontamentos-reuniao-jul2026.md](operacao/apontamentos-reuniao-jul2026.md).

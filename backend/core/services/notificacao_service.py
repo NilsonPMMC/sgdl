@@ -537,6 +537,27 @@ class NotificacaoService:
             link=link,
         )
 
+    def cancelar_notificacoes_pos_despacho_inicial(
+        self,
+        demanda: Demanda,
+        *,
+        referencia=None,
+    ) -> int:
+        """Remove notificações de despacho inicial ao desfazer protocolação na janela CRUD."""
+        link = self.link_demanda(demanda.pk)
+        qs = Notificacao.objects.filter(link=link, tipo="DESPACHO")
+        if referencia is not None:
+            limite = referencia - timedelta(minutes=2)
+            qs = qs.filter(data_criacao__gte=limite)
+        removidas, _ = qs.delete()
+        if removidas:
+            logger.info(
+                "Notificações de despacho inicial removidas demanda=%s total=%s",
+                demanda.pk,
+                removidas,
+            )
+        return removidas
+
     # ------------------------------------------------------------------ eventos — secretarias / gestores
 
     def notificar_despacho_inicial_setores(self, demanda: Demanda) -> int:

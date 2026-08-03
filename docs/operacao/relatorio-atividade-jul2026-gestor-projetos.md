@@ -79,3 +79,34 @@ Recomenda-se **janela de testes E2E de 2–3 dias** com operadores dos perfis Pr
 ---
 
 *Documento gerado em 2026-07-31. Detalhamento técnico: [apontamentos-reuniao-jul2026.md](apontamentos-reuniao-jul2026.md).*
+
+---
+
+## Addendum — reteste pós-deploy (31/jul tarde)
+
+**Resultado:** **NO-GO** para ampliar piloto até correção dos bloqueantes P0.
+
+| Área | Situação |
+|------|----------|
+| Janela CRUD 60 s | **Bloqueante** — Protocolo edita despacho de Secretaria (H-JUL-01) |
+| Despacho inicial | Desfazer não reverte nó operacional (H-JUL-02) |
+| Assinaturas | Modal ainda permite operador assinar como gestor (H-JUL-03); gestor setorial 404 (H-JUL-04) |
+| Super OS | Fila lista todas demandas; seguidora com despacho duplicado (H-JUL-05/06) |
+| Indicações | Notificação OK; lista/dashboard/mapa sem demanda (H-JUL-07) |
+| Placeholders | Publicação com `{{...}}` literal; editor vazio ao inserir chip (H-JUL-08/09) |
+
+**Plano próximo dia útil:** ver [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md) § Plano dev (itens 1–4 P0).
+
+**Recomendação atualizada:** suspender ampliação do piloto; reteste focado RT-SEC + RT-ASS após deploy das correções P0.
+
+---
+
+## Addendum — correções dev (2026-08-03)
+
+| ID | Entrega | Status |
+|----|---------|--------|
+| H-JUL-01 | CRUD 60s restrito ao autor | Corrigido em dev — reteste RT-SEC pendente |
+| H-JUL-02 | Desfazer despacho inicial reverte nó + notificações | Corrigido em dev — reteste RT-SEC pendente |
+| H-JUL-03 | Devolutiva/conclusão — operador assina só por si | Corrigido em dev — reteste RT-ASS pendente |
+
+**Próximo foco dev:** H-JUL-04 (gestor setorial 404 após assinatura).
