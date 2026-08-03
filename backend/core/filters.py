@@ -14,7 +14,7 @@ class DemandaFilter(django_filters.FilterSet):
     )
     
     status__in = django_filters.BaseInFilter(field_name='status', lookup_expr='in')
-    autor = django_filters.NumberFilter(field_name='autor_id')
+    autor = django_filters.NumberFilter(method='filter_autor')
     secretaria_destino = django_filters.NumberFilter(field_name='sinapse_orgao_id')
     unidade_administrativa = django_filters.NumberFilter(field_name='unidade_administrativa_id')
     cluster = django_filters.NumberFilter(field_name='cluster_id')
@@ -49,6 +49,14 @@ class DemandaFilter(django_filters.FilterSet):
     def filter_escopo_setor_noop(self, queryset, name, value):
         """Escopo de setor (em_operacao/encerrado) aplicado em DemandaViewSet.get_queryset."""
         return queryset
+
+    def filter_autor(self, queryset, name, value):
+        """Ofícios do vereador como autor + indicações em que está vinculado (H-JUL-07)."""
+        if value in (None, ""):
+            return queryset
+        from core.services.indicacao_service import filtro_demandas_por_vereador
+
+        return queryset.filter(filtro_demandas_por_vereador(int(value))).distinct()
 
     def filter_consulta(self, queryset, name, value):
         consulta = (value or "").strip().lower()

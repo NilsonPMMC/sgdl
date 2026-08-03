@@ -157,6 +157,64 @@ class IndicacaoMetricasNotificacaoTests(SinapseCatalogTestMixin, TestCase):
         )
 
 
+class IndicacaoVereadorVisibilidadeTests(SinapseCatalogTestMixin, APITestCase):
+    """H-JUL-07 — vereador vinculado enxerga indicação em lista, dashboard e mapa."""
+
+    def setUp(self):
+        super().setUp()
+        suffix = uuid.uuid4().hex[:8]
+        self.camara = Usuario.objects.create_user(
+            username=f"cam_vis_{suffix}", password="x", perfil="CAMARA"
+        )
+        self.vereador = Usuario.objects.create_user(
+            username=f"ver_vis_{suffix}",
+            password="x",
+            perfil="VEREADOR",
+            first_name="Ana",
+        )
+        self.demanda = Demanda.objects.create(
+            titulo="Indicação vinculada",
+            descricao="Endereço teste",
+            autor=self.camara,
+            tipo_legislativo=Demanda.TIPO_LEGISLATIVO_INDICACAO,
+            status="PROTOCOLADO",
+            protocolo_legislativo="88/2026",
+            protocolo_executivo="2026-0088",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+            logradouro="Rua Teste",
+            bairro="Centro",
+            latitude=-23.523,
+            longitude=-46.18,
+        )
+        sincronizar_vinculos_vereador(
+            self.demanda,
+            [self.vereador.pk],
+            autor_vereador_id=self.vereador.pk,
+        )
+        self.client.force_authenticate(self.vereador)
+
+    def test_listagem_demandas_com_filtro_autor_inclui_indicacao_vinculada_hjul07(self):
+        r = self.client.get("/api/demandas/", {"autor": self.vereador.pk})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        data = r.data
+        rows = data.get("results", data) if isinstance(data, dict) else list(data)
+        ids = [d["id"] for d in rows]
+        self.assertIn(self.demanda.pk, ids)
+
+    def test_dashboard_stats_conta_indicacao_vinculada_hjul07(self):
+        r = self.client.get("/api/dashboard/stats/", {"autor": self.vereador.pk})
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(r.data["kpis"]["total_demandas"], 1)
+
+    def test_mapa_locations_inclui_indicacao_vinculada_hjul07(self):
+        r = self.client.get("/api/demandas/locations/")
+        self.assertEqual(r.status_code, status.HTTP_200_OK)
+        payload = r.data if isinstance(r.data, dict) else {}
+        locations = payload.get("results", payload)
+        ids = [loc["id"] for loc in locations]
+        self.assertIn(self.demanda.pk, ids)
+
+
 class IndicacaoConsultaHubAPITests(APITestCase):
     def setUp(self):
         suffix = uuid.uuid4().hex[:8]

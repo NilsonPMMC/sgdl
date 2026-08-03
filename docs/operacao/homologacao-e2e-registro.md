@@ -223,13 +223,13 @@ Pacote **H-JUL-01 … H-JUL-06** — CRUD 60s, desfazer despacho, devolutiva ass
 | H-JUL-05 | Fila protocolados só líder Super OS | `test_painel_protocolo.py` |
 | H-JUL-06 | Timeline seguidora — 1 despacho inicial | `test_timeline_seguidora_um_despacho_inicial_apos_super_os_hjul06` |
 
-**Reteste homologação:** RT-SEC + RT-ASS + RT-SOS em [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md).
+| H-JUL-07 | Filtro autor inclui indicações vinculadas | `IndicacaoVereadorVisibilidadeTests` |
+
+**Reteste homologação:** RT-SEC + RT-ASS + RT-SOS + RT-IND em [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md).
 
 ### Bloqueantes prioritários restantes (P0)
 
-| ID | Registro resumido |
-|----|-------------------|
-| **H-JUL-07** | Indicações — vereador vinculado não vê lista/dashboard/mapa |
+*Nenhum bloqueante P0 pendente de correção em dev (reteste homologação pendente).*
 
 ### Bloqueantes corrigidos em dev (aguardando reteste)
 
@@ -241,6 +241,7 @@ Pacote **H-JUL-01 … H-JUL-06** — CRUD 60s, desfazer despacho, devolutiva ass
 | **H-JUL-04** | Gestor setorial — 404 ao abrir demanda após assinatura operador |
 | **H-JUL-05** | Super OS — fila lista todas demandas, não só líder |
 | **H-JUL-06** | Super OS — seguidora com despacho inicial duplicado |
+| **H-JUL-07** | Indicações — vereador vinculado não vê lista/dashboard/mapa |
 
 ### Checklist reteste (marcar após correção)
 
@@ -268,6 +269,6 @@ DJANGO_SETTINGS_MODULE=config.settings_test python manage.py test \
 
 ---
 
-**Próximo passo:** Reteste RT-SEC + RT-ASS + RT-SOS após deploy H-JUL-01…06; em seguida **H-JUL-07** (indicações). Gate piloto: **NO-GO** até reteste P0/P1 e correção de H-JUL-07.
+**Próximo passo:** Reteste RT-SEC + RT-ASS + RT-SOS + RT-IND após deploy H-JUL-01…07; em seguida P2 (H-JUL-08/09 placeholders). Gate piloto: **NO-GO** até reteste P0/P1.
 
-**Última atualização:** 2026-08-03 — correções H-JUL-01…06 em dev; rodada browser pós-deploy `e9638c1` permanece NO-GO até reteste.
+**Última atualização:** 2026-08-03 — correções H-JUL-01…07 em dev; rodada browser pós-deploy `e9638c1` permanece NO-GO até reteste.

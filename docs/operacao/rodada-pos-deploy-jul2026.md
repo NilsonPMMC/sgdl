@@ -30,7 +30,7 @@
 | 4 | Super OS — só líder + integração seguidoras | **Falhou** | H-JUL-05, H-JUL-06, H-JUL-15, H-JUL-16, H-JUL-17 |
 | 5 | Despacho inicial — sem gestor | **Parcial → corrigido dev** | H-JUL-02 *(reteste pendente)* |
 | 6 | Despacho final — operador assina, gestor valida | **Parcial → corrigido dev** | H-JUL-03 *(reteste pendente)*; H-JUL-10, H-JUL-11 |
-| 7 | Indicações — vereador vinculado | **Falhou** | H-JUL-07 |
+| 7 | Indicações — vereador vinculado | **Falhou** → **corrigido dev** | H-JUL-07 |
 | 8 | Copiloto — CEP após pin | **Parcial** | H-JUL-13, H-JUL-14 |
 | — | Mapa analítico = pinos | **Não retestado** | — |
 | — | Janela CRUD 60 s (tarefa 1 backlog) | **Corrigido dev** | H-JUL-01, H-JUL-02 *(reteste pendente)* |
@@ -54,7 +54,7 @@
 | **H-JUL-04** | Assinaturas pendentes / link pós-assinatura · **GESTOR SETORIAL (secretaria)** · **404** ao abrir demanda após operador assinar · hipótese: gestor setorial sem acesso à fila **devolutivas** / escopo de demanda · **bloqueante** | bloqueante | `demanda_visibilidade.py` — **corrigido 2026-08-03** (`aplicar_escopo_perfil` inclui `demanda_ids_com_validacao_gestor_pendente` no queryset) |
 | **H-JUL-05** | DemandasView / Super OS · **PROTOCOLO** · fila despacho lote ainda lista **todas** demandas vinculadas ao cluster, não só líder (R3.4) · **incômodo → bloqueante operacional** | bloqueante | `cluster_service.filtrar_listagem_por_perfil`, `DemandaViewSet`, `consulta_hub_service` — **corrigido 2026-08-03** |
 | **H-JUL-06** | Timeline Super OS · **PROTOCOLO** · demanda **seguidora** recebe **dois** «Despacho inicial (Protocolo)» idênticos; **líder** permanece com um (correto) · evidência: SUPER-2026-0011 · **bloqueante** | bloqueante | `operacional_estado_service.montar_timeline_operacional`, `operacionalEstado.js` (`mesclarTramitacoesProtocoloEditaveis`), `DemandaDetailView.vue`, `cluster_despacho_service` — **corrigido 2026-08-03** (dedupe DESPACHO na timeline; integração única no despacho Super OS) |
-| **H-JUL-07** | Indicação · **VEREADOR (autor vinculado)** · notificação recebida **OK** · demanda **não** aparece em `/demandas`, dashboard nem mapa operacional/calor (R5.3, R5.5) · **bloqueante** | bloqueante | `demanda_visibilidade.py`, `filtro_demandas_por_vereador`, `mapa_demanda_service`, materialização `DemandaVereadorVinculo` |
+| **H-JUL-07** | Indicação · **VEREADOR (autor vinculado)** · notificação recebida **OK** · demanda **não** aparece em `/demandas`, dashboard nem mapa operacional/calor (R5.3, R5.5) · **bloqueante** | bloqueante | `DemandaFilter.filter_autor`, `DashboardStatsAPIView`, `filtro_demandas_por_vereador` — **corrigido 2026-08-03** (filtro `autor` inclui indicações vinculadas) |
 
 ### P2 — Média
 
@@ -109,7 +109,7 @@ Marque após deploy da correção P0/P1.
 
 ### RT-IND — Indicações (H-JUL-07)
 
-- [ ] Vereador autor vinculado: demanda em `/demandas`, dashboard e mapa
+- [x] Vereador autor vinculado: demanda em `/demandas`, dashboard e mapa *(corrigido 2026-08-03 — retestar em homologação)*
 - [ ] Notificação + listagem alinhadas
 
 ### RT-GEO — Copiloto / revisão (H-JUL-13, H-JUL-14)
@@ -133,7 +133,7 @@ Marque após deploy da correção P0/P1.
 | 3 | H-JUL-03 | Modal devolutiva/conclusão: modo `operador_apenas` sem checkbox gestor | 0,25 d | **Concluído 2026-08-03** |
 | 4 | H-JUL-04 | Visibilidade gestor setorial + fila devolutivas / deep link notificação | 0,5 d | **Concluído 2026-08-03** |
 | 5 | H-JUL-05, H-JUL-06 | Super OS: fila só líder + eliminar despacho duplicado seguidora | 1 d | **Concluído 2026-08-03** |
-| 6 | H-JUL-07 | Indicações: listagem/dashboard/mapa vereador vinculado | 0,5 d |
+| 6 | H-JUL-07 | Indicações: listagem/dashboard/mapa vereador vinculado | 0,5 d | **Concluído 2026-08-03** |
 | 7 | H-JUL-08, H-JUL-09 | Substituir placeholders na publicação + fix sync Editor | 0,5 d |
 | 8 | H-JUL-10, H-JUL-12 | Timeline pendente gestor + dedupe scatter/conclusão | 0,5 d |
 | 9 | H-JUL-11 | Conclusão final gestor protocolo sem declaração operador | 0,25 d |

@@ -118,7 +118,8 @@
 | **Ajuste neste pacote** | `notificar_despacho_inicial_super_os` passa a usar `interessados_legislativos` (Câmara + vereadores vinculados) |
 | **Validar** | Indicação protocolada: vereador vinculado vê demanda, recebe notificação de andamento, aparece no dashboard/mapa |
 | **Reteste 31/jul** | **Falhou** — notificação OK; lista, dashboard e mapa **sem** indicação (H-JUL-07) |
-| **Risco** | Vínculos não materializados no Copiloto → vereador não acompanha; conferir `sincronizar_vinculos_vereador` na criação |
+| **Correção 2026-08-03** | `DemandaFilter.filter_autor` e dashboard usam `filtro_demandas_por_vereador` (ofícios próprios + indicações vinculadas) |
+| **Reteste** | Pendente em homologação (RT-IND) |
 
 ---
 

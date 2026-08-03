@@ -2049,7 +2049,11 @@ class DashboardStatsAPIView(APIView):
         secretaria_id = request.query_params.get('secretaria_destino')
 
         if autor_id:
-            demandas_validas = demandas_validas.filter(autor_id=autor_id)
+            from core.services.indicacao_service import filtro_demandas_por_vereador
+
+            demandas_validas = demandas_validas.filter(
+                filtro_demandas_por_vereador(int(autor_id))
+            ).distinct()
         
         if secretaria_id:
             demandas_validas = demandas_validas.filter(sinapse_orgao_id=secretaria_id)

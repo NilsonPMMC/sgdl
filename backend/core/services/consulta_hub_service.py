@@ -284,6 +284,21 @@ class ConsultaHubService:
                 None,
                 "pi pi-comments",
             ).as_dict(),
+            AtalhoConsulta(
+                "indicacoes",
+                "Indicações vinculadas",
+                "Indicações da Câmara em que você está vinculado",
+                "/demandas",
+                {"tipo_legislativo": "INDICACAO"},
+                self._count(
+                    user,
+                    {
+                        "autor": uid,
+                        "tipo_legislativo": "INDICACAO",
+                    },
+                ),
+                "pi pi-bookmark",
+            ).as_dict(),
         ]
 
     def _atalhos_protocolo(self, user) -> list[dict[str, Any]]:
