@@ -321,6 +321,30 @@ def aplicar_placeholders(corpo: str, contexto: dict[str, Any] | None) -> str:
     return _PLACEHOLDER.sub(_sub, corpo)
 
 
+def resolver_descricao_tramitacao(
+    demanda,
+    descricao: str,
+    *,
+    orgao_destino: str = "",
+    setor_destino: str = "",
+    extra: dict[str, Any] | None = None,
+) -> str:
+    """Substitui {{placeholders}} na publicação de tramitações (H-JUL-08)."""
+    texto = descricao or ""
+    if not texto.strip() or "{{" not in texto:
+        return texto
+    ctx_extra: dict[str, Any] = dict(extra or {})
+    if orgao_destino:
+        ctx_extra.setdefault("orgao_destino", orgao_destino)
+    if setor_destino:
+        ctx_extra.setdefault("setor_destino", setor_destino)
+    if "protocolo_executivo" not in ctx_extra and demanda is not None:
+        pe = (getattr(demanda, "protocolo_executivo", None) or "").strip()
+        if pe:
+            ctx_extra.setdefault("protocolo_executivo", pe)
+    return aplicar_placeholders(texto, contexto_demanda(demanda, ctx_extra))
+
+
 def _nome_usuario(usuario) -> str:
     if not usuario:
         return ""

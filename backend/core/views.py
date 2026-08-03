@@ -1961,6 +1961,32 @@ class TramitacaoViewSet(viewsets.ModelViewSet):
 
         tramitacao = serializer.save(responsavel=request.user)
 
+        from core.services.texto_padrao_despacho_service import resolver_descricao_tramitacao
+        from integrations import sinapse_catalog
+
+        if tramitacao.descricao and "{{" in tramitacao.descricao:
+            orgao_nome = ""
+            setor_nome = ""
+            if unidade_destino_id:
+                from core.models_unidade_administrativa import UnidadeAdministrativa
+
+                ua = UnidadeAdministrativa.objects.filter(pk=int(unidade_destino_id)).first()
+                if ua:
+                    setor_nome = (ua.sigla or ua.nome or "").strip()
+                    if ua.sinapse_orgao_id:
+                        orgao_nome = sinapse_catalog.get_orgao_nome(int(ua.sinapse_orgao_id)) or ""
+            elif tramitacao.demanda.sinapse_orgao_id:
+                orgao_nome = sinapse_catalog.get_orgao_nome(int(tramitacao.demanda.sinapse_orgao_id)) or ""
+            nova_descricao = resolver_descricao_tramitacao(
+                tramitacao.demanda,
+                tramitacao.descricao,
+                orgao_destino=orgao_nome,
+                setor_destino=setor_nome,
+            )
+            if nova_descricao != tramitacao.descricao:
+                tramitacao.descricao = nova_descricao
+                tramitacao.save(update_fields=["descricao"])
+
         if unidade_destino_id:
             from core.models_unidade_administrativa import UnidadeAdministrativa
             from core.services.tramitacao_setor_service import TramitacaoSetorService

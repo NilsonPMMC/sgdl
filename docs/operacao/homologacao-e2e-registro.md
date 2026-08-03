@@ -224,8 +224,9 @@ Pacote **H-JUL-01 … H-JUL-06** — CRUD 60s, desfazer despacho, devolutiva ass
 | H-JUL-06 | Timeline seguidora — 1 despacho inicial | `test_timeline_seguidora_um_despacho_inicial_apos_super_os_hjul06` |
 
 | H-JUL-07 | Filtro autor inclui indicações vinculadas | `IndicacaoVereadorVisibilidadeTests` |
+| H-JUL-08/09 | Placeholders resolvidos na publicação; editor Quill sincronizado | `test_despacho_publicado_sem_placeholders_hjul08` |
 
-**Reteste homologação:** RT-SEC + RT-ASS + RT-SOS + RT-IND em [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md).
+**Reteste homologação:** RT-SEC + RT-ASS + RT-SOS + RT-IND + RT-PLC em [rodada-pos-deploy-jul2026.md](rodada-pos-deploy-jul2026.md).
 
 ### Bloqueantes prioritários restantes (P0)
 
@@ -269,6 +270,6 @@ DJANGO_SETTINGS_MODULE=config.settings_test python manage.py test \
 
 ---
 
-**Próximo passo:** Reteste RT-SEC + RT-ASS + RT-SOS + RT-IND após deploy H-JUL-01…07; em seguida P2 (H-JUL-08/09 placeholders). Gate piloto: **NO-GO** até reteste P0/P1.
+**Próximo passo:** Reteste RT-SEC … RT-PLC após deploy H-JUL-01…09; em seguida P2 (H-JUL-10/12 timeline). Gate piloto: **NO-GO** até reteste.
 
-**Última atualização:** 2026-08-03 — correções H-JUL-01…07 em dev; rodada browser pós-deploy `e9638c1` permanece NO-GO até reteste.
+**Última atualização:** 2026-08-03 — correções H-JUL-01…09 em dev; rodada browser pós-deploy `e9638c1` permanece NO-GO até reteste.

@@ -64,6 +64,8 @@
 | **Correção** | `DescricaoTramitacaoEditor.vue`: remount via `editorEpoch` após inserir placeholder ou aplicar modelo |
 | **Validar** | Formulário de tramitação → clicar placeholder → texto aparece; aplicar modelo → corpo substituído |
 | **Reteste 31/jul** | **Falhou** — editor vazio ao inserir chip; publicação mantém `{{...}}` (H-JUL-08, H-JUL-09) |
+| **Correção 2026-08-03** | Backend: `resolver_descricao_tramitacao` na publicação (despacho, tramitação, devolutiva). Frontend: sync Quill via `editorHtml` + remount |
+| **Reteste** | Pendente em homologação (RT-PLC) |
 | **Nota operador** | Toolbar Quill (Heading, B/I/U) visível = editor carregado; corpo escuro/vazio = bug de sync |
 
 ---

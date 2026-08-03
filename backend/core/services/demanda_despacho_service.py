@@ -387,6 +387,19 @@ class DemandaDespachoService:
                 )
             descricao = texto
 
+        from core.services.texto_padrao_despacho_service import resolver_descricao_tramitacao
+
+        setor_destino = ""
+        if unidade:
+            setor_destino = (unidade.sigla or unidade.nome or "").strip()
+        descricao = resolver_descricao_tramitacao(
+            demanda,
+            descricao,
+            orgao_destino=orgao_nome,
+            setor_destino=setor_destino,
+            extra={"protocolo_executivo": protocolo_exec},
+        )
+
         from core.services.tramitacao_setor_service import UnidadeAdministrativaService
 
         unidade_origem = None

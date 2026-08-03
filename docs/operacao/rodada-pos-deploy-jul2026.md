@@ -26,7 +26,7 @@
 |------|------|------------------|------------|
 | 1 | Gestor setorial — visibilidade pós-assinatura | **Falhou** | H-JUL-04 |
 | 2 | Duplicidade timeline despacho final | **Falhou** | H-JUL-12, H-JUL-18 |
-| 3 | Placeholders tramitação | **Falhou** | H-JUL-08, H-JUL-09 |
+| 3 | Placeholders tramitação | **Falhou** → **corrigido dev** | H-JUL-08, H-JUL-09 |
 | 4 | Super OS — só líder + integração seguidoras | **Falhou** | H-JUL-05, H-JUL-06, H-JUL-15, H-JUL-16, H-JUL-17 |
 | 5 | Despacho inicial — sem gestor | **Parcial → corrigido dev** | H-JUL-02 *(reteste pendente)* |
 | 6 | Despacho final — operador assina, gestor valida | **Parcial → corrigido dev** | H-JUL-03 *(reteste pendente)*; H-JUL-10, H-JUL-11 |
@@ -60,8 +60,8 @@
 
 | ID | Registro | Severidade | Área provável |
 |----|----------|------------|---------------|
-| **H-JUL-08** | Timeline despacho · **PROTOCOLO** · texto publicado com placeholders literais `{{demanda_titulo}}`, `{{orgao_destino}}`, `{{protocolo_executivo}}` · deveria substituir na publicação · **incômodo** | incômodo | serviço de substituição de placeholders no backend ou no save da tramitação |
-| **H-JUL-09** | DescricaoTramitacaoEditor · **PROTOCOLO/SECRETARIA** · clicar placeholder insere token no model mas **corpo do Editor Quill permanece vazio/escuro** (só `{{autor_nome}}` visível) · remount `editorEpoch` insuficiente · **incômodo** | incômodo | `DescricaoTramitacaoEditor.vue` — sync PrimeVue Editor ↔ v-model |
+| **H-JUL-08** | Timeline despacho · **PROTOCOLO** · texto publicado com placeholders literais `{{demanda_titulo}}`, `{{orgao_destino}}`, `{{protocolo_executivo}}` · deveria substituir na publicação · **incômodo** | incômodo | `texto_padrao_despacho_service.resolver_descricao_tramitacao`, `demanda_despacho_service`, `TramitacaoViewSet` — **corrigido 2026-08-03** |
+| **H-JUL-09** | DescricaoTramitacaoEditor · **PROTOCOLO/SECRETARIA** · clicar placeholder insere token no model mas **corpo do Editor Quill permanece vazio/escuro** · **incômodo** | incômodo | `DescricaoTramitacaoEditor.vue` — ref local `editorHtml` + remount Quill após `nextTick` — **corrigido 2026-08-03** |
 | **H-JUL-10** | Timeline · **outros perfis** · tramitações **aguardando validação gestor** visíveis na timeline completa após janela 60s do autor · deveriam ficar ocultas ou com badge «pendente aprovação gestor» para não-autores · **incômodo** | incômodo | `operacional_estado_service.montar_timeline_operacional`, flag `aguardando_validacao_gestor` |
 | **H-JUL-11** | Conclusão final · **GESTOR DO PROTOCOLO** · POST `/demandas/4134/operacional/conclusao-final/` → **400** «Declaração do operador inválida. Use: ASSINO A CONCLUSAO FINAL» · gestor fechando nó não deveria exigir declaração de operador · **incômodo** | incômodo | `views.py` conclusão final, `assinatura_eletronica_service` |
 | **H-JUL-12** | Timeline · **GESTOR SECRETARIA** · operação scatter-gather duplicada (2 cards idênticos «Operação scatter-gather») · placeholders não resolvidos · R4.7 persiste · **incômodo** | incômodo | scatter + timeline + placeholders |
@@ -119,8 +119,8 @@ Marque após deploy da correção P0/P1.
 
 ### RT-PLC — Placeholders (H-JUL-08, H-JUL-09)
 
-- [ ] Clicar placeholder → texto visível no editor
-- [ ] Publicar despacho → texto **sem** `{{...}}` na timeline
+- [x] Clicar placeholder → texto visível no editor *(corrigido 2026-08-03 — retestar em homologação)*
+- [x] Publicar despacho → texto **sem** `{{...}}` na timeline *(corrigido 2026-08-03 — retestar em homologação)*
 
 ---
 
@@ -134,7 +134,7 @@ Marque após deploy da correção P0/P1.
 | 4 | H-JUL-04 | Visibilidade gestor setorial + fila devolutivas / deep link notificação | 0,5 d | **Concluído 2026-08-03** |
 | 5 | H-JUL-05, H-JUL-06 | Super OS: fila só líder + eliminar despacho duplicado seguidora | 1 d | **Concluído 2026-08-03** |
 | 6 | H-JUL-07 | Indicações: listagem/dashboard/mapa vereador vinculado | 0,5 d | **Concluído 2026-08-03** |
-| 7 | H-JUL-08, H-JUL-09 | Substituir placeholders na publicação + fix sync Editor | 0,5 d |
+| 7 | H-JUL-08, H-JUL-09 | Substituir placeholders na publicação + fix sync Editor | 0,5 d | **Concluído 2026-08-03** |
 | 8 | H-JUL-10, H-JUL-12 | Timeline pendente gestor + dedupe scatter/conclusão | 0,5 d |
 | 9 | H-JUL-11 | Conclusão final gestor protocolo sem declaração operador | 0,25 d |
 | 10 | H-JUL-13–18 | Geo, cluster UI, status Super OS, notificações | 1 d |

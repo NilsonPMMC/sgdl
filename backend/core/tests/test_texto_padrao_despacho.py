@@ -19,6 +19,7 @@ from core.services.texto_padrao_despacho_service import (
     categorias_visiveis_usuario,
     contexto_demanda,
     queryset_visivel,
+    resolver_descricao_tramitacao,
     resolver_escopo_criacao,
 )
 from core.services.usuario_vinculo_service import (
@@ -161,6 +162,57 @@ class TextoPadraoDespachoServiceTests(SinapseCatalogTestMixin, TestCase):
         )
         self.assertIn("2026-001", out)
         self.assertIn("João", out)
+
+    def test_resolver_descricao_tramitacao_hjul08(self):
+        from core.models import Demanda
+
+        demanda = Demanda.objects.create(
+            titulo="Buraco na via",
+            autor=self.secretaria,
+            status="AGUARDANDO_PROTOCOLO",
+            protocolo_legislativo="45/2026",
+        )
+        out = resolver_descricao_tramitacao(
+            demanda,
+            "<p>{{demanda_titulo}} — {{orgao_destino}}</p>",
+            orgao_destino="Secretaria de Obras",
+            extra={"protocolo_executivo": "2026-0099"},
+        )
+        self.assertIn("Buraco na via", out)
+        self.assertIn("Secretaria de Obras", out)
+        self.assertNotIn("{{demanda_titulo}}", out)
+
+    def test_despacho_publicado_sem_placeholders_hjul08(self):
+        from core.models import Demanda, Tramitacao, Usuario
+        from core.services.demanda_despacho_service import DemandaDespachoService
+
+        vereador = Usuario.objects.create_user(
+            username="ver_ph", password="x", perfil="VEREADOR"
+        )
+        protocolo = Usuario.objects.create_user(
+            username="prot_ph", password="x", perfil="PROTOCOLO"
+        )
+        demanda = Demanda.objects.create(
+            titulo="Iluminação pública",
+            descricao="x",
+            autor=vereador,
+            status="AGUARDANDO_PROTOCOLO",
+            protocolo_legislativo="99/2026",
+            sinapse_orgao_id=SINAPSE_ORGAO_A,
+        )
+        DemandaDespachoService().despachar(
+            demanda,
+            secretaria_id=SINAPSE_ORGAO_A,
+            usuario=protocolo,
+            texto_despacho=(
+                "<p>Ref. {{demanda_titulo}} — {{orgao_destino}} — {{protocolo_executivo}}</p>"
+            ),
+        )
+        tram = Tramitacao.objects.filter(demanda=demanda, tipo="DESPACHO").first()
+        self.assertIsNotNone(tram)
+        self.assertIn("Iluminação pública", tram.descricao)
+        self.assertNotIn("{{demanda_titulo}}", tram.descricao)
+        self.assertNotIn("{{protocolo_executivo}}", tram.descricao)
 
     def test_contexto_demanda_autor(self):
         from core.models import Demanda

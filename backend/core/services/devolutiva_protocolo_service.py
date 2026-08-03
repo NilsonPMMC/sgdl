@@ -215,6 +215,10 @@ class DevolutivaProtocoloService:
                 raise ValueError("Demanda não está aguardando devolutiva no Protocolo.")
             texto = _texto_parecer_valido(parecer_resposta)
 
+        from core.services.texto_padrao_despacho_service import resolver_descricao_tramitacao
+
+        texto = resolver_descricao_tramitacao(demanda, texto)
+
         historico = operacional.compilar_historico_tecnico(demanda) if demanda.fluxo_roteamento else {}
         descricao_final = (
             f"Protocolo despachou devolutiva ao vereador "

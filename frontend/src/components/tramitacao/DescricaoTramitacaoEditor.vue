@@ -5,7 +5,7 @@ import Editor from 'primevue/editor';
 import InputText from 'primevue/inputtext';
 import MultiSelect from 'primevue/multiselect';
 import Select from 'primevue/select';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useToast } from 'primevue/usetoast';
 import ApiService from '@/service/ApiService';
 import PlaceholdersTextoPadraoChips from '@/components/tramitacao/PlaceholdersTextoPadraoChips.vue';
@@ -44,9 +44,27 @@ const formModelo = ref({
     unidades_administrativas_ids: []
 });
 const editorEpoch = ref(0);
+const editorHtml = ref('');
+
+watch(
+    () => props.modelValue,
+    (val) => {
+        const normalizado = val || '';
+        if (normalizado !== editorHtml.value) {
+            editorHtml.value = normalizado;
+        }
+    },
+    { immediate: true }
+);
 
 function patch(val) {
+    editorHtml.value = val ?? '';
     emit('update:modelValue', val);
+}
+
+async function sincronizarEditorQuill() {
+    await nextTick();
+    forcarAtualizacaoEditor();
 }
 
 function forcarAtualizacaoEditor() {
@@ -80,9 +98,9 @@ const opcoesModelos = computed(() =>
     }))
 );
 
-function inserirPlaceholder(token) {
-    patch(inserirPlaceholderNoHtml(props.modelValue, token));
-    forcarAtualizacaoEditor();
+async function inserirPlaceholder(token) {
+    patch(inserirPlaceholderNoHtml(editorHtml.value, token));
+    await sincronizarEditorQuill();
     toast.add({
         severity: 'info',
         summary: 'Placeholder inserido',
@@ -136,7 +154,7 @@ async function aplicarModelo(id) {
             corpo = aplicarPlaceholdersTextoPadrao(corpo, ctx);
         }
         patch(corpo);
-        forcarAtualizacaoEditor();
+        await sincronizarEditorQuill();
         emit('modelo-aplicado', { id, titulo: modelo.titulo });
         toast.add({
             severity: 'success',
@@ -270,6 +288,7 @@ function aceitarSugestao() {
         .join('');
     patch(paragrafos || `<p>${sugestao}</p>`);
     dialogIa.value = false;
+    sincronizarEditorQuill();
     toast.add({ severity: 'success', summary: 'Texto atualizado', detail: 'Versão otimizada aplicada.', life: 2500 });
 }
 
@@ -357,7 +376,7 @@ watch(
 
         <Editor
             :key="editorEpoch"
-            :model-value="modelValue"
+            :model-value="editorHtml"
             :editor-style="editorStyle"
             @update:model-value="patch"
         />
@@ -440,3 +459,20 @@ watch(
         </template>
     </Dialog>
 </template>
+
+<style scoped>
+:deep(.ql-container) {
+    font-family: inherit;
+}
+
+:deep(.ql-editor) {
+    min-height: 120px;
+    color: var(--text-color);
+    background: var(--surface-ground);
+}
+
+:deep(.ql-editor.ql-blank::before) {
+    color: var(--text-color-secondary);
+    opacity: 0.7;
+}
+</style>
