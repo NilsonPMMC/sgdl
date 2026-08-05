@@ -1580,16 +1580,23 @@ class AssinaturaEletronicaService:
             )
 
         texto = str(payload.get("parecer_resposta") or "").strip()
+        from core.services.texto_padrao_despacho_service import resolver_descricao_tramitacao
+
+        texto_exibicao = resolver_descricao_tramitacao(demanda, texto)
+        modo_conclusao = str(payload.get("modo_conclusao") or "unificado").strip().lower()
+        metadata_extra = {
+            "parecer": texto_exibicao,
+            "historico_tecnico": payload.get("historico_tecnico"),
+        }
+        if modo_conclusao in ("unificado", "individual"):
+            metadata_extra["modo_conclusao"] = modo_conclusao
         tram_pendente = self._criar_tramitacao_pendente_gestor(
             demanda,
             operador,
             tipo="CONCLUSAO_FINAL",
-            descricao=f"Conclusão final do Protocolo.\nParecer:\n{texto}",
+            descricao=f"Conclusão final do Protocolo.\nParecer:\n{texto_exibicao}",
             etapa="CONCLUSAO_FINAL",
-            metadata_extra={
-                "parecer": texto,
-                "historico_tecnico": payload.get("historico_tecnico"),
-            },
+            metadata_extra=metadata_extra,
             staging_id=payload.get("tramitacao_staging_id"),
         )
 

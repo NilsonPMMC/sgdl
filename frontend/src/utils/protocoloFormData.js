@@ -65,6 +65,9 @@ export function buildDevolutivaPayload(form, hashDocumento, declaracoes, modo = 
         parecer_resposta: form.parecer_resposta || '',
         hash_documento: hashDocumento
     };
+    if (form.modo_conclusao) {
+        payload.modo_conclusao = form.modo_conclusao;
+    }
 
     if (modo === 'gestor_apenas') {
         payload.declaracao_gestor = declaracoes.declaracaoGestorText;

@@ -778,6 +778,34 @@ class ClusterService:
         lider = self.lider_cluster_pk(int(demanda.cluster_id))
         return lider is not None and int(demanda.pk) == int(lider)
 
+    def conclusao_individual_super_os_ativa(self, demanda: Demanda) -> bool:
+        """Super OS com parecer distinto por ofício vinculado."""
+        from core.models_operacional import EventoOperacional
+
+        if not self.grupo_super_os_ativo(demanda):
+            return False
+        if Tramitacao.objects.filter(
+            demanda_id=demanda.pk,
+            tipo=EventoOperacional.CONCLUSAO_FINAL,
+            metadata__super_os_conclusao_individual=True,
+        ).exists():
+            return True
+        lider_pk = self.lider_cluster_pk(int(demanda.cluster_id))
+        if not lider_pk:
+            return False
+        tram = (
+            Tramitacao.objects.filter(
+                demanda_id=int(lider_pk),
+                tipo=EventoOperacional.CONCLUSAO_FINAL,
+            )
+            .order_by("-timestamp", "-pk")
+            .first()
+        )
+        if not tram:
+            return False
+        meta = tram.metadata if isinstance(tram.metadata, dict) else {}
+        return meta.get("modo_conclusao") == "individual"
+
     def info_operacional_super_os(self, demanda: Demanda) -> dict[str, Any]:
         base_vazio = {
             "ativo": False,
@@ -824,6 +852,8 @@ class ClusterService:
         if cluster and total >= CLUSTER_MIN_DEMANDAS:
             meta = self.metadata_cluster(cluster)
 
+        conclusao_individual = self.conclusao_individual_super_os_ativa(demanda)
+
         return {
             "ativo": super_os_ativo,
             "eh_lider": int(demanda.pk) == int(lider_pk) if lider_pk else True,
@@ -832,7 +862,8 @@ class ClusterService:
             "protocolo_super_os": cluster.protocolo_super_os if cluster else None,
             "total_vinculados": total,
             "demandas_vinculadas": vinculadas,
-            "tramitacao_apenas_lider": super_os_ativo,
+            "tramitacao_apenas_lider": super_os_ativo and not conclusao_individual,
+            "conclusao_individual_ativa": conclusao_individual,
             "tipo": meta.get("tipo"),
             "tipo_display": meta.get("tipo_display"),
             "orgaos_envolvidos": meta.get("orgaos_envolvidos") or [],

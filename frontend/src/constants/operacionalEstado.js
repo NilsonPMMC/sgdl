@@ -152,7 +152,14 @@ export function severityEvento(tipo, item = null) {
     return SEVERITY_EVENTO[chave] || 'secondary';
 }
 
-function dedupeConclusaoFinalOperacional(items) {
+function dedupeConclusaoFinalOperacional(items, opts = {}) {
+    if (opts.conclusaoIndividualSuperOs && opts.demandaAtualId != null) {
+        const alvo = String(opts.demandaAtualId);
+        return items.filter((item) => {
+            if (tipoEventoTimeline(item) !== 'CONCLUSAO_FINAL') return true;
+            return String(item?.demanda_id) === alvo;
+        });
+    }
     let visto = false;
     return items.filter((item) => {
         if (tipoEventoTimeline(item) !== 'CONCLUSAO_FINAL') return true;
@@ -207,6 +214,7 @@ export function filtrarTimelineOperacional(timeline, opts = {}) {
     if (!Array.isArray(timeline)) return [];
     const demandaAtualId = opts.demandaAtualId ?? null;
     const demandaLiderId = opts.demandaLiderId ?? null;
+    const conclusaoIndividualSuperOs = Boolean(opts.conclusaoIndividualSuperOs);
 
     let items = timeline.filter((item) => {
         const meta = item?.metadata || {};
@@ -223,9 +231,12 @@ export function filtrarTimelineOperacional(timeline, opts = {}) {
             const liderId = demandaLiderId ?? demandaAtualId;
             return liderId == null || String(item?.demanda_id) === String(liderId);
         }
+        if (tipo === 'CONCLUSAO_FINAL' && conclusaoIndividualSuperOs && demandaAtualId != null) {
+            return String(item?.demanda_id) === String(demandaAtualId);
+        }
         return true;
     });
-    items = dedupeConclusaoFinalOperacional(items);
+    items = dedupeConclusaoFinalOperacional(items, opts);
     items = dedupeDevolutivaConclusaoFinal(items);
     items = dedupeScatterOperacional(items);
     return items;
@@ -297,9 +308,21 @@ const TIPOS_TRAMITACAO_PROTOCOLO_TIMELINE = new Set([
 
 /** Inclui despachos do Protocolo ausentes na timeline operacional (ex.: filtro por líder). */
 export function mesclarTramitacoesProtocoloEditaveis(timeline, demandaId, tramitacoes, opts = {}) {
-    const base = Array.isArray(timeline) ? [...timeline] : [];
+    let base = Array.isArray(timeline) ? [...timeline] : [];
     if (!Array.isArray(tramitacoes) || !tramitacoes.length) return base;
     const demandaLiderId = opts.demandaLiderId ?? null;
+    const conclusaoIndividualSuperOs = Boolean(opts.conclusaoIndividualSuperOs);
+    if (
+        conclusaoIndividualSuperOs &&
+        demandaLiderId != null &&
+        String(demandaId) !== String(demandaLiderId)
+    ) {
+        base = base.filter((item) => {
+            const tipo = String(item?.tipo || '').toUpperCase();
+            if (tipo !== 'CONCLUSAO_FINAL' && tipo !== 'DEVOLUTIVA_PROTOCOLO') return true;
+            return String(item?.demanda_id) === String(demandaId);
+        });
+    }
     const ids = new Set(base.map((i) => String(i?.id ?? '')));
     const temDespachoLider = base.some((item) => {
         if (String(item?.tipo || '').toUpperCase() !== 'DESPACHO') return false;

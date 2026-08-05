@@ -1155,14 +1155,21 @@ class OperacionalEstadoService:
         parecer: str,
         historico_compilado: dict[str, Any] | None = None,
         tramitacao_existente: Tramitacao | None = None,
+        modo_conclusao: str | None = None,
     ) -> Demanda:
         texto = self.validar_conclusao_final(demanda, usuario, parecer=parecer)
         historico = historico_compilado or self.compilar_historico_tecnico(demanda)
+        from core.services.texto_padrao_despacho_service import resolver_descricao_tramitacao
+
+        texto = resolver_descricao_tramitacao(demanda, texto)
         descricao = f"Conclusão final do Protocolo.\nParecer:\n{texto}"
         metadata = {
             "parecer": texto,
             "historico_tecnico": historico,
         }
+        modo = (modo_conclusao or "").strip().lower()
+        if modo in ("unificado", "individual"):
+            metadata["modo_conclusao"] = modo
 
         if tramitacao_existente is not None:
             tram = tramitacao_existente
@@ -1346,6 +1353,11 @@ class OperacionalEstadoService:
             )
         return sorted(ids)
 
+    def _super_os_conclusao_individual_ativa(self, lider: Demanda) -> bool:
+        from core.services.cluster_service import ClusterService
+
+        return ClusterService().conclusao_individual_super_os_ativa(lider)
+
     def montar_timeline_operacional(
         self, demanda: Demanda, usuario=None
     ) -> list[dict[str, Any]]:
@@ -1378,6 +1390,7 @@ class OperacionalEstadoService:
 
         eh_vereador = perfil_usuario(usuario) == "VEREADOR"
         conclusao_final_incluida = False
+        conclusao_individual = self._super_os_conclusao_individual_ativa(lider)
         from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
 
         for tram in trams_list:
@@ -1422,9 +1435,13 @@ class OperacionalEstadoService:
             if tram.tipo == EventoOperacional.DESPACHO and tram.demanda_id != lider.pk:
                 continue
             if tram.tipo == EventoOperacional.CONCLUSAO_FINAL:
-                if conclusao_final_incluida:
+                if conclusao_individual:
+                    if tram.demanda_id != demanda.pk:
+                        continue
+                elif conclusao_final_incluida:
                     continue
-                conclusao_final_incluida = True
+                else:
+                    conclusao_final_incluida = True
             if eh_vereador:
                 if tram.tipo == EventoOperacional.OPERACAO_NO:
                     continue

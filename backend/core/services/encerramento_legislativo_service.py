@@ -63,22 +63,57 @@ class EncerramentoLegislativoService:
             )
         return list(Demanda.objects.filter(pk__in=ids).select_related("autor").order_by("pk"))
 
+    def _super_os_conclusao_individual(self, demanda: Demanda) -> bool:
+        from core.services.cluster_service import ClusterService
+
+        return ClusterService().conclusao_individual_super_os_ativa(demanda)
+
+    def _buscar_tramitacao_devolutiva_demanda(self, demanda: Demanda) -> Tramitacao | None:
+        trams = list(
+            demanda.tramitacoes.filter(
+                tipo__in=("DEVOLUTIVA_PROTOCOLO", "CONCLUSAO_FINAL")
+            ).order_by("-timestamp", "-pk")
+        )
+        for tram in trams:
+            meta = tram.metadata if isinstance(tram.metadata, dict) else {}
+            if meta.get("parecer") or _RESPOSTA_RE.search(tram.descricao or ""):
+                return tram
+        return trams[0] if trams else None
+
+    def _extrair_parecer_laudo(self, tram: Tramitacao | None) -> str:
+        if not tram:
+            return ""
+        meta = tram.metadata if isinstance(tram.metadata, dict) else {}
+        parecer = (meta.get("parecer") or "").strip()
+        if parecer:
+            return parecer
+        return self._extrair_resposta_protocolo(tram)
+
     def _tramitacao_devolutiva_final(self, demanda: Demanda) -> Tramitacao | None:
+        propria = self._buscar_tramitacao_devolutiva_demanda(demanda)
+        if propria:
+            return propria
+        if self._super_os_conclusao_individual(demanda):
+            return None
         for fonte in self._demandas_fonte_devolutiva(demanda):
-            trams = list(
-                fonte.tramitacoes.filter(
-                    tipo__in=("DEVOLUTIVA_PROTOCOLO", "CONCLUSAO_FINAL")
-                ).order_by("-timestamp")
-            )
-            for tram in trams:
-                meta = tram.metadata if isinstance(tram.metadata, dict) else {}
-                if meta.get("parecer") or _RESPOSTA_RE.search(tram.descricao or ""):
-                    return tram
-            if trams:
-                return trams[0]
+            if int(fonte.pk) == int(demanda.pk):
+                continue
+            tram = self._buscar_tramitacao_devolutiva_demanda(fonte)
+            if tram:
+                return tram
         return None
 
     def _laudo_despacho_final(self, demanda: Demanda, dev: Tramitacao | None) -> str:
+        if dev and int(dev.demanda_id) == int(demanda.pk):
+            return self._extrair_parecer_laudo(dev)
+
+        propria = self._buscar_tramitacao_devolutiva_demanda(demanda)
+        if propria:
+            return self._extrair_parecer_laudo(propria)
+
+        if self._super_os_conclusao_individual(demanda):
+            return ""
+
         candidatos: list[Tramitacao] = []
         if dev:
             candidatos.append(dev)
@@ -87,7 +122,7 @@ class EncerramentoLegislativoService:
                 list(
                     fonte.tramitacoes.filter(
                         tipo__in=("DEVOLUTIVA_PROTOCOLO", "CONCLUSAO_FINAL")
-                    ).order_by("-timestamp")
+                    ).order_by("-timestamp", "-pk")
                 )
             )
         vistos: set[int] = set()
@@ -95,24 +130,25 @@ class EncerramentoLegislativoService:
             if tram.pk in vistos:
                 continue
             vistos.add(tram.pk)
-            meta = tram.metadata if isinstance(tram.metadata, dict) else {}
-            parecer = (meta.get("parecer") or "").strip()
-            if parecer:
-                return parecer
-            extraido = self._extrair_resposta_protocolo(tram)
-            if extraido:
-                return extraido
+            texto = self._extrair_parecer_laudo(tram)
+            if texto:
+                return texto
         return ""
 
     def _anexos_despacho_final(self, demanda: Demanda) -> list[dict[str, Any]]:
         from core.services.tramitacao_anexo_service import serializar_anexos_tramitacao
 
+        if self._super_os_conclusao_individual(demanda):
+            fontes = [demanda]
+        else:
+            fontes = self._demandas_fonte_devolutiva(demanda)
+
         vistos: set[int] = set()
         anexos: list[dict[str, Any]] = []
-        for fonte in self._demandas_fonte_devolutiva(demanda):
+        for fonte in fontes:
             for tram in fonte.tramitacoes.filter(
                 tipo__in=("DEVOLUTIVA_PROTOCOLO", "CONCLUSAO_FINAL")
-            ).order_by("-timestamp"):
+            ).order_by("-timestamp", "-pk"):
                 for item in serializar_anexos_tramitacao(tram):
                     aid = item.get("id")
                     if aid in vistos:

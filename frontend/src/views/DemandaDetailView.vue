@@ -507,6 +507,16 @@ const demandaLiderOperacionalId = computed(
         demanda.value?.id
 );
 
+const superOsConclusaoIndividual = computed(
+    () => Boolean(superOs.value?.conclusao_individual_ativa)
+);
+
+const timelineOperacionalOpts = computed(() => ({
+    demandaAtualId: demanda.value?.id,
+    demandaLiderId: demandaLiderOperacionalId.value,
+    conclusaoIndividualSuperOs: superOsConclusaoIndividual.value
+}));
+
 const timelineOperacionalExibicao = computed(() => {
     const estado = estadoOperacional.value?.timeline;
     let base = [];
@@ -541,16 +551,16 @@ const timelineOperacionalExibicao = computed(() => {
             base,
             demanda.value.id,
             demanda.value.tramitacoes,
-            { demandaLiderId: demandaLiderOperacionalId.value }
+            {
+                demandaLiderId: demandaLiderOperacionalId.value,
+                conclusaoIndividualSuperOs: superOsConclusaoIndividual.value
+            }
         );
     }
     if (!isVereador.value && demanda.value?.tramitacoes?.length && base.length) {
         base = sincronizarTramitacoesNaTimeline(base, demanda.value.tramitacoes);
     }
-    return timelineOperacionalOrdenada(base, {
-        demandaAtualId: demanda.value?.id,
-        demandaLiderId: demandaLiderOperacionalId.value
-    });
+    return timelineOperacionalOrdenada(base, timelineOperacionalOpts.value);
 });
 
 /** Despachos do Protocolo editáveis que ainda não entraram na timeline exibida. */

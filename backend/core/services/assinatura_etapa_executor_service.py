@@ -281,6 +281,7 @@ class AssinaturaEtapaExecutorService:
         operacional = OperacionalEstadoService()
         historico = operacional.compilar_historico_tecnico(demanda)
         tram_pendente = validacao.tramitacao
+        modo_conclusao = str(payload.get("modo_conclusao") or "unificado").strip().lower()
 
         demanda = operacional.aplicar_conclusao_final(
             demanda,
@@ -288,6 +289,7 @@ class AssinaturaEtapaExecutorService:
             parecer=parecer,
             historico_compilado=historico,
             tramitacao_existente=tram_pendente,
+            modo_conclusao=modo_conclusao,
         )
         tram = tram_pendente or demanda.tramitacoes.filter(tipo="CONCLUSAO_FINAL").order_by(
             "-timestamp"
@@ -318,6 +320,17 @@ class AssinaturaEtapaExecutorService:
             from core.services.tramitacao_janela_edicao_service import TramitacaoJanelaEdicaoService
 
             TramitacaoJanelaEdicaoService.finalizar_apos_validacao_gestor(tram)
+
+        from core.services.cluster_conclusao_service import ClusterConclusaoService
+
+        ClusterConclusaoService().concluir_super_os(
+            demanda,
+            usuario=operador,
+            parecer=parecer,
+            historico=historico,
+            tram_lider=tram,
+            modo_conclusao=modo_conclusao,
+        )
 
         demanda.refresh_from_db()
         return {"demanda_id": demanda.pk, "status": demanda.status}
